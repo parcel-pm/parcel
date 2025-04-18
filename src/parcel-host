@@ -84,7 +84,7 @@ function action_list() {
                 <(echo "$CONFIG") -
     )"
 
-    # kludgery required to set a global array content using a string of single-quoted strings
+    # kludgery required to set a global array's content using a string of single-quoted strings
     declare -a LOCAL_AF="( $(jq -rc 'map(.path) | @sh' <<< "$OUT") )"
     ALLOWED_FILES=( "${LOCAL_AF[@]}" )
 
