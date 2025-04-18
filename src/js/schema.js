@@ -95,6 +95,22 @@ export class Schema {
 }
 
 /**
+ * The schema for selectors.
+ * @since 1.0.0
+ */
+export const SelectorSchema = {
+    type: "array",
+    items: {
+        type: "object",
+        properties: {
+            selector: { type: "string", required: true, minLength: 1 },
+            type: { type: "string", required: true, minLength: 1 },
+            host: { type: "array", items: { type: "string" } },
+        },
+    },
+};
+
+/**
  * The main configuration schema.
  * @since 1.0.0
  */
@@ -125,11 +141,8 @@ export const ConfigSchema = {
                 { name: "login", pattern: "^(username|login|email):" },
             ],
         },
-        fillRelated: {
-            type: "boolean",
-            required: true,
-            default: true,
-        },
+        additionalSelectors: SelectorSchema,
+        fillRelated: { type: "boolean", required: true, default: true },
         rules: {
             type: "array",
             minItems: 1,

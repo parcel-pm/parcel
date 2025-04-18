@@ -6,9 +6,17 @@ const targetSelectors = import(chrome.runtime.getURL("/js/selectors.js"));
  * List of valid focus targets.
  * @since 1.0.0
  */
-const validTargets = targetSelectors.then((targetSelectors) =>
-    targetSelectors.targetSelectors.filter((t) => t.type !== "blacklist" && (!t.host || t.host.includes(window.location.hostname))),
-);
+const validTargets = targetSelectors.then(async (targetSelectors) => {
+    const port = chrome.runtime.connect({ name: "targetSelectors" });
+    const config = new Promise((resolve) => {
+        port.onMessage.addListener(async (msg) => {
+            if (msg.action === "config") resolve(msg.config);
+        });
+    });
+    port.postMessage({ action: "config" });
+    let selectors = targetSelectors.targetSelectors.concat((await config).additionalSelectors);
+    return selectors.filter((t) => t.type !== "blacklist" && (!t.host || t.host.includes(window.location.hostname)));
+});
 
 /**
  * List of invalid focus targets.
