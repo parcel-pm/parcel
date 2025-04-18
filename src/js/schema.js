@@ -113,6 +113,7 @@ export const ConfigSchema = {
                     pattern: { type: "string", required: true, format: "regex", minLength: 1 },
                     onMissing: { type: "string", required: true, enum: ["top", "ntop", "all", "null"], default: "null" },
                     strip: { type: "boolean", required: true, default: true },
+                    trim: { type: "boolean", required: true, default: true },
                     transform: { type: "string", enum: ["totp"] },
                     class: { type: "string", required: true, enum: ["login"], default: "login" },
                 },

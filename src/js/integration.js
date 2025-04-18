@@ -100,7 +100,43 @@ async function fillField(el, plaintext, config) {
             throw new Error(`No value found for field type: ${targetInfo.type}`);
         }
     }
-    el.value = fillValue;
+
+    // trim the value if configured
+    if (targetRule.trim) fillValue = fillValue.trim();
+
+    /** Robust value-setting logic below is largely copied from Browserpass - thanks to all who helped develop it! */
+    {
+        // Send some keyboard events indicating that value modification has started (no associated keycode)
+        for (let eventName of ["keydown", "keypress", "keyup", "input", "change"]) {
+            el.dispatchEvent(new Event(eventName, { bubbles: true }));
+        }
+
+        // truncate the value if required by the field
+        if (el.maxLength > 0) {
+            fillValue = fillValue.substr(0, el.maxLength);
+        }
+
+        // Set the field value
+        let initialValue = el.value || el.getAttribute("value");
+        el.setAttribute("value", fillValue);
+        el.value = fillValue;
+
+        // Send the keyboard events again indicating that value modification has finished (no associated keycode)
+        for (let eventName of ["keydown", "keypress", "keyup", "input", "change"]) {
+            el.dispatchEvent(new Event(eventName, { bubbles: true }));
+        }
+
+        // re-set value if unchanged after firing post-fill events
+        // (in case of sabotage by the site's own event handlers)
+        if ((el.value || el.getAttribute("value")) === initialValue) {
+            el.setAttribute("value", fillValue);
+            el.value = fillValue;
+        }
+
+        // Finally unfocus the element
+        el.dispatchEvent(new Event("blur", { bubbles: true }));
+    }
+
     el.style.outline = "2px solid green";
 }
 
@@ -113,7 +149,6 @@ async function fillField(el, plaintext, config) {
  * @returns {void}
  */
 function triggerPopup(el, targetClass, token) {
-    /*
     setTimeout(() => {
         const clickListener = el.addEventListener(
             "click",
@@ -126,9 +161,8 @@ function triggerPopup(el, targetClass, token) {
             },
             { once: true },
         );
-        el.addEventListener("blur", () => el.removeEventListener("click", clickListener), { once: true });
+        //el.addEventListener("blur", () => el.removeEventListener("click", clickListener), { once: true });
     }, 650);
-    */
     const popup = (el._parcelPopup = document.createElement("div"));
     popup.setAttribute(
         "style",
@@ -188,7 +222,7 @@ function triggerPopup(el, targetClass, token) {
  * @since 1.0.0
  */
 document.addEventListener(
-    "focus",
+    "click",
     async (ev) => {
         let targetInfo = await getTargetInfo(ev.target);
         if (targetInfo) {
