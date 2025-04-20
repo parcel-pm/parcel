@@ -11,7 +11,7 @@ new (class Agent extends EventTarget {
     #entries;
     #entriesUpdated = 0;
     #initError;
-    start = Date.now();
+    #currentNativeCall = null;
 
     /** @since 1.0.0 */
     constructor() {
@@ -67,16 +67,28 @@ new (class Agent extends EventTarget {
      * @since 1.0.0
      * @param {string} action - The action to send to the native host.
      * @param {object} message - The message to send to the native host.
+     * @param {number} timeout - The timeout for the call.
      * @returns {mixed} - The native host response payload.
      */
-    async #callNative(action, message = {}) {
+    async #callNative(action, message = {}, timeout = 2000) {
+        try {
+            // This is necessary to avoid a race condition in Chrome that sometimes drops
+            // messages to the native host if they are sent too quickly in succession. By
+            // putting a semaphore here, we ensure that the previous call has completed
+            // first, thus avoiding any potential in-flight collisions.
+            await this.#currentNativeCall;
+        } catch (err) {
+            // we don't care about previous errors, only that the call has completed.
+            // This error has already been handled by this point, and was thrown from
+            // the promise rejection callback below.
+        }
         const token = crypto.randomUUID();
-        const result = new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error(`Native host call timed out: ${action}`)), 2000);
+        this.#currentNativeCall = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`Native host call timed out: ${action}`)), timeout);
             this.addEventListener(
                 token,
                 (ev) => {
-                    clearTimeout(timeout);
+                    clearTimeout(timer);
                     if (ev.detail?.error) reject(new Error(ev.detail.error));
                     else resolve(ev.detail.data);
                 },
@@ -88,7 +100,7 @@ new (class Agent extends EventTarget {
         message.action = action;
         this.#host.postMessage(message);
 
-        return result;
+        return this.#currentNativeCall;
     }
 
     /**
@@ -208,7 +220,7 @@ new (class Agent extends EventTarget {
                     port.postMessage({ action: "match", entries: result });
                 } else if (message?.action === "decrypt") {
                     // decrypt the specified entry
-                    const result = await this.#callNative("decrypt", { path: message.path });
+                    const result = await this.#callNative("decrypt", { path: message.path }, this.#config.decryptTimeout * 1000);
                     port.postMessage({ action: "plaintext", plaintext: result.plaintext });
                 } else if (message?.action === "config") {
                     // provide the current configuration

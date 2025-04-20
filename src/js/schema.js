@@ -121,6 +121,7 @@ export const ConfigSchema = {
         passdir: { type: "string", required: true },
         cacheTTL: { type: "number", required: true, minimum: 0, default: 300 },
         cacheTTLInteractive: { type: "number", required: true, minimum: 0, default: 10 },
+        decryptTimeout: { type: "number", required: true, minimum: 1, default: 60 },
         targets: {
             type: "array",
             items: {
