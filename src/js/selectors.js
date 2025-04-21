@@ -2,7 +2,7 @@
 
 /**
  * List of valid targets.
- * @since 0.1.2
+ * @since 1.0.0
  */
 export const targetSelectors = [
     // type: login
