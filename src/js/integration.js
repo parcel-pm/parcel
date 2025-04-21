@@ -14,7 +14,7 @@ const validTargets = targetSelectors.then(async (targetSelectors) => {
         });
     });
     port.postMessage({ action: "config" });
-    let selectors = targetSelectors.targetSelectors.concat((await config).additionalSelectors);
+    let selectors = targetSelectors.targetSelectors.concat((await config).additionalSelectors || []);
     return selectors.filter((t) => t.type !== "blacklist" && (!t.host || t.host.includes(window.location.hostname)));
 });
 
