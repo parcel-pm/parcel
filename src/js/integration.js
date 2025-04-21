@@ -78,16 +78,19 @@ async function getRelatedFields(el) {
  * @param {HTMLElement} el - The element to target
  * @param {string} plaintext - The plaintext to fill from
  * @param {object} config - The current parcel config
+ * @param {string|null} type - The target type to use, or null to infer from the element
  */
-async function fillField(el, plaintext, config) {
+async function fillField(el, plaintext, config, type = null) {
     const targetInfo = await getTargetInfo(el);
+    if (!type) type = targetInfo.type;
+
     const targetRule = config.targets.reduce((acc, rule) => {
-        if (rule.name === targetInfo.type) {
+        if (rule.name === type) {
             acc = rule;
         }
         return acc;
     }, false);
-    if (!targetRule) throw new Error(`Invalid target type: ${targetInfo.type}`);
+    if (!targetRule) throw new Error(`Invalid target type: ${type}`);
     const plaintextLines = plaintext.split(/\r\n|\n|\r/iu);
     const pattern = new RegExp(targetRule.pattern, "ui");
     let fillValue = null;
@@ -104,6 +107,9 @@ async function fillField(el, plaintext, config) {
             fillValue = plaintext.match(/(?<=\r\n|\n|\r).+/isu)?.[0];
         } else if (targetRule.onMissing === "all") {
             fillValue = plaintext;
+        } else if (targetRule.onMissing === "fallback") {
+            if (!targetRule.fallback) throw new Error(`No fallback defined for field type: ${type}`);
+            return await fillField(el, plaintext, config, targetRule.fallback);
         } else if (targetRule.onMissing === "null") {
             throw new Error(`No value found for field type: ${targetInfo.type}`);
         }
@@ -115,7 +121,16 @@ async function fillField(el, plaintext, config) {
     // transform the value if configured
     const Helpers = await import("/js/helpers.js");
     for (let transform of targetRule?.transform) {
-        if (transform === "totp") {
+        if (transform === "totp-url") {
+            const url = new URL(fillValue);
+            const secret = url.searchParams.get("secret");
+            if (!secret) throw new Error(`No secret found in TOTP URL: ${fillValue}`);
+            fillValue = await Helpers.Helpers.generateTOTP(
+                secret,
+                url.searchParams.get("period") || 30,
+                url.searchParams.get("digits") || 6,
+            );
+        } else if (transform === "totp") {
             fillValue = await Helpers.Helpers.generateTOTP(fillValue);
         }
     }
