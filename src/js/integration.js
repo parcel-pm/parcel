@@ -10,7 +10,10 @@ const validTargets = targetSelectors.then(async (targetSelectors) => {
     const port = chrome.runtime.connect({ name: "targetSelectors" });
     const config = new Promise((resolve) => {
         port.onMessage.addListener(async (msg) => {
-            if (msg.action === "config") resolve(msg.config);
+            if (msg.action === "config") {
+                port.disconnect();
+                resolve(msg.config);
+            }
         });
     });
     port.postMessage({ action: "config" });
