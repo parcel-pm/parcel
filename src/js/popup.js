@@ -5,6 +5,7 @@
     const tabPort = chrome.tabs.connect(tab.id, { name: token });
     tabPort.onDisconnect.addListener(() => {
         chrome.runtime.lastError; // suppress errors on pages where the content script is not injected
+        tabPort.disconnected = true;
     });
     const port = chrome.runtime.connect({ name: "popup" });
     const ul = document.querySelector("ul");
@@ -166,7 +167,7 @@
                 ul.appendChild(li);
             }
         } else if (msg.action === "plaintext") {
-            if (msg.intent === "fill") {
+            if (msg.intent === "fill" && !tabPort.disconnected) {
                 tabPort.postMessage({ action: "fill", token, plaintext: msg.plaintext, config: await config });
             } else if (msg.intent === "detail") {
                 document.getElementById("plaintext").textContent = msg.plaintext;
