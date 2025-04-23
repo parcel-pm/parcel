@@ -4,56 +4,18 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <script src="/js/popup.js" type="module" defer></script>
+        <link rel="stylesheet" href="/css/popup.css" />
         <title>Popup</title>
-        <style>
-            * {
-                box-sizing: border-box;
-            }
-            html,
-            body {
-                background-color: #fff;
-                box-sizing: border-box;
-                font-size: 14px;
-                overflow: hidden;
-                overflow-y: auto;
-                margin: 0;
-                padding: 0;
-            }
-            p.error {
-                background-color: #f00;
-                color: #fff;
-                margin: 0;
-            }
-            ul {
-                list-style: none;
-                margin: 0;
-                padding: 0;
-            }
-            #search {
-                width: 100%;
-            }
-            #entries {
-                li {
-                    padding: 0.5em;
-                    border-bottom: 1px solid #ccc;
-                    white-space: nowrap;
-                    .tag {
-                        border-radius: 0.5em;
-                        display: inline-block;
-                        margin-right: 0.35em;
-                        padding: 0.2em 0.5em;
-                    }
-                    .name {
-                        margin-right: 5em;
-                    }
-                }
-            }
-        </style>
     </head>
     <body>
-        <span id="origin"></span>
-        <input type="text" id="search" placeholder="Phishing-resistant search..." />
-        <input type="checkbox" id="limit" checked />
+        <div id="modal-shade" class="hidden"></div>
+        <div id="search">
+            <span id="origin"></span>
+            <input type="text" id="searchPattern" class="selected" />
+        </div>
         <ul id="entries"></ul>
+        <div id="detail" class="hidden">
+            <div id="plaintext"></div>
+        </div>
     </body>
 </html>

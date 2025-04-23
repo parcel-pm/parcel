@@ -1,0 +1,110 @@
+* {
+    box-sizing: border-box;
+}
+html,
+body {
+    background-color: #fff;
+    font-size: 14px;
+    overflow: hidden;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    min-width: 200px;
+    &.action-popup {
+        min-width: 300px;
+    }
+}
+.hidden {
+    display: none !important;
+}
+.selected {
+    background-color: #0f0 !important;
+}
+p.error {
+    background-color: #f00;
+    color: #fff;
+    margin: 0;
+}
+ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+#modal-shade {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 5;
+}
+#search {
+    display: flex;
+    #searchPattern {
+        flex-grow: 1;
+        border: none;
+        outline: none;
+    }
+    border-bottom: 1px solid #000;
+    padding: 2px;
+    &,
+    input {
+        background-color: #eee;
+    }
+    input,
+    #origin {
+        font-size: 13px;
+        font-family: Calibri, sans-serif;
+        padding: 0;
+        margin: 0 !important;
+        margin-left: 0.5em;
+    }
+    #origin:after {
+        content: " ";
+        white-space: pre;
+    }
+}
+#entries {
+    li {
+        border-bottom: 1px solid #ccc;
+        display: flex;
+        padding: 0.5em;
+        white-space: nowrap;
+        &:last-of-type {
+            border-bottom: none;
+        }
+        .tag {
+            border-radius: 0.5em;
+            display: inline-block;
+            margin-right: 0.35em;
+            padding: 0.2em 0.5em;
+        }
+        .name {
+            margin-right: 5em;
+            flex-grow: 1;
+        }
+        .detail {
+            display: none;
+            .action-popup & {
+                display: block;
+            }
+        }
+    }
+}
+#detail {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 40px;
+    right: 0;
+    z-index: 10;
+    background-color: #eee;
+    border-left: 1px solid #000;
+    min-height: 100px;
+    white-space: pre;
+    font-family: monospace;
+    #plaintext {
+        margin: 5px;
+    }
+}

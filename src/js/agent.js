@@ -221,7 +221,7 @@ new (class Agent extends EventTarget {
                 } else if (message?.action === "decrypt") {
                     // decrypt the specified entry
                     const result = await this.#callNative("decrypt", { path: message.path }, this.#config.decryptTimeout * 1000);
-                    port.postMessage({ action: "plaintext", plaintext: result.plaintext });
+                    port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     let newConfig = await this.#callNative("configure");

@@ -6,6 +6,7 @@ DIST_FILES := \
     manifest.json \
     parcel-host \
     parcel-host.asc \
+    css/popup.css \
     html/popup.html \
     js/agent.js \
     js/helpers.js \
@@ -38,6 +39,9 @@ dist/parcel-host: parcel-host
 	install -m 755 -D -t dist parcel-host
 
 dist/asc/%.asc: asc/%.asc
+	install -m 644 -D ./$< ./$@
+
+dist/css/%.css: css/%.css
 	install -m 644 -D ./$< ./$@
 
 dist/html/%.html: html/%.html

@@ -183,6 +183,7 @@ async function fillField(el, plaintext, config, type = null) {
  * @returns {void}
  */
 function triggerPopup(el, targetClass, token) {
+    /*
     setTimeout(() => {
         const clickListener = el.addEventListener(
             "click",
@@ -197,6 +198,7 @@ function triggerPopup(el, targetClass, token) {
         );
         //el.addEventListener("blur", () => el.removeEventListener("click", clickListener), { once: true });
     }, 650);
+    */
     const popup = (el._parcelPopup = document.createElement("div"));
     popup.setAttribute(
         "style",
@@ -330,6 +332,7 @@ chrome.runtime.onConnect.addListener(async (port) => {
                         }
                     }
                 }
+                port.postMessage({ action: "close" });
                 document.querySelector(`.parcel-popup-${port.name}`)?.remove();
             } catch (err) {
                 port.postMessage({ action: "error", error: err.message });
@@ -340,6 +343,8 @@ chrome.runtime.onConnect.addListener(async (port) => {
                 popup.style.height = `${msg.height}px`;
                 popup.style.width = `${msg.width}px`;
             }
+        } else if (msg?.action === "close") {
+            document.querySelector(`.parcel-popup-${port.name}`)?.remove();
         }
     });
 });
