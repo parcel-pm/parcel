@@ -129,15 +129,17 @@
             for (const entry of msg.entries) {
                 const li = document.createElement("li");
 
-                const tag = document.createElement("span");
-                tag.classList.add("tag");
-                tag.textContent = entry.rule.tag;
-                tag.style.backgroundColor = `#${entry.rule.color}`;
-                let rgb = parseInt(entry.rule.color, 16);
-                rgb = [rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff];
-                const luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-                if (luma < 75) tag.style.color = "#eee";
-                li.appendChild(tag);
+                if (entry.rule.tag) {
+                    const tag = document.createElement("span");
+                    tag.classList.add("tag");
+                    tag.textContent = entry.rule.tag;
+                    tag.style.backgroundColor = `#${entry.rule.color}`;
+                    let rgb = parseInt(entry.rule.color, 16);
+                    rgb = [rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff];
+                    const luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+                    if (luma < 75) tag.style.color = "#eee";
+                    li.appendChild(tag);
+                }
 
                 const name = document.createElement("span");
                 name.setAttribute("title", entry.path);
