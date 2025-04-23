@@ -96,6 +96,7 @@ function action_decrypt() {
     update_config
     local FILE_PATH="$(jq -r '.path' <<< "$1")"
     local ALLOW=0
+    local OUT
     for ALLOWED in "${ALLOWED_FILES[@]}"; do
         if [ "$ALLOWED" = "$FILE_PATH" ]; then
             ALLOW=1
@@ -110,7 +111,7 @@ function action_decrypt() {
         parcel_error "File not found: $FILE_PATH"
         return 0
     fi
-    if ! local OUT="$(gpg --decrypt --quiet --batch --no-tty --yes < "$FILE_PATH" 2>/dev/null)"; then
+    if ! OUT="$(gpg --decrypt --quiet --batch --no-tty --yes < "$FILE_PATH" 2>/dev/null)"; then
         parcel_error "Failed to decrypt $FILE_PATH"
         return 0
     fi
