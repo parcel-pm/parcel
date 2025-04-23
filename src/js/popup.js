@@ -2,13 +2,10 @@
 (async () => {
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const tab = (await chrome.tabs.getCurrent()) || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-    const url = new URL(tab.url);
     const tabPort = chrome.tabs.connect(tab.id, { name: token });
     const port = chrome.runtime.connect({ name: "popup" });
     const ul = document.querySelector("ul");
     let limit = true;
-
-    document.getElementById("origin").textContent = url.host + (url.port ? ":" + url.port : "");
 
     // init specific to the popup invocation type
     if (token === "broadcast") {
@@ -49,6 +46,11 @@
                 tabPort.postMessage({ action: "close" });
             }
         });
+    }
+
+    if (!tab.url) {
+        limit = false;
+        document.getElementById("origin").classList.add("hidden");
     }
 
     document.getElementById("modal-shade").addEventListener("click", () => {
@@ -190,7 +192,7 @@
 
     // re-run the search
     function update() {
-        port.postMessage({ action: "match", url: tab.url, search: search.value, limit });
+        port.postMessage({ action: "match", url: tab.url || "unknown-url://", search: search.value, limit });
     }
 
     // initial search

@@ -215,8 +215,7 @@ new (class Agent extends EventTarget {
             try {
                 if (message?.action === "match") {
                     // get matching entries
-                    const url = new URL(message.url);
-                    const result = await this.search(url.origin, message.search || "", message.limit);
+                    const result = await this.search(message.url, message.search || "", message.limit);
                     port.postMessage({ action: "match", entries: result });
                 } else if (message?.action === "decrypt") {
                     // decrypt the specified entry
@@ -241,41 +240,43 @@ new (class Agent extends EventTarget {
     /**
      * Find matching entries for a given origin.
      * @since 1.0.0
-     * @param {URL} origin - The origin to find matching entries for.
+     * @param {URL} url - The url to find matching entries for.
      * @param {string} search - The search string to match against.
      * @param {boolean} [limit=true] - Whether to limit the search to the current origin.
      * @returns {object[]} - The matching entries.
      */
-    async search(origin, search, limit = true) {
-        origin = new URL(origin);
+    async search(url, search, limit = true) {
+        const origin = new URL(url);
         let matches = [];
 
-        // find matches for the origin
-        const suffix = await this.#getPublicSuffix(origin.hostname);
-        const slices = [];
-        for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
-        for (let entry of await this.#getEntries(search.length ? this.#config.cacheTTLInteractive : undefined)) {
-            const parts = entry.name.split("/").reverse();
-            if (parts.includes(origin.host)) {
-                matches.push(entry);
-            } else {
-                for (let s of slices) {
-                    if (parts.includes(s)) {
-                        matches.push(entry);
-                        break;
+        if (origin.host) {
+            // find matches for the origin
+            const suffix = await this.#getPublicSuffix(origin.hostname);
+            const slices = [];
+            for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
+            for (let entry of await this.#getEntries(search.length ? this.#config.cacheTTLInteractive : undefined)) {
+                const parts = entry.name.split("/").reverse();
+                if (parts.includes(origin.host)) {
+                    matches.push(entry);
+                } else {
+                    for (let s of slices) {
+                        if (parts.includes(s)) {
+                            matches.push(entry);
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        // origin-matching search
-        matches = matches.filter((entry) => {
-            if (search) {
-                let p = new RegExp(search, "ui");
-                return p.test(entry.name);
-            }
-            return true;
-        });
+            // origin-matching search
+            matches = matches.filter((entry) => {
+                if (search) {
+                    let p = new RegExp(search, "ui");
+                    return p.test(entry.name);
+                }
+                return true;
+            });
+        }
 
         // unrestricted search
         if (!limit) {
