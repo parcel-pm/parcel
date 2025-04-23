@@ -3,6 +3,9 @@
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const tab = (await chrome.tabs.getCurrent()) || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
     const tabPort = chrome.tabs.connect(tab.id, { name: token });
+    tabPort.onDisconnect.addListener(() => {
+        chrome.runtime.lastError; // suppress errors on pages where the content script is not injected
+    });
     const port = chrome.runtime.connect({ name: "popup" });
     const ul = document.querySelector("ul");
     let limit = true;
