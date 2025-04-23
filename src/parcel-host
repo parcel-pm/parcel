@@ -33,19 +33,19 @@ function load_config() {
         if ! CONFIG="$(cat "$PARCELFILE")"; then
             parcel_error "Failed to read config file: $PARCELFILE" 1
         fi
+        CONFIG_MODIFIED="$(stat -L -f %m "$PARCELFILE")"
     else
         CONFIG="{}"
+        CONFIG_MODIFIED="$(date +%s)"
     fi
-    CONFIG_MODIFIED="$(stat -L -f %m "$PARCELFILE")"
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + (if has("rules") then null else {rules:[]} end)' <<< "$CONFIG")"; then
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + (if has("rules") then null else {rules:[{pattern:"."}]} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
-
 }
 
 # ensure that the config is up to date
 function update_config() {
-    if [[ -f "$PARCELFILE" && "$CONFIG_MODIFIED" -ne "$(stat -L -f %m "$PARCELFILE")" ]]; then
+    if [[ ! -f "$PARCELFILE" || -f "$PARCELFILE" && "$CONFIG_MODIFIED" -ne "$(stat -L -f %m "$PARCELFILE")" ]]; then
         load_config
     fi
 }
