@@ -25,5 +25,8 @@
             "resources": ["js/helpers.js", "js/selectors.js", "js/popup.js", "html/popup.html"],
             "matches": ["<all_urls>"]
         }
-    ]
+    ],
+    "action": {
+        "default_popup": "html/popup.html"
+    }
 }

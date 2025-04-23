@@ -232,9 +232,7 @@ function triggerPopup(el, targetClass, token) {
 
     // attach iframe
     const frame = document.createElement("iframe");
-    frame.src = chrome.runtime.getURL(
-        `/html/popup.html?class=${targetClass}&origin=${encodeURIComponent(window.location.origin)}&token=${el._parcelToken}`,
-    );
+    frame.src = chrome.runtime.getURL(`/html/popup.html?token=${el._parcelToken}`);
     root.appendChild(frame);
 
     document.addEventListener("click", (ev) => {
@@ -249,7 +247,7 @@ function triggerPopup(el, targetClass, token) {
 }
 
 /**
- * Trigger the popup when the element is focused.
+ * Trigger the popup when the element is clicked.
  * @since 1.0.0
  */
 document.addEventListener(
@@ -274,13 +272,32 @@ document.addEventListener(
  */
 chrome.runtime.onConnect.addListener(async (port) => {
     if (!port.name) return;
-    const el = document.querySelector(`.parcel-target-${port.name}`);
+    let el = document.querySelector(`.parcel-target-${port.name}`);
     if (!el) {
-        // This section appears to cause problems - the popup still works and can still select the element.
-        // Perhaps there is a race condition between frames? Needs further investigation to find the root cause.
-        //port.postMessage({ action: "error", error: "Unable to select target element." });
-        //port.disconnect();
-        return;
+        if (window === window.top && port.name === "broadcast") {
+            // Handle broadcast connections in the root frame only
+            // Look for a suitable target element in the root frame
+            const selectors = (await validTargets).toSorted((a, b) => {
+                const priority = ["totp", "login", "secret"]; // target type search order, highest priority last
+                if (priority.indexOf(a.type) > priority.indexOf(b.type)) return -1;
+                if (priority.indexOf(a.type) < priority.indexOf(b.type)) return 1;
+                return 0;
+            });
+            for (let selector of selectors) {
+                el = document.querySelector(selector.selector);
+                if (el) {
+                    el._parcelToken = port.name;
+                    el.classList.add(`parcel-target-${port.name}`);
+                    break;
+                }
+            }
+            if (!el) {
+                port.postMessage({ action: "error", error: "Unable to select target element." });
+                port.disconnect();
+            }
+        } else {
+            return;
+        }
     }
     if (el._parcelToken !== port.name) {
         port.postMessage({ action: "error", error: "Invalid token." });

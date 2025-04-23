@@ -1,8 +1,8 @@
 "use strict";
 (async () => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = await chrome.tabs.getCurrent();
-    const tabPort = chrome.tabs.connect(tab.id, { name: params.get("token") });
+    const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
+    const tab = (await chrome.tabs.getCurrent()) || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    const tabPort = chrome.tabs.connect(tab.id, { name: token });
     const port = chrome.runtime.connect({ name: "popup" });
     const ul = document.querySelector("ul");
 
@@ -66,7 +66,7 @@
                 ul.appendChild(li);
             }
         } else if (msg.action === "plaintext") {
-            tabPort.postMessage({ action: "fill", token: params.get("token"), plaintext: msg.plaintext, config: await config });
+            tabPort.postMessage({ action: "fill", token, plaintext: msg.plaintext, config: await config });
             //alert(JSON.stringify(msg, null, 2));
         } else if (msg.action === "error") {
             const p = document.createElement("p");
@@ -98,7 +98,6 @@
     update();
 
     // UI updates when the anti-phishing mode is toggled
-    let url = new URL(params.get("origin"));
     document.getElementById("search").focus();
     document.getElementById("search").addEventListener("keydown", (ev) => {
         if (ev.key === "Backspace" && search.value.length === 0) {
