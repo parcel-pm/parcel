@@ -27,7 +27,7 @@ export var targetSelectors = [
     { selector: "input[example=blacklist i]", type: "blacklist", host: ["example.com", "example.org"] },
 ];
 
-for (let s of ["login", "user", "username", "email", "alias"]) {
+for (let s of ["login", "user", "username", "email", "alias", "name"]) {
     targetSelectors.push({ selector: `input[name*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[id*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[class*=${s} i]`, type: "login" });
