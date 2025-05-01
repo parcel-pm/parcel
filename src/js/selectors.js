@@ -5,6 +5,9 @@
  * @since 1.0.0
  */
 export var targetSelectors = [
+    // type: blacklist
+    { selector: "input[example=blacklist i]", type: "blacklist", host: ["example.com", "example.org"] },
+
     // type: secret
     { selector: "input[autocomplete~=current-password i]", type: "secret" },
     { selector: "input[type=password i]", type: "secret" },
@@ -23,9 +26,6 @@ export var targetSelectors = [
     { selector: "input[type=email i]", type: "login" },
     { selector: "input[type=tel i]", type: "login" },
     { selector: "input[type=number i]", type: "login" },
-
-    // type: blacklist
-    { selector: "input[example=blacklist i]", type: "blacklist", host: ["example.com", "example.org"] },
 ];
 
 for (let s of ["login", "user", "username", "email", "alias", "name"]) {
