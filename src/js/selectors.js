@@ -5,13 +5,6 @@
  * @since 1.0.0
  */
 export var targetSelectors = [
-    // type: login
-    { selector: "input[autocomplete~=username i]", type: "login" },
-    { selector: "input[autocomplete~=email i]", type: "login" },
-    { selector: "input[type=email i]", type: "login" },
-    { selector: "input[type=tel i]", type: "login" },
-    { selector: "input[type=number i]", type: "login" },
-
     // type: secret
     { selector: "input[autocomplete~=current-password i]", type: "secret" },
     { selector: "input[type=password i]", type: "secret" },
@@ -22,6 +15,14 @@ export var targetSelectors = [
     // type: totp
     { selector: "input[autocomplete~=one-time-code i]", type: "totp" },
     { selector: "input[name$=otp i]", type: "totp" },
+    { selector: "input[name$=otc i]", type: "totp" },
+
+    // type: login
+    { selector: "input[autocomplete~=username i]", type: "login" },
+    { selector: "input[autocomplete~=email i]", type: "login" },
+    { selector: "input[type=email i]", type: "login" },
+    { selector: "input[type=tel i]", type: "login" },
+    { selector: "input[type=number i]", type: "login" },
 
     // type: blacklist
     { selector: "input[example=blacklist i]", type: "blacklist", host: ["example.com", "example.org"] },
