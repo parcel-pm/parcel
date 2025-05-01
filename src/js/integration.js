@@ -350,6 +350,7 @@ chrome.runtime.onConnect.addListener(async (port) => {
                 port.postMessage({ action: "close" });
                 document.querySelector(`.parcel-popup-${port.name}`)?.remove();
 
+                // submit the form if configured, else try to focus the submit button
                 const submitTargets = (await validTargets).filter((t) => t.type === "submit");
                 const form = el.closest("form");
                 if (form) {
