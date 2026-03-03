@@ -66,4 +66,66 @@ export class Helpers {
 
         return hashArray.map((i) => i.toString(16).padStart(2, "0")).join("");
     }
+
+    /**
+     * Get the appropriate value for the target type
+     * @since 1.0.0
+     * @param {string} plaintext - The plaintext to fill from
+     * @param {object} config - The current parcel config
+     * @param {string} type - The target type to use
+     */
+    static async getValue(plaintext, config, type) {
+        const targetRule = config.targets.reduce((acc, rule) => {
+            if (rule.name === type) {
+                acc = rule;
+            }
+            return acc;
+        }, false);
+        if (!targetRule) throw new Error(`Invalid target type: ${type}`);
+        const plaintextLines = plaintext.split(/\r\n|\n|\r/iu);
+        const pattern = new RegExp(targetRule.pattern, "ui");
+        let fillValue = null;
+        for (const line of plaintextLines) {
+            if (line.match(pattern)) {
+                fillValue = targetRule.strip ? line.replace(pattern, "") : line;
+                break;
+            }
+        }
+        if (!fillValue) {
+            if (targetRule.onMissing === "top") {
+                fillValue = plaintextLines[0];
+            } else if (targetRule.onMissing === "ntop") {
+                fillValue = plaintext.match(/(?<=\r\n|\n|\r).+/isu)?.[0];
+            } else if (targetRule.onMissing === "all") {
+                fillValue = plaintext;
+            } else if (targetRule.onMissing === "fallback") {
+                if (!targetRule.fallback) throw new Error(`No fallback defined for field type: ${type}`);
+                return await fillField(el, plaintext, config, targetRule.fallback);
+            } else if (targetRule.onMissing === "null") {
+                throw new Error(`No value found for field type: ${type}`);
+            }
+        }
+
+        // trim the value if configured
+        if (targetRule.trim) fillValue = fillValue.trim();
+
+        // transform the value if configured
+        const Helpers = await import("/js/helpers.js");
+        for (let transform of targetRule?.transform) {
+            if (transform === "totp-url") {
+                const url = new URL(fillValue);
+                const secret = url.searchParams.get("secret");
+                if (!secret) throw new Error(`No secret found in TOTP URL: ${fillValue}`);
+                fillValue = await Helpers.Helpers.generateTOTP(
+                    secret,
+                    url.searchParams.get("period") || 30,
+                    url.searchParams.get("digits") || 6,
+                );
+            } else if (transform === "totp") {
+                fillValue = await Helpers.Helpers.generateTOTP(fillValue);
+            }
+        }
+
+        return fillValue;
+    }
 }
