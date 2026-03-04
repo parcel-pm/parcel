@@ -93,7 +93,7 @@
     async function fillField(el, plaintext, config, type = null) {
         const targetInfo = await getTargetInfo(el);
         if (!type) type = targetInfo.type;
-        const fillValue = await Helpers.getValue(plaintext, config, type);
+        let fillValue = await Helpers.getValue(plaintext, config, type);
 
         /** Robust value-setting logic below is largely copied from Browserpass - thanks to all who helped develop it! */
         {
