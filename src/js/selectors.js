@@ -54,3 +54,14 @@ for (let s of ["login", "log-in", "log_in", "signin", "sign-in", "sign_in", "sub
         targetSelectors.push({ selector: `${t}[aria-label*=${s} i]`, type: "submit" });
     }
 }
+
+for (let s of ["new", "confirm", "change"]) {
+    for (let t of ["password", "pass", "secret"]) {
+        targetSelectors.push({ selector: `input[name*=${s} i][name*=${t} i]`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[id*=${s} i][id*=${t} i]`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[class*=${s} i][class*=${t} i]`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[placeholder*=${s} i][placeholder*=${t} i]`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[title*=${s} i][title*=${t} i]`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[aria-label*=${s} i][aria-label*=${t} i]`, type: "blacklist" });
+    }
+}
