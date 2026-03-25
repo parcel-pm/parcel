@@ -1,3 +1,6 @@
+:root {
+    counter-reset: line;
+}
 * {
     box-sizing: border-box;
 }
@@ -6,13 +9,24 @@ body {
     background-color: #fff;
     font-size: 14px;
     overflow: hidden;
-    overflow-y: auto;
     margin: 0;
     padding: 0;
+    height: max-content;
     min-width: 200px;
+    max-width: 600px;
+    max-height: 600px;
+    width: max-content;
     &.action-popup {
-        min-width: 300px;
+        min-width: 400px;
     }
+    &.context-popup {
+        max-height: 400px;
+        width: 100%;
+    }
+}
+body {
+    display: flex;
+    flex-direction: column;
 }
 .hidden {
     display: none !important;
@@ -24,6 +38,7 @@ p.error {
     background-color: #f00;
     color: #fff;
     margin: 0;
+    padding: 2px;
 }
 ul {
     list-style: none;
@@ -41,6 +56,8 @@ ul {
 }
 #search {
     display: flex;
+    position: sticky;
+    top: 0;
     #searchPattern {
         flex-grow: 1;
         border: none;
@@ -66,11 +83,14 @@ ul {
     }
 }
 #entries {
+    overflow-y: auto;
+    scrollbar-width: thin;
     li {
         border-bottom: 1px solid #ccc;
         display: flex;
         padding: 0.5em;
         white-space: nowrap;
+        gap: 8px;
         &:last-of-type {
             border-bottom: none;
         }
@@ -84,28 +104,31 @@ ul {
             margin-right: 0.35em;
             flex-grow: 1;
         }
-        .detail {
-            display: none;
-            .action-popup & {
-                display: block;
-            }
-        }
     }
 }
-#detail {
-    display: flex;
-    position: fixed;
-    top: 0;
-    left: 40px;
-    right: 0;
-    z-index: 10;
-    background-color: #eee;
+parcel-detail {
     border-left: 1px solid #000;
-    min-height: 100px;
-    white-space: pre;
+    box-shadow: -3px 0 3px -2px #4a4a4a;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
     font-family: monospace;
-    min-height: 100%;
-    #plaintext {
-        margin: 5px;
+    gap: 8px;
+    left: 40px;
+    overflow-y: auto;
+    overflow-x: auto;
+    padding: 8px;
+    position: fixed;
+    right: 0;
+    top: 0;
+    white-space: pre;
+    z-index: 10;
+
+    .context-popup & {
+        min-width: max-content;
+    }
+
+    parcel-plaintext-line {
+        background-color: #f00;
     }
 }

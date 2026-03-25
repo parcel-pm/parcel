@@ -24,6 +24,11 @@ export var targetSelectors = [
     { selector: "input[autocomplete~=one-time-code i]", type: "totp" },
     { selector: "input[name$=otp i]", type: "totp" },
     { selector: "input[name$=otc i]", type: "totp" },
+    { selector: "input[name$=code i]", type: "totp" },
+    { selector: "input[name$=otpcode i]", type: "totp" },
+    { selector: "input[name$='2fa' i]", type: "totp" },
+    { selector: "input[name$=two-factor i]", type: "totp" },
+    { selector: "input[name$=two_factor i]", type: "totp" },
 
     // type: login
     { selector: "input[autocomplete~=username i]", type: "login" },

@@ -37,10 +37,14 @@ export class Helpers {
      */
     static async generateTOTP(secret, step = 30, digits = 6) {
         const counter = new Uint8Array(8);
-        let now = Math.floor(Date.now() / (step * 1000));
+        let now = Date.now();
+        let epoch = Math.floor(now / (step * 1000));
+        let when = epoch * step * 1000;
+        let next = (epoch + 1) * step * 1000;
+
         for (let i = 7; i >= 0; i--) {
-            counter[i] = now & 0xff;
-            now >>= 8;
+            counter[i] = epoch & 0xff;
+            epoch >>= 8;
         }
 
         const key = await crypto.subtle.importKey("raw", Helpers.base32ToArrayBuffer(secret), { name: "HMAC", hash: "SHA-1" }, false, [
@@ -50,7 +54,12 @@ export class Helpers {
         const offset = HS[19] & 0x0f;
         const num = ((HS[offset] & 0x7f) << 24) | (HS[offset + 1] << 16) | (HS[offset + 2] << 8) | HS[offset + 3];
 
-        return (num % Math.pow(10, digits)).toString().padStart(digits, "0");
+        return {
+            value: (num % Math.pow(10, digits)).toString().padStart(digits, "0"),
+            refreshAt: next,
+            generatedAt: when,
+            interval: step * 1000,
+        };
     }
 
     /**
@@ -111,7 +120,6 @@ export class Helpers {
         if (targetRule.trim) fillValue = fillValue.trim();
 
         // transform the value if configured
-        //const Helpers = await import("/js/helpers.js");
         for (let transform of targetRule?.transform) {
             if (transform === "totp-url") {
                 const url = new URL(fillValue);
@@ -124,5 +132,40 @@ export class Helpers {
         }
 
         return fillValue;
+    }
+
+    /**
+     * querySelectorAll that also searches inside shadow roots
+     * @since 1.0.0
+     * @param {string} selector - The CSS selector to search for
+     */
+    static shadowSelectorAll(selector, root = document) {
+        const results = [];
+        results.push(...root.querySelectorAll(selector));
+        const shadowHosts = root.querySelectorAll("[is-shadow]");
+        for (let host of shadowHosts) {
+            if (host.shadowRoot) {
+                results.push(...Helpers.shadowSelectorAll(selector, host.shadowRoot));
+            }
+        }
+        return results;
+    }
+
+    /**
+     * querySelector that also searches inside shadow roots
+     * @since 1.0.0
+     * @param {string} selector - The CSS selector to search for
+     */
+    static shadowSelector(selector, root = document) {
+        const result = root.querySelector(selector);
+        if (result) return result;
+        const shadowHosts = root.querySelectorAll("[is-shadow]");
+        for (let host of shadowHosts) {
+            if (host.shadowRoot) {
+                const shadowResult = Helpers.shadowSelector(selector, host.shadowRoot);
+                if (shadowResult) return shadowResult;
+            }
+        }
+        return null;
     }
 }

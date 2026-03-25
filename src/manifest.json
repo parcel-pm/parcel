@@ -14,6 +14,14 @@
     "content_scripts": [
         {
             "matches": ["<all_urls>"],
+            "js": ["js/shadow.js"],
+            "type": "module",
+            "run_at": "document_start",
+            "all_frames": true,
+            "world": "MAIN"
+        },
+        {
+            "matches": ["<all_urls>"],
             "js": ["js/integration.js"],
             "type": "module",
             "run_at": "document_start",

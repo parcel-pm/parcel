@@ -8,14 +8,126 @@
         <title>Popup</title>
     </head>
     <body>
+        <template id="parcel-detail-template">
+            <style>
+                :host {
+                    background-color: #414141;
+                    color: #c4c4c4;
+                }
+                div {
+                    height: max-content;
+                    background-color: #494949;
+                    border: 1px solid #525252;
+                    border-radius: 2px;
+                    parcel-plaintext-line:hover {
+                        background-color: #505050;
+                    }
+                }
+            </style>
+        </template>
+        <template id="parcel-value-template">
+            <style>
+                :host {
+                    align-items: center;
+                    background-color: #4a4a4a;
+                    color: #c4c4c4;
+                    border: 1px solid #525252;
+                    border-radius: 2px;
+                    display: flex;
+                    & > * {
+                        padding: 5px;
+                    }
+                }
+                span,
+                .value-container {
+                    &.label {
+                        background-color: #afafaf;
+                        color: #414141;
+                        width: 68px;
+                        text-align: center;
+                    }
+                    &.char {
+                        &.punct {
+                            color: #d29624;
+                        }
+                        &.digit {
+                            color: #5dd123;
+                        }
+                    }
+                    &.spacer {
+                        flex-grow: 1;
+                    }
+                }
+                .value-container {
+                    box-sizing: border-box;
+                    display: inline-flex;
+                    flex-grow: 1;
+                    gap: 0 8px;
+                    padding-left: 8px;
+                }
+                .copy {
+                    border: none;
+                    background: url("/img/icon-copy.svg") no-repeat center;
+                    height: 16.5px;
+                    width: 16.5px;
+                }
+                :host-context(.context-popup) .copy {
+                    display: none;
+                }
+            </style>
+            <span class="label"></span>
+            <div class="value-container">
+                <span class="value"></span>
+                <span class="spacer"></span>
+                <button class="copy"></button>
+            </div>
+        </template>
+        <template id="parcel-plaintext-line-template">
+            <style>
+                :host {
+                    border-bottom: 1px solid #505050;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
+                .line {
+                    flex-grow: 1;
+                    display: inline-flex;
+                    gap: 5px;
+                    overflow: hidden;
+                    white-space: nowrap;
+                    min-width: 0;
+                    &:before {
+                        background-color: #505050;
+                        color: #d29624;
+                        counter-increment: line;
+                        content: counter(line);
+                        display: inline-block;
+                        flex-shrink: 0;
+                        padding-right: 5px;
+                        text-align: right;
+                        width: 20px;
+                    }
+                }
+                .copy {
+                    border: none;
+                    background: url("/img/icon-copy.svg") center center no-repeat;
+                    height: 14px;
+                    width: 14px;
+                    margin-left: -5px;
+                }
+                :host-context(.context-popup) .copy {
+                    display: none;
+                }
+            </style>
+            <code class="line"></code>
+            <button class="copy"></button>
+        </template>
         <div id="modal-shade" class="hidden"></div>
         <div id="search">
             <span id="origin"></span>
             <input type="text" id="searchPattern" class="selected" />
         </div>
         <ul id="entries"></ul>
-        <div id="detail" class="hidden">
-            <div id="plaintext"></div>
-        </div>
     </body>
 </html>

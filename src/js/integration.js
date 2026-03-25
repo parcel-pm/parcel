@@ -1,4 +1,5 @@
 "use strict";
+
 (async () => {
     const Helpers = (await import(chrome.runtime.getURL("/js/helpers.js"))).Helpers;
     const targetSelectors = import(chrome.runtime.getURL("/js/selectors.js"));
@@ -42,10 +43,15 @@
      * @returns {string|null} - The target type or null if not found.
      */
     async function getTargetInfo(el) {
-        if (!["text", "email", "tel", "password"].includes(el.type)) return null;
+        try {
+            if (el.hasAttribute("type") && !["text", "email", "tel", "password"].includes(el.type)) return null;
+        } catch (err) {
+            console.log(el);
+            throw err;
+        }
         let finalTarget = null;
         for (let target of await validTargets) {
-            if (el.matches(target.selector)) {
+            if (el.matches(target.selector) && !el.readOnly && !el.disabled) {
                 finalTarget = target;
                 break;
             }
@@ -89,11 +95,13 @@
      * @param {string} plaintext - The plaintext to fill from
      * @param {object} config - The current parcel config
      * @param {string|null} type - The target type to use, or null to infer from the element
+     * @param {string|null} fillValue - The value to fill, or null to derive from the plaintext and config
      */
-    async function fillField(el, plaintext, config, type = null) {
+    async function fillField(el, plaintext, config, type = null, fillValue = null) {
         const targetInfo = await getTargetInfo(el);
         if (!type) type = targetInfo.type;
-        let fillValue = await Helpers.getValue(plaintext, config, type);
+        if (fillValue === null) fillValue = await Helpers.getValue(plaintext, config, type);
+        if (typeof fillValue === "object" && fillValue.hasOwnProperty("value")) fillValue = fillValue.value;
 
         /** Robust value-setting logic below is largely copied from Browserpass - thanks to all who helped develop it! */
         {
@@ -141,27 +149,11 @@
      * @returns {void}
      */
     function triggerPopup(el, targetClass, token) {
-        document.querySelectorAll(".parcel-popup").forEach((popup) => {
+        Helpers.shadowSelectorAll(".parcel-popup").forEach((popup) => {
             if (popup._parcelToken !== token) {
                 popup.remove();
             }
         });
-        /*
-    setTimeout(() => {
-        const clickListener = el.addEventListener(
-            "click",
-            (ev) => {
-                if (el._parcelPopup) {
-                    el._parcelPopup.remove();
-                    delete el._parcelPopup;
-                    return;
-                }
-            },
-            { once: true },
-        );
-        //el.addEventListener("blur", () => el.removeEventListener("click", clickListener), { once: true });
-    }, 650);
-    */
         const popup = (el._parcelPopup = document.createElement("div"));
         popup.setAttribute(
             "style",
@@ -178,9 +170,9 @@
         popup.style.border = "1px solid black";
         popup.style.overflow = "hidden";
         popup.style.maxHeight = "400px";
-        popup.style.minWidth = "300px";
+        popup.style.minWidth = "200px";
         popup.style.minHeight = "100px";
-        popup.style.boxSizing = "border-box";
+        popup.style.boxSizing = "content-box";
 
         const style = document.createElement("style");
         style.textContent = `
@@ -193,10 +185,9 @@
                 width: 100%;
                 height: 100%;
                 border: none;
-                overflow: scroll;
+                overflow: hidden;
             }
-        }
-    `;
+        }`;
         root.appendChild(style);
 
         // attach iframe
@@ -204,40 +195,38 @@
         frame.src = chrome.runtime.getURL(`/html/popup.html?token=${el._parcelToken}`);
         root.appendChild(frame);
 
-        document.addEventListener("click", (ev) => {
-            if (ev.target !== el) {
-                for (let el = ev.target; el.parentElement; el = el.parentElement) {
-                    if (el === popup) return;
-                }
-                popup.remove();
-            }
-        });
         document.body.appendChild(popup);
     }
 
     /**
      * Trigger the popup when the element is clicked.
      * @since 1.0.0
+     * @returns {void}
      */
-    document.addEventListener(
-        "click",
-        async (ev) => {
-            let popup = document.querySelector(".parcel-popup");
-            if (popup) {
-                popup.remove();
-            } else {
-                let targetInfo = await getTargetInfo(ev.target);
-                if (targetInfo) {
-                    if (!ev.target._parcelToken) {
-                        ev.target._parcelToken = crypto.randomUUID();
-                    }
-                    ev.target.classList.add(`parcel-target-${ev.target._parcelToken}`);
-                    triggerPopup(ev.target, targetInfo.class, ev.target._parcelToken);
+    async function handleTriggerClick(target) {
+        let popup = document.querySelector(".parcel-popup");
+        if (popup) {
+            popup.remove();
+        } else {
+            let targetInfo = await getTargetInfo(target);
+            if (targetInfo) {
+                if (!target._parcelToken) {
+                    target._parcelToken = crypto.randomUUID();
                 }
+                target.classList.add(`parcel-target-${target._parcelToken}`);
+                triggerPopup(target, targetInfo.class, target._parcelToken);
             }
-        },
-        { capture: true, passive: true },
-    );
+        }
+    }
+
+    document.addEventListener("click", (ev) => handleTriggerClick(ev.target), { capture: true, passive: true });
+    document.addEventListener("parcel-shadow-click", async (ev) => {
+        const host = document.querySelector(`[parcel-shadow-host="${ev.detail.host}"]`);
+        const target =
+            document.querySelector(`[parcel-shadow-event="${ev.detail.target}"]`) ||
+            host.shadowRoot.querySelector(`[parcel-shadow-event="${ev.detail.target}"]`);
+        if (target) handleTriggerClick(target);
+    });
 
     /**
      * Handle messages from the popup.
@@ -245,7 +234,7 @@
      */
     chrome.runtime.onConnect.addListener(async (port) => {
         if (!port.name) return;
-        let el = document.querySelector(`.parcel-target-${port.name}`);
+        let el = Helpers.shadowSelector(`.parcel-target-${port.name}`);
         if (!el) {
             if (window === window.top && port.name === "broadcast") {
                 // Handle broadcast connections in the root frame only
@@ -257,7 +246,8 @@
                     return 0;
                 });
                 for (let selector of selectors) {
-                    el = document.querySelector(selector.selector);
+                    //el = document.querySelector(selector.selector);
+                    el = Helpers.shadowSelector(selector.selector);
                     if (el) {
                         el._parcelToken = port.name;
                         el.classList.add(`parcel-target-${port.name}`);
@@ -265,7 +255,7 @@
                     }
                 }
                 if (!el) {
-                    port.postMessage({ action: "error", error: "Cannot find a suitable fill target." });
+                    port.postMessage({ action: "error", error: "Cannot find a suitable autofill target." });
                     port.disconnect();
                     return;
                 }
@@ -285,7 +275,13 @@
             return;
         }
         port.onMessage.addListener(async (msg) => {
-            if (msg?.action === "fill") {
+            console.log(msg?.action);
+            if (msg?.action === "fill-value") {
+                console.log(el, msg);
+                await fillField(el, null, null, null, msg.value);
+                port.postMessage({ action: "close" });
+                document.querySelector(`.parcel-popup-${port.name}`)?.remove();
+            } else if (msg?.action === "fill") {
                 // fill the target field, and related fields if configured
                 try {
                     if (!msg.hasOwnProperty("config")) throw new Error("Config is missing.");
@@ -330,6 +326,7 @@
                     port.postMessage({ action: "error", error: err.message });
                 }
             } else if (msg?.action === "resize") {
+                console.log(msg);
                 const popup = document.querySelector(`.parcel-popup-${port.name}`);
                 if (popup) {
                     popup.style.height = `${msg.height}px`;

@@ -144,14 +144,14 @@ export const ConfigSchema = {
                 { name: "login", pattern: "^(username|login|email):" },
                 {
                     name: "totp",
-                    pattern: "^(otp|totp|2fa|authenticator):(?!.*otpauth://)",
+                    pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):(?!.*otpauth://)",
                     transform: ["totp"],
                     onMissing: "fallback",
                     fallback: "totp-url",
                 },
                 {
                     name: "totp-url",
-                    pattern: "^(otp|totp|2fa|authenticator):",
+                    pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):",
                     onMissing: "fallback",
                     fallback: "totp-url-raw",
                     transform: ["totp-url"],

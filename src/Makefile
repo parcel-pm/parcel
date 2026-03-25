@@ -8,12 +8,15 @@ DIST_FILES := \
     parcel-host.asc \
     css/popup.css \
     html/popup.html \
+    img/icon-copy.svg \
     js/agent.js \
     js/helpers.js \
     js/integration.js \
+    js/plaintext.js \
     js/popup.js \
     js/schema.js \
     js/selectors.js \
+    js/shadow.js \
 
 .PHONY: default
 default: prettier dist
@@ -45,6 +48,9 @@ dist/css/%.css: css/%.css
 	install -m 644 -D ./$< ./$@
 
 dist/html/%.html: html/%.html
+	install -m 644 -D ./$< ./$@
+
+dist/img/%: img/%
 	install -m 644 -D ./$< ./$@
 
 dist/js/%.js: js/%.js
