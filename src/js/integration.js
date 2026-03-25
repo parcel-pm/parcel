@@ -333,7 +333,7 @@
                     popup.style.width = `${msg.width}px`;
                 }
             } else if (msg?.action === "close") {
-                document.querySelector(`.parcel-popup-${port.name}`)?.remove();
+                Helpers.shadowSelector(`.parcel-popup-${port.name}`)?.remove();
             }
         });
     });
