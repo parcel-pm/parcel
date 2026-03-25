@@ -3,7 +3,7 @@
 // Track shadow roots as they are created so we don't have to search for them later
 var _attachShadow;
 if (!_attachShadow) {
-    var _attachShadow = Element.prototype.attachShadow;
+    _attachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function (options) {
         const root = _attachShadow.call(this, options);
         const hostUUID = crypto.randomUUID();
