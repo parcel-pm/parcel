@@ -215,6 +215,8 @@
                 target._parcelToken = crypto.randomUUID();
             }
             target.classList.add(`parcel-target-${target._parcelToken}`);
+            target.setAttribute("parcel-selector", targetInfo.selector);
+            target.setAttribute("parcel-type", targetInfo.type);
             triggerPopup(target, targetInfo.class, target._parcelToken);
         } else if (popup && popup._parcelCreated < Date.now() - 350) popup.remove();
     }

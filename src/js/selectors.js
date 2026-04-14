@@ -38,17 +38,20 @@ export var targetSelectors = [
     { selector: "input[type=tel i]", type: "login" },
     { selector: "input[type=number i]", type: "login" },
     { selector: "input[id=vrNetKey i]", type: "login" }, // various German banks
+    { selector: "input[id^=IDToken i]", type: "login" }, // spark NZ
 ];
 
+// more login selectors
 for (let s of ["login", "user", "username", "email"]) {
     targetSelectors.push({ selector: `input[name*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[id*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[class*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[placeholder*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[title*=${s} i]`, type: "login" });
-    targetSelectors.push({ selector: `input[aria-label*=${s} i]`, type: "login" });
+    targetSelectors.push({ selector: `input[aria-label^=${s} i]`, type: "login" });
 }
 
+// submit buttons
 for (let s of ["login", "log-in", "log_in", "signin", "sign-in", "sign_in", "submit", "submit-login", "continue"]) {
     for (let t of ["input[type=button]", "button"]) {
         targetSelectors.push({ selector: `${t}[name*=${s} i]`, type: "submit" });
@@ -60,6 +63,7 @@ for (let s of ["login", "log-in", "log_in", "signin", "sign-in", "sign_in", "sub
     }
 }
 
+// exclude password change fields
 for (let s of ["new", "confirm", "change"]) {
     for (let t of ["password", "pass", "secret"]) {
         targetSelectors.push({ selector: `input[name*=${s} i][name*=${t} i]`, type: "blacklist" });
@@ -69,4 +73,14 @@ for (let s of ["new", "confirm", "change"]) {
         targetSelectors.push({ selector: `input[title*=${s} i][title*=${t} i]`, type: "blacklist" });
         targetSelectors.push({ selector: `input[aria-label*=${s} i][aria-label*=${t} i]`, type: "blacklist" });
     }
+}
+
+// exclude search fields
+for (let s of ["search", "find", "lookup", "query"]) {
+    targetSelectors.push({ selector: `input[name*=${s} i]`, type: "blacklist" });
+    targetSelectors.push({ selector: `input[id*=${s} i]`, type: "blacklist" });
+    targetSelectors.push({ selector: `input[class*=${s} i]`, type: "blacklist" });
+    targetSelectors.push({ selector: `input[placeholder*=${s} i]`, type: "blacklist" });
+    targetSelectors.push({ selector: `input[title*=${s} i]`, type: "blacklist" });
+    targetSelectors.push({ selector: `input[aria-label*=${s} i]`, type: "blacklist" });
 }
