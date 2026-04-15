@@ -38,7 +38,8 @@ export var targetSelectors = [
     { selector: "input[type=tel i]", type: "login" },
     { selector: "input[type=number i]", type: "login" },
     { selector: "input[id=vrNetKey i]", type: "login" }, // various German banks
-    { selector: "input[id^=IDToken i]", type: "login" }, // spark NZ
+    { selector: "input[id^=IDToken i]", type: "login" }, // spark.co.nz
+    { selector: "form[class*=login i] input[name=name i]", type: "login" }, // nz-cms.nz
 ];
 
 // more login selectors
