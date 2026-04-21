@@ -190,7 +190,7 @@
                 this.#root.appendChild(el);
             }
             let totp = () => this.#plaintext.getValue("totp");
-            if (totp !== null) {
+            if ((await totp()) !== null) {
                 let el = document.createElement("parcel-value");
                 el.setAttribute("data-label", "TOTP");
                 el.setValue(totp);
