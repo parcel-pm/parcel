@@ -212,7 +212,7 @@
         let popup = document.querySelector(".parcel-popup");
         let targetInfo = await getTargetInfo(target);
         if (targetInfo) {
-            if (!target._parcelToken) {
+            if (!target._parcelToken || target._parcelToken === "broadcast") {
                 target._parcelToken = crypto.randomUUID();
             }
             if (popup) {
@@ -283,7 +283,6 @@
             return;
         }
         port.onMessage.addListener(async (msg) => {
-            console.log(msg?.action);
             if (msg?.action === "fill-value") {
                 console.log(el, msg);
                 await fillField(el, null, null, null, msg.value);
@@ -334,7 +333,6 @@
                     port.postMessage({ action: "error", error: err.message });
                 }
             } else if (msg?.action === "resize") {
-                console.log(msg);
                 const popup = document.querySelector(`.parcel-popup-${port.name}`);
                 if (popup) {
                     popup.style.height = `${msg.height}px`;
