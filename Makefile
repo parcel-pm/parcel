@@ -23,9 +23,8 @@ chrome: extension
 firefox: extension
 	rsync -av src/dist/ firefox/
 	jq "\
-		.background.persistent=true \
-		|.background.scripts=[.background.service_worker] \
-		|del(.background.persistent, .background.service_worker) \
+		.background.scripts=[.background.service_worker] \
+		|del(.background.service_worker) \
 		|.content_scripts |= map(\
 		    if .type == \"module\" \
 		        then del(.type) | .js|=map(gsub(\".js\"; \".es6.js\")) \
