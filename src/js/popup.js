@@ -208,7 +208,10 @@
 
             await new Promise((resolve) => requestAnimationFrame(resolve));
             document.body.style.minHeight = this.scrollHeight + "px";
-            document.body.style.minWidth = `min(500px, ${this.scrollWidth}px)`;
+            const style = getComputedStyle(this);
+            const leftInset = parseFloat(style.left) || 0;
+            const borderLeft = parseFloat(style.borderLeftWidth) || 0;
+            document.body.style.minWidth = `min(600px, ${this.scrollWidth + leftInset + borderLeft}px)`;
             tabPort.postMessage({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
         }
     }
