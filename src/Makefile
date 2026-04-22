@@ -16,6 +16,7 @@ DIST_FILES := \
     js/agent.js \
     js/helpers.js \
     js/integration.js \
+    js/integration.es6.js \
     js/plaintext.js \
     js/popup.js \
     js/schema.js \

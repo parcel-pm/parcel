@@ -26,6 +26,12 @@ firefox: extension
 		.background.persistent=true \
 		|.background.scripts=[.background.service_worker] \
 		|del(.background.persistent, .background.service_worker) \
+		|.content_scripts |= map(\
+		    if .type == \"module\" \
+		        then del(.type) | .js|=map(gsub(\".js\"; \".es6.js\")) \
+			else . \
+		    end \
+	        ) \
 	        " src/dist/manifest.json > firefox/manifest.json
 
 .PHONY: release

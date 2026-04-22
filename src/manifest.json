@@ -15,7 +15,6 @@
         {
             "matches": ["<all_urls>"],
             "js": ["js/shadow.js"],
-            "type": "module",
             "run_at": "document_start",
             "all_frames": true,
             "world": "MAIN"
@@ -30,7 +29,7 @@
     ],
     "web_accessible_resources": [
         {
-            "resources": ["js/helpers.js", "js/selectors.js", "js/popup.js", "html/popup.html"],
+            "resources": ["js/integration.js", "js/helpers.js", "js/selectors.js", "js/popup.js", "html/popup.html"],
             "matches": ["<all_urls>"]
         }
     ],
