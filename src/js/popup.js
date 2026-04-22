@@ -331,6 +331,16 @@
             while (ul.firstChild) {
                 ul.removeChild(ul.firstChild);
             }
+            if (!document.querySelector(".no-matches")) {
+                if (!msg.entries.length) {
+                    const p = document.createElement("p");
+                    p.classList.add("list-notice", "no-matches");
+                    p.textContent = "No matching entries";
+                    ul.parentElement.appendChild(p);
+                } else {
+                    document.querySelector(".no-matches")?.remove();
+                }
+            }
             for (const entry of msg.entries) {
                 const li = document.createElement("li");
                 if (entry.isInHistory) li.classList.add("history");
