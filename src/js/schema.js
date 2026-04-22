@@ -141,7 +141,7 @@ export const ConfigSchema = {
             required: true,
             default: [
                 { name: "secret", pattern: "^(secret|password):", onMissing: "top" },
-                { name: "login", pattern: "^(username|login|email):" },
+                { name: "login", pattern: "^(user|username|login|email):" },
                 {
                     name: "totp",
                     pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):(?!.*otpauth://)",
