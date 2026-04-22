@@ -8,7 +8,7 @@ set -e
 # Permission to use, copy, modify, and/or distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
 # copyright notice and this permission notice appear in all copies.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 # WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
 # MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
@@ -63,14 +63,24 @@ if [ -z "$VALID_SIGNERS" ]; then VALID_SIGNERS="88FF14D6294AF4036B7F00FF676A3C09
 if [ -n "$GPG" ]; then function gpg() { "$GPG" "$@"; return $?; }; fi
 if [ -n "$JQ" ]; then function jq() { "$JQ" "$@"; return $?; }; fi
 
+# transmit message in native messaging host protocol
+function parcel_transmit() {
+    local LC_ALL=C
+    local s=$1 n=${#1} b
+    printf -v b '\\x%02x\\x%02x\\x%02x\\x%02x' \
+        "$(( n       & 255 ))" \
+        "$(( n >> 8  & 255 ))" \
+        "$(( n >> 16 & 255 ))" \
+        "$(( n >> 24 & 255 ))"
+    printf '%b%s' "$b" "$s" >&3
+}
+
 # sender for errors
 # $1: error message
 # $2: optional exit code
 function parcel_error() {
     if [ ${#1} -gt 0 ]; then
-        local OUT="$(jq -n --arg token "$TOKEN" --arg msg "$1" '{token: $token, error: $msg}')"
-        printf "%.8x" ${#OUT} | xxd -r -p | od -An -tx4 | xxd -r -p >&3
-        echo -n "$OUT" >&3
+        parcel_transmit "$(jq -n --arg token "$TOKEN" --arg msg "$1" '{token: $token, error: $msg}')"
     fi
     if [ -n "$2" ]; then
         exit $2
@@ -81,9 +91,7 @@ function parcel_error() {
 # $1: message (JSON object)
 function parcel_send() {
     if [ ${#1} -gt 0 ]; then
-        local OUT="$(jq --arg token "$TOKEN" '{token: $token, data: .}' <<< "$1")"
-        printf "%.8x" ${#OUT} | xxd -r -p | od -An -tx4 | xxd -r -p >&3
-        echo -n "$OUT" >&3
+        parcel_transmit "$(jq --arg token "$TOKEN" '{token: $token, data: .}' <<< "$1")"
     fi
 }
 
@@ -146,15 +154,11 @@ function main() {
 
 # ensure jq works
 if ! command -v jq &> /dev/null; then
-    OUT='{"token: "broadcast", "error":"Cannot find jq ('${JQ:-jq}'): Please configure the correct path for it in parcelrc"}'
-    printf "%.8x" ${#OUT} | xxd -r -p | od -An -tx4 | xxd -r -p >&3
-    echo -n "$OUT" >&3
+    parcel_transmit '{"token: "broadcast", "error":"Cannot find jq ('${JQ:-jq}'): Please configure the correct path for it in parcelrc"}'
     exit 1
 fi
 if ! jq --version &> /dev/null; then
-    OUT='{"token": "broadcast", "error":"jq is not executable: '"${JQ:-jq}"'"}'
-    printf "%.8x" ${#OUT} | xxd -r -p | od -An -tx4 | xxd -r -p >&3
-    echo -n "$OUT" >&3
+    parcel_transmit '{"token": "broadcast", "error":"jq is not executable: '"${JQ:-jq}"'"}' 1
     exit 1
 fi
 

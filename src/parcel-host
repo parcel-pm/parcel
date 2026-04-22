@@ -8,7 +8,7 @@ set -e
 # Permission to use, copy, modify, and/or distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
 # copyright notice and this permission notice appear in all copies.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 # WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
 # MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
@@ -61,7 +61,7 @@ function action_list() {
     update_config
     echo "TODO: Make this work on the default MacOS jq version"
     local OUT="$(
-        find -E "$PASSWORD_STORE_DIR" \( -type f -o -type l \) -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -name '*.gpg' |
+        find "$PASSWORD_STORE_DIR" \( -type f -o -type l \) -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -name '*.gpg' |
             jq -nR '.entries=[inputs | select(length > 0)]' |
             jq -s '
                 .[0] * .[1]
