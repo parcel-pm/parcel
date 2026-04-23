@@ -25,6 +25,7 @@ firefox: extension
 	jq "\
 		.background.scripts=[.background.service_worker] \
 		|del(.background.service_worker) \
+		|.browser_specific_settings.gecko.id=\"parcel@mozilla.org\" \
 		|.content_scripts |= map(\
 		    if .type == \"module\" \
 		        then del(.type) | .js|=map(gsub(\".js\"; \".es6.js\")) \
