@@ -20,9 +20,6 @@ set -e
 TOKEN="broadcast"
 PARCEL_HOST=""
 
-exec 3>&1
-exec 4>&2
-
 # create default startup config file if it doesn't exist
 PARCELRC="$HOME/.config/parcel/parcelrc"
 if [ ! -e "$PARCELRC" ]; then
@@ -52,13 +49,13 @@ if [ ! -e "$PARCELRC" ]; then
 EOT
 fi
 
-# load startup config & set up logging for any unexpected stdout or stderr
+# load startup config & set up dedicated logging
 LOGFILE="$HOME/.local/log/parcel-host.log"
 PASSWORD_STORE_DIR="$HOME/.password-store"
 . "$PARCELRC"
 mkdir -p "$(dirname "$LOGFILE")"
-exec 1>>"$LOGFILE"
-exec 2>&1
+exec 5>>"$LOGFILE"
+exec 2>&5
 if [ -z "$VALID_SIGNERS" ]; then VALID_SIGNERS="88FF14D6294AF4036B7F00FF676A3C09E2E47A72"; fi
 if [ -n "$GPG" ]; then function gpg() { "$GPG" "$@"; return $?; }; fi
 if [ -n "$JQ" ]; then function jq() { "$JQ" "$@"; return $?; }; fi
@@ -72,7 +69,7 @@ function parcel_transmit() {
         "$(( n >> 8  & 255 ))" \
         "$(( n >> 16 & 255 ))" \
         "$(( n >> 24 & 255 ))"
-    printf '%b%s' "$b" "$s" >&3
+    printf '%b%s' "$b" "$s"
 }
 
 # sender for errors
