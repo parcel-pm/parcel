@@ -31,6 +31,7 @@ body {
     background-color: var(--color-bg);
     color: var(--color-text);
     font-size: 14px;
+    font-family: sans-serif;
     overflow: hidden;
     margin: 0;
     padding: 0;
