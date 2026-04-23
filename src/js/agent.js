@@ -153,6 +153,20 @@ new (class Agent extends EventTarget {
     }
 
     /**
+     * Wait until the native host has finished initialising.
+     * @since 1.0.0
+     * @returns {Promise<void>}
+     */
+    async #waitUntilReady() {
+        if (this.#config) return;
+        if (this.#initError) throw this.#initError;
+        await new Promise((resolve, reject) => {
+            this.addEventListener("ready", () => resolve(), { once: true });
+            this.addEventListener("initFailed", (ev) => reject(new Error(ev.detail)), { once: true });
+        });
+    }
+
+    /**
      * Set the configuration for the agent.
      * @since 1.0.0
      * @param {object} config - The configuration object.
@@ -222,6 +236,7 @@ new (class Agent extends EventTarget {
         port.onMessage.addListener(async (message) => {
             try {
                 if (!this.#connectedNative) throw new Error("Not connected to native host");
+                await this.#waitUntilReady();
                 if (message?.action === "match") {
                     // get matching entries
                     const result = await this.search(
