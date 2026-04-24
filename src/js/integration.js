@@ -242,6 +242,8 @@
      */
     chrome.runtime.onConnect.addListener(async (port) => {
         if (!port.name) return;
+        const updateStatus = (status) => port.postMessage({ action: "status", status });
+        const clearStatus = () => port.postMessage({ action: "clear-status" });
         let el = Helpers.shadowSelector(`.parcel-target-${port.name}`);
         if (!el) {
             if (window === window.top && port.name === "broadcast") {
@@ -284,12 +286,15 @@
         }
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "fill-value") {
+                // Fill the target field with the selected value
+                updateStatus("Filling value...");
                 await fillField(el, null, null, null, msg.value);
                 port.postMessage({ action: "close" });
                 document.querySelector(`.parcel-popup-${port.name}`)?.remove();
             } else if (msg?.action === "fill") {
                 // fill the target field, and related fields if configured
                 try {
+                    updateStatus("Filling values...");
                     if (!msg.hasOwnProperty("config")) throw new Error("Config is missing.");
                     if (!msg.hasOwnProperty("plaintext")) throw new Error("Plaintext is missing.");
                     await fillField(el, msg.plaintext, msg.config);

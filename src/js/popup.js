@@ -328,9 +328,14 @@
         }
     });
 
-    // listen for error messages returned from the content script
+    // listen for status & error messages returned from the content script
     tabPort.onMessage.addListener((msg) => {
-        if (msg?.action === "error") {
+        if (msg?.action === "status") {
+            document.querySelector("#status").textContent = msg.status;
+        } else if (msg?.action === "clear-status") {
+            document.querySelector("#status").textContent = "Idle";
+        } else if (msg?.action === "error") {
+            document.querySelector("#status").textContent = "Error";
             const p = document.createElement("p");
             p.classList.add("error");
             p.textContent = msg.error;
@@ -354,7 +359,11 @@
 
     // listen for messages from the native host
     port.onMessage.addListener(async (msg) => {
-        if (msg.action === "match") {
+        if (msg.action === "status") {
+            document.querySelector("#status").textContent = msg.status;
+        } else if (msg.action === "clear-status") {
+            document.querySelector("#status").textContent = "Idle";
+        } else if (msg.action === "match") {
             while (ul.firstChild) {
                 ul.removeChild(ul.firstChild);
             }
@@ -362,7 +371,7 @@
                 const p = document.createElement("p");
                 p.classList.add("list-notice", "no-matches");
                 p.textContent = "No matching entries";
-                ul.parentElement.appendChild(p);
+                ul.insertAdjacentElement("afterend", p);
             } else if (msg.entries.length) {
                 document.querySelector(".no-matches")?.remove();
             }
@@ -458,6 +467,7 @@
                 document.body.appendChild(elDetail);
             }
         } else if (msg.action === "error") {
+            document.querySelector("#status").textContent = "Error";
             const p = document.createElement("p");
             p.classList.add("error");
             p.textContent = msg.error;

@@ -113,6 +113,7 @@ ul {
     }
 }
 #entries {
+    flex-grow: 1;
     overflow-y: auto;
     scrollbar-width: thin;
     li {
@@ -135,11 +136,23 @@ ul {
         }
     }
 }
+#status {
+    background: url("/img/logo-small.svg") no-repeat 2px 1px / 12px var(--color-bg);
+    border-top: 1px solid var(--color-border);
+    box-sizing: content-box;
+    color: var(--color-text);
+    font-size: 12px;
+    height: 14px;
+    margin: 0;
+    padding: 1px 4px 1px 18px;
+    z-index: 15;
+}
 parcel-detail {
     border-left: 1px solid var(--color-border);
     box-shadow: -3px 0 3px -2px var(--color-shadow);
-    bottom: 0;
     display: flex;
+    flex-grow: 1;
+    height: 100%;
     flex-direction: column;
     font-family: monospace;
     gap: 8px;
@@ -147,6 +160,7 @@ parcel-detail {
     overflow-y: auto;
     overflow-x: auto;
     padding: 8px;
+    padding-bottom: 25px;
     position: fixed;
     right: 0;
     top: 0;

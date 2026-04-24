@@ -236,13 +236,19 @@ new (class Agent extends EventTarget {
             await this.#bridgePopup(port);
             return;
         }
+        const updateStatus = (s) => port.postMessage({ action: "status", status: s });
+        const clearStatus = () => port.postMessage({ action: "clear-status" });
+        clearStatus();
 
         // listen for messages
         port.onMessage.addListener(async (message) => {
             try {
                 if (!this.#connectedNative) throw new Error("Not connected to native host");
+                updateStatus("Waiting for native host startup...");
                 await this.#waitUntilReady();
+                clearStatus();
                 if (message?.action === "match") {
+                    updateStatus("Searching for matching entries...");
                     // get matching entries
                     const result = await this.search(
                         message.url,
@@ -250,18 +256,24 @@ new (class Agent extends EventTarget {
                         message.limit,
                         message.history.map((entry) => entry.path),
                     );
+                    clearStatus();
                     port.postMessage({ action: "match", entries: result });
                 } else if (message?.action === "decrypt") {
                     // decrypt the specified entry
+                    updateStatus("Decrypting entry...");
                     const result = await this.#callNative("decrypt", { path: message.path }, this.#config.decryptTimeout * 1000);
+                    clearStatus();
                     port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
                 } else if (message?.action === "config") {
                     // provide the current configuration
+                    updateStatus("Checking for config changes...");
                     let newConfig = await this.#callNative("configure");
                     if (newConfig?.modified > this.#config.modified) {
                         this.#setConfig(newConfig);
+                        updateStatus("Refreshing entry list...");
                         this.#setEntries(await this.#callNative("list"));
                     }
+                    clearStatus();
                     port.postMessage({ action: "config", config: this.#config });
                 }
             } catch (err) {
