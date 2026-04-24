@@ -211,26 +211,15 @@
 
         async setPlaintext(plaintext) {
             this.#plaintext = plaintext;
+            let config = await this.#plaintext.getConfig();
 
-            let secret = await this.#plaintext.getValue("secret");
-            if (secret !== null) {
+            for (let target of config.targets) {
+                if (!target.hoist) continue;
+                let value = await this.#plaintext.getValue(target.name);
+                if (value === null) continue;
                 let el = document.createElement("parcel-value");
-                el.setAttribute("data-label", "Secret");
-                el.setValue(secret, true);
-                this.#root.appendChild(el);
-            }
-            let login = await this.#plaintext.getValue("login");
-            if (login !== null) {
-                let el = document.createElement("parcel-value");
-                el.setAttribute("data-label", "Login");
-                el.setValue(login);
-                this.#root.appendChild(el);
-            }
-            let totp = () => this.#plaintext.getValue("totp");
-            if ((await totp()) !== null) {
-                let el = document.createElement("parcel-value");
-                el.setAttribute("data-label", "TOTP");
-                el.setValue(totp);
+                el.setAttribute("data-label", target.label || target.name);
+                el.setValue(target.dynamic ? () => this.#plaintext.getValue(target.name) : value);
                 this.#root.appendChild(el);
             }
 

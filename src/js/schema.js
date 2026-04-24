@@ -129,6 +129,9 @@ export const ConfigSchema = {
                 type: "object",
                 properties: {
                     name: { type: "string", required: true },
+                    label: { type: "string" },
+                    hoist: { type: "boolean", required: true, default: false },
+                    dynamic: { type: "boolean", required: true, default: false },
                     pattern: { type: "string", required: true, format: "regex", minLength: 1 },
                     onMissing: { type: "string", required: true, enum: ["top", "ntop", "all", "null", "fallback"], default: "null" },
                     strip: { type: "boolean", required: true, default: true },
@@ -140,10 +143,13 @@ export const ConfigSchema = {
             },
             required: true,
             default: [
-                { name: "secret", pattern: "^(secret|password):", onMissing: "top" },
-                { name: "login", pattern: "^(user|username|login|email):" },
+                { name: "secret", label: "Secret", hoist: true, pattern: "^(secret|password):", onMissing: "top" },
+                { name: "login", label: "Login", hoist: true, pattern: "^(user|username|login|email):" },
                 {
                     name: "totp",
+                    label: "TOTP",
+                    hoist: true,
+                    dynamic: true,
                     pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):(?!.*otpauth://)",
                     transform: ["totp"],
                     onMissing: "fallback",

@@ -25,6 +25,15 @@ export class Plaintext {
     }
 
     /**
+     * Get the current config.
+     * @since 1.0.0
+     * @returns {object}
+     */
+    getConfig() {
+        return this.#config;
+    }
+
+    /**
      * Get the value for a given field name.
      * @since 1.0.0
      * @param {string} name - The field name to get the value for
