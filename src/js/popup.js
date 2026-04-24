@@ -291,7 +291,7 @@
 
     window.addEventListener("keydown", (ev) => {
         let selected = document.querySelector(".selected");
-        if (ev.key === "ArrowDown") {
+        if (ev.key === "ArrowDown" || (ev.key === "Tab" && !ev.shiftKey)) {
             ev.preventDefault();
             selected.classList.remove("selected");
             if (selected.tagName === "LI" && selected.nextElementSibling) {
@@ -302,7 +302,7 @@
             selected.classList.add("selected");
             selected.scrollIntoView({ behavior: "smooth", block: "nearest" });
             selected.focus();
-        } else if (ev.key === "ArrowUp") {
+        } else if (ev.key === "ArrowUp" || (ev.key === "Tab" && ev.shiftKey)) {
             ev.preventDefault();
             selected.classList.remove("selected");
             if (selected.tagName === "LI") {
