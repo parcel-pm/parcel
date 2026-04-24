@@ -166,8 +166,8 @@
         popup.classList.add(`parcel-popup-${token}`);
         const root = popup.attachShadow({ mode: "closed" });
         popup.style.position = "absolute";
-        popup.style.top = `${el.getBoundingClientRect().bottom}px`;
-        popup.style.left = `${el.getBoundingClientRect().left}px`;
+        popup.style.top = `${el.getBoundingClientRect().bottom + 5}px`;
+        popup.style.left = `${el.getBoundingClientRect().left + 5}px`;
         popup.style.color = "black";
         popup.style.backgroundColor = "white";
         popup.style.border = "1px solid black";
