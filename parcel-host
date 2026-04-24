@@ -19,6 +19,7 @@ set -e
 
 TOKEN="broadcast"
 PARCEL_HOST=""
+BOOTSTRAP_VERSION="1"
 
 # create default startup config file if it doesn't exist
 PARCELRC="$HOME/.config/parcel/parcelrc"
