@@ -284,7 +284,6 @@
         }
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "fill-value") {
-                console.log(el, msg);
                 await fillField(el, null, null, null, msg.value);
                 port.postMessage({ action: "close" });
                 document.querySelector(`.parcel-popup-${port.name}`)?.remove();
