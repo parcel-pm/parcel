@@ -299,7 +299,6 @@
                     })
                     .filter((t) => (t.relatedOnly = false));
                 for (let selector of selectors) {
-                    //el = document.querySelector(selector.selector);
                     el = Helpers.shadowSelector(selector.selector);
                     if (el) {
                         el._parcelToken = port.name;
