@@ -256,7 +256,12 @@
         let targetInfo = await getTargetInfo(target);
         if (targetInfo) {
             if (!target._parcelToken || target._parcelToken === "broadcast") {
-                target._parcelToken = crypto.randomUUID();
+                try {
+                    target._parcelToken = crypto.randomUUID();
+                } catch (err) {
+                    // fallback for browsers without crypto.randomUUID(), typically insecure pages lacking the crypto API
+                    target._parcelToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                }
             }
             if (popup) {
                 popup.remove();
