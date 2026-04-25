@@ -4,6 +4,17 @@
     const Helpers = (await import(chrome.runtime.getURL("/js/helpers.js"))).Helpers;
     const Plaintext = (await import(chrome.runtime.getURL("/js/plaintext.js"))).Plaintext;
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
+    if (token === "broadcast" && window !== window.top) {
+        const msg =
+            "Parcel may not be independently embedded in a frame. If you are seeing this message, it means that a website " +
+            "has attempted to embed Parcel in a way that could allow them to steal your data. Please close this window " +
+            "and avoid interacting with the site until they have resolved their security problems.";
+        document.body.textContent = msg;
+        document.querySelectorAll("style, link[rel=stylesheet]").forEach((el) => el.remove());
+        document.body.style.all = "unset";
+        throw new Error(msg);
+        return;
+    }
 
     /**
      * Connect to the active tab content script, falling back to relay via the background service if necessary
