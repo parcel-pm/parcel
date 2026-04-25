@@ -25,6 +25,7 @@ firefox: extension
 	jq "\
 		.background.scripts=[.background.service_worker] \
 		|del(.background.service_worker) \
+		|.permissions += [\"contextualIdentities\"] \
 		|.browser_specific_settings.gecko.id=\"parcel@mozilla.org\" \
 		|.content_scripts |= map(\
 		    if .type == \"module\" \

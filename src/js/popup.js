@@ -13,6 +13,7 @@
     async function connectToTab() {
         if (chrome.tabs?.getCurrent && chrome.tabs?.query && chrome.tabs?.connect) {
             const tab = (await chrome.tabs.getCurrent()) || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+            tab.contextualIdentity = tab?.cookieStoreId;
             return { tab, tabPort: chrome.tabs.connect(tab.id, { name: token }) };
         }
 
@@ -276,8 +277,9 @@
     if (tab.url) {
         const url = new URL(tab.url);
         const hash = await Helpers.sha256(url.origin);
+        const scope = await Helpers.sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");
         document.getElementById("origin").textContent = url.hostname;
-        history = (await chrome.storage.local.get(`history:${hash}`))?.[`history:${hash}`] || [];
+        history = (await chrome.storage.local.get(`history:${scope}:${hash}`))?.[`history:${scope}:${hash}`] || [];
     } else {
         limit = false;
         document.getElementById("origin").classList.add("hidden");
@@ -400,6 +402,7 @@
 
                 const url = new URL(tab.url || "undefined-url://");
                 const hash = await Helpers.sha256(url.origin);
+                const scope = await Helpers.sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");
                 for (let he of history) {
                     if (he.path === (await Helpers.sha256(entry.path))) {
                         const historyButton = document.createElement("button");
@@ -409,7 +412,7 @@
                         historyButton.addEventListener("click", (ev) => {
                             ev.stopPropagation();
                             history = history.filter((h) => h.path !== he.path);
-                            chrome.storage.local.set({ [`history:${hash}`]: history });
+                            chrome.storage.local.set({ [`history:${scope}:${hash}`]: history });
                             historyButton.remove();
                             li.remove();
                             for (let el = ul.lastElementChild; el; el = el.previousElementSibling) {
@@ -457,7 +460,8 @@
                 if (tab.url) {
                     const url = new URL(tab.url);
                     const hash = await Helpers.sha256(url.origin);
-                    chrome.storage.local.set({ [`history:${hash}`]: history.slice(0, (await config).historyLength) });
+                    const scope = await Helpers.sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");
+                    chrome.storage.local.set({ [`history:${scope}:${hash}`]: history.slice(0, (await config).historyLength) });
                 }
             } else if (msg.intent === "detail") {
                 let plaintext = new Plaintext(msg.plaintext, config);

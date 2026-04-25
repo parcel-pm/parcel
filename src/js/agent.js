@@ -309,7 +309,10 @@ new (class Agent extends EventTarget {
             tabPort.disconnect();
         };
 
-        port.postMessage({ action: "tab-context", tab: { id: tabId, url: tabURL } });
+        port.postMessage({
+            action: "tab-context",
+            tab: { id: tabId, url: tabURL, contextualIdentity: port.sender?.tab?.cookieStoreId },
+        });
 
         port.onMessage.addListener((message) => tabPort.postMessage(message));
         port.onDisconnect.addListener(disconnect);
