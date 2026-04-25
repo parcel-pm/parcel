@@ -154,6 +154,7 @@ export const ConfigSchema = {
                     name: { type: "string", required: true },
                     onMissing: { type: "string", required: true, enum: ["top", "ntop", "all", "null", "fallback"], default: "null" },
                     pattern: { type: "string", required: true, format: "regex", minLength: 1 },
+                    related: { type: "array", required: true, items: { type: "string" }, default: [] },
                     strip: { type: "boolean", required: true, default: true },
                     transform: { type: "array", items: { type: "string", enum: ["totp", "totp-url"] }, required: true, default: [] },
                     trim: { type: "boolean", required: true, default: true },
@@ -161,8 +162,15 @@ export const ConfigSchema = {
             },
             required: true,
             default: [
-                { name: "secret", label: "Secret", hoist: true, pattern: "^(secret|password):", onMissing: "top" },
-                { name: "login", label: "Login", hoist: true, pattern: "^(user|username|login|email):" },
+                {
+                    name: "secret",
+                    label: "Secret",
+                    hoist: true,
+                    pattern: "^(secret|password):",
+                    onMissing: "top",
+                    related: ["login", "totp"],
+                },
+                { name: "login", label: "Login", hoist: true, pattern: "^(user|username|login|email):", related: ["secret", "totp"] },
                 {
                     name: "totp",
                     label: "TOTP",
@@ -171,6 +179,7 @@ export const ConfigSchema = {
                     hoist: true,
                     onMissing: "fallback",
                     pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):(?!.*otpauth://)",
+                    related: ["login", "secret"],
                     transform: ["totp"],
                 },
                 {

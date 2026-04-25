@@ -64,6 +64,7 @@
                     break;
                 }
             }
+            finalTarget.related = (await config).targets.find((t) => t.name === finalTarget.type)?.related || [];
         }
         return finalTarget;
     }
@@ -75,16 +76,19 @@
      * @returns {HTMLElement[]} - The related fillable fields.
      */
     async function getRelatedFields(el) {
+        const targetInfo = await getTargetInfo(el);
         const form = el.closest("form");
         if (!form) return [];
         const relatedFields = [];
         for (let target of await validTargets) {
-            form.querySelectorAll(target.selector).forEach(async (field) => {
+            for (const field of form.querySelectorAll(target.selector)) {
+                if (relatedFields.includes(field) || field === el) continue;
                 for (let target of await invalidTargets) {
                     if (field.matches(target.selector)) return;
                 }
-                relatedFields.push(field);
-            });
+                if (!field.targetInfo) field.targetInfo = await getTargetInfo(field);
+                if (field.targetInfo && targetInfo.related.includes(field.targetInfo?.type)) relatedFields.push(field);
+            }
         }
         return relatedFields;
     }
