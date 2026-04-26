@@ -47,8 +47,18 @@ if [ ! -e "$PARCELRC" ]; then
 
 # The password store directory
 #PASSWORD_STORE_DIR="\$HOME/.password-store"
+
+# The sha256 hash of the main host script which is bundled with the extension.
+# This is used to verify the integrity of the script before executing it. By
+# default, this is not set, but if you wish to review any updates to the host
+# script before they are executed, you can set this to the expected hash and the
+# bootstrap script will verify the hash of the script before executing it.
+#HOST_HASH="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 EOT
 fi
+
+# Ensure we have a usable sha256
+SHA256="$(command -v sha256sum || command -v sha256)"
 
 # load startup config & set up dedicated logging
 LOGFILE="$HOME/.local/log/parcel-host.log"
@@ -118,6 +128,14 @@ function action_install() {
         return 0
     fi
 
+    # verify hash
+    if [ -n "$HOST_HASH" ]; then
+        HASH=$($SHA256 <<< "$SCRIPT" | awk '{print $1}')
+        if [ "$HASH" != "$HOST_HASH" ]; then
+            parcel_error "Unapproved host script hash - please review the updated host script, then set the new hash $HASH in your parcelrc file and reload the browser extension."
+            return 1
+        fi
+    fi
 
     PARCEL_HOST="$SCRIPT"
 
