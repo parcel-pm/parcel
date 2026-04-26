@@ -196,11 +196,10 @@
      * Triggers a popup for the given element.
      * @since 1.0.0
      * @param {HTMLElement} element - The element to trigger the popup for.
-     * @param {string} targetClass - The fill class of the target.
      * @param {string} token - The token for the element.
      * @returns {void}
      */
-    function triggerPopup(el, targetClass, token) {
+    function triggerPopup(el, token) {
         Helpers.shadowSelectorAll(".parcel-popup").forEach((popup) => {
             if (popup._parcelToken !== token) {
                 popup.remove();
@@ -275,7 +274,7 @@
             }
             target.setAttribute("parcel-selector", targetInfo.selector);
             target.setAttribute("parcel-type", targetInfo.type);
-            triggerPopup(target, targetInfo.class, target._parcelToken);
+            triggerPopup(target, target._parcelToken);
         } else if (popup && popup._parcelCreated < Date.now() - 350) popup.remove();
     }
 
