@@ -5,13 +5,14 @@
     color-scheme: light dark;
     --color-bg: light-dark(#ffffff, #414141);
     --color-bg-selected: light-dark(#eaeaea, #3a3a3a);
-    --color-bg-status: light-dark(#f0f0f0, #3a3a3a);
+    --color-bg-status: light-dark(#f0f0f0, #353535);
     --color-bg-error: #dd0000;
     --color-bg-input: light-dark(#eeeeee, #656565);
     --color-text: light-dark(#000000, #dbdbdb);
     --color-text-error: #ffffff;
     --color-text-inverted: #ffffff;
     --color-border: light-dark(#cccccc, #333333);
+    --color-border-mid: #888888;
     --color-shadow: #4a4a4a;
     --color-modal-bg: light-dark(#eeeeee, #414141);
     --color-modal-bg-invert: #afafaf;
@@ -139,7 +140,7 @@ ul {
 }
 #status {
     background: url("/img/logo-small.svg") no-repeat 2px 1px / 12px var(--color-bg-status);
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--color-border-mid);
     box-sizing: content-box;
     color: var(--color-text);
     font-size: 12px;
