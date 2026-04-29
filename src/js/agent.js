@@ -22,6 +22,11 @@ new (class Agent extends EventTarget {
 
         this.addEventListener("parcel::native::bootstrap", (ev) => this.#init());
         chrome.runtime.onConnect.addListener((port) => this.#connect(port));
+        if (chrome.contextualIdentities?.onRemoved) {
+            chrome.contextualIdentities.onRemoved.addListener((changeInfo) =>
+                this.#clearContainerHistory(changeInfo.contextualIdentity?.cookieStoreId),
+            );
+        }
 
         // open port to native host
         this.#connectNative();
@@ -51,6 +56,23 @@ new (class Agent extends EventTarget {
             this.#initError = err;
             console.error(`Agent initialisation failed: ${err.message}`);
             this.dispatchEvent(new CustomEvent("initFailed", { detail: err.message }));
+        }
+    }
+
+   /**
+    * Clear saved history for a removed contextual identity.
+    * @since 1.0.0
+    * @param {string} cookieStoreId - The cookie store ID of the removed contextual identity.
+    * @returns {void}
+    */
+    async #clearContainerHistory(cookieStoreId) {
+        if (!cookieStoreId) return;
+        try {
+            const scope = await Helpers.sha256(cookieStoreId);
+            const keys = Object.keys(await chrome.storage.local.get(null)).filter((key) => key.startsWith(`history:${scope}:`));
+            if (keys.length) await chrome.storage.local.remove(keys);
+        } catch (err) {
+            console.error(`Failed to clear history for container ${cookieStoreId}: ${err.message}`);
         }
     }
 
