@@ -95,7 +95,7 @@ The only exceptions to this rule are:
 Parcel must not interact with any network resources, for any reason. For the
 avoidance of doubt, this includes any form of telemetry or analytics, and any
 form of error reporting or crash reporting that involves sending data to a
-remote server. Parcel's entire functionality must be entirely self-contained
+remote server. Parcel's complete functionality must be entirely self-contained
 within the user's local environment, and must not rely on any external services
 or resources.
 
