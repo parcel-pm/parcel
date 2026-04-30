@@ -50,6 +50,7 @@
      * @returns {string|null} - The target type or null if not found.
      */
     async function getTargetInfo(el, related = false) {
+        if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return null;
         try {
             if (el.hasAttribute("type") && !["text", "email", "tel", "password"].includes(el.type)) return null;
         } catch (err) {
@@ -327,6 +328,7 @@
                 for (let selector of selectors) {
                     el = Helpers.shadowSelector(selector.selector);
                     if (el) {
+                        if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
                         el._parcelToken = port.name;
                         break;
                     }
@@ -348,7 +350,7 @@
         }
         const targetInfo = await getTargetInfo(el);
         if (!targetInfo) {
-            port.postMessage({ action: "error", error: "Cannot find a suitable autofill target." });
+            port.postMessage({ action: "error", error: "The selected autofill candidate was unsuitable." });
             port.disconnect();
             return;
         }
