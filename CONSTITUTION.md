@@ -78,19 +78,31 @@ source code of the native host is always visible and auditable by users.
 
 #### 1.3.3 No file modification
 
-Parcel is explicitly designed as a read-only tool, and must not modify any files on the user's filesystem.
+Parcel is explicitly designed as a read-only tool, and must not modify any
+files on the user's filesystem.
 
 The only exceptions to this rule are:
 
- - The native host may create a default `parcelrc` configuration file if one
-   does not already exist; and
+ - The native host may create a default `parcelrc` startup configuration file
+   if one does not already exist; and
 
  - The native host may create and append to a dedicated log file (e.g.
    `parcel.log`) for the purposes of logging errors and other relevant
    information. This log file must never, under any circumstances, contain any
    part of the user's decrypted credential files.
 
-#### 1.3.4 No network access
+For clarity, this also means that Parcel is prohibited from modifying its own
+configuration.
+
+#### 1.3.4 No arbitrary file access
+
+Other than its own configuration and logs, Parcel must not have access to any
+files on the user's filesystem that the user has not explicitly whitelisted.
+This restriction must be enforced by the native host script, such that the
+browser extension is *incapable* of accessing any non-whitelisted files, even
+in the event of a full compromise.
+
+#### 1.3.5 No network access
 
 Parcel must not interact with any network resources, for any reason. For the
 avoidance of doubt, this includes any form of telemetry or analytics, and any
