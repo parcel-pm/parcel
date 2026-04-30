@@ -167,7 +167,7 @@ All commits must be signed with a GPG key that is valid at the time the
 contribution is merged.
 
 Contributors to the project must also adhere to any additional guidelines or
-requirements that may be outlined in CONTRIBUTING.md.
+requirements that may be outlined in [CONTRIBUTING.md].
 
 ## 4 Community standards
 
