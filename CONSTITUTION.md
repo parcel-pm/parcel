@@ -119,7 +119,7 @@ All official release packaging and distribution must be handled by the
 following people only:
 
  - Steve Gilberd
- - Maxim Baz
+ - Max Baz
 
 No person not named in this section of the constitution may package or
 distribute releases of Parcel, and any such releases that are not packaged by
@@ -137,7 +137,7 @@ must be made available alongside the release files.
 Only the following GPG keys may be used to sign official releases of Parcel:
 
  - Steve Gilberd: 88FF14D6294AF4036B7F00FF676A3C09E2E47A72
- - Maxim Baz: 56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601
+ - Max Baz: 56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601
  - Parcel release signing key #1: 82ED663067C6017BAA4BC752EB670BF2B1131683
  - Parcel release signing key #2: B0908ED59A96C9882BED9A942A51761511A30253
 
@@ -186,7 +186,7 @@ decisions about its direction and priorities.
 This core team is composed of the following individuals:
 
  - Steve Gilberd
- - Maxim Baz
+ - Max Baz
 
 ### 5.1 Constitutional amendments
 
