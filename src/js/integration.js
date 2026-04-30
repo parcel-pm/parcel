@@ -285,15 +285,17 @@
         } else if (popup && popup._parcelCreated < Date.now() - 350) popup.remove();
     }
 
-    document.addEventListener("click", (ev) => handleTriggerClick(ev.target), { capture: true, passive: true });
-    document.addEventListener(
-        "parcel-shadow-click",
-        async (ev) => {
-            const target = Helpers.shadowSelector(`[parcel-shadow-event="${ev.detail.target}"]`, document);
-            if (target) handleTriggerClick(target);
-        },
-        { capture: true, passive: true },
-    );
+    if (!(await config).disableContextPopup) {
+        document.addEventListener("click", (ev) => handleTriggerClick(ev.target), { capture: true, passive: true });
+        document.addEventListener(
+            "parcel-shadow-click",
+            async (ev) => {
+                const target = Helpers.shadowSelector(`[parcel-shadow-event="${ev.detail.target}"]`, document);
+                if (target) handleTriggerClick(target);
+            },
+            { capture: true, passive: true },
+        );
+    }
 
     /**
      * Handle messages from the popup.
