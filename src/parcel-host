@@ -65,7 +65,7 @@ function action_list() {
     update_config
     echo "TODO: Make this work on the default MacOS jq version" >&2
     local OUT="$(
-        find "$PASSWORD_STORE_DIR" \( -type f -o -type l \) -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -name '*.gpg' |
+        find "$PASSWORD_STORE_DIR" \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -name '*.gpg' -print \) |
             jq -nR '.entries=[inputs | select(length > 0)]' |
             jq -s '
                 .[0] * .[1]
