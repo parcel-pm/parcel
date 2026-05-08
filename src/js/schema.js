@@ -150,8 +150,7 @@ export const ConfigSchema = {
     properties: {
         additionalSelectors: SelectorSchema,
         additionalTargets: { type: "array", items: TargetSchema },
-        cacheTTL: { type: "number", required: true, minimum: 0, default: 300 },
-        cacheTTLInteractive: { type: "number", required: true, minimum: 0, default: 10 },
+        cacheTTL: { type: "number", required: true, minimum: 0, default: 10 },
         decryptTimeout: { type: "number", required: true, minimum: 1, default: 60 },
         disableContextPopup: { type: "boolean", required: true, default: false },
         fillRelated: { type: "boolean", required: true, default: true },

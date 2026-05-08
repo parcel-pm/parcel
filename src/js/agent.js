@@ -243,9 +243,19 @@ new (class Agent extends EventTarget {
      * @returns {object[]} - The list of available pass entries.
      */
     async #getEntries(cacheTTL = this.#config.cacheTTL) {
-        if (Date.now() - this.#entriesUpdated > cacheTTL * 1000) {
-            this.#setEntries(await this.#callNative("list"));
+        let cacheAge = (Date.now() - this.#entriesUpdated) / 1000;
+        if (cacheTTL && this.#entries && cacheAge < Math.min(cacheTTL, this.#config.cacheTTL)) return this.#entries;
+
+        let needRefresh = !this.#entriesUpdated;
+        if (this.#entriesUpdated) {
+            // if the cache is valid, check with the native host if there have been any changes since we last updated it
+            const changes = (await this.#callNative("changes_since", { since: Math.floor(this.#entriesUpdated / 1000) }))?.changes;
+            if (!changes) {
+                this.#entriesUpdated = Date.now();
+                needRefresh = false;
+            } else needRefresh = true;
         }
+        if (needRefresh) this.#setEntries(await this.#callNative("list"));
         return this.#entries;
     }
 
@@ -390,7 +400,7 @@ new (class Agent extends EventTarget {
             const suffix = await this.#getPublicSuffix(origin.hostname);
             const slices = [];
             for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
-            for (let entry of await this.#getEntries(search.length ? this.#config.cacheTTLInteractive : undefined)) {
+            for (let entry of await this.#getEntries()) {
                 const hash = await Helpers.sha256(entry.path);
                 entry.isInHistory = history.includes(hash);
 
@@ -438,7 +448,7 @@ new (class Agent extends EventTarget {
 
         // unrestricted search
         if (!limit) {
-            for (let entry of await this.#getEntries(search.length ? this.#config.cacheTTLInteractive : undefined)) {
+            for (let entry of await this.#getEntries()) {
                 if (!matches.includes(entry)) {
                     if (search) {
                         let p = new RegExp(search, "ui");

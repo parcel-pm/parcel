@@ -60,6 +60,18 @@ function action_configure() {
     parcel_send "$CONFIG"
 }
 
+# check whether there have been any changes to the password store since the last time the list was generated
+function action_changes_since() {
+    update_config
+    local SINCE="$(jq -r '.since' <<< "$1")"
+    if [[ -z "$SINCE" || "$SINCE" == "null" || ! "$SINCE" =~ ^[0-9]{10}$ ]]; then
+        parcel_error "Invalid timestamp: $SINCE"
+    fi
+    SINCE="$(date -d "$SINCE" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -j -f "%s" "$SINCE" +'%Y-%m-%d %H:%M:%S')"
+    CHANGES=$(find "$PASSWORD_STORE_DIR" \( -type d -name '.git' -prune \) -o \( -type d -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -newermt "$SINCE" -print \) | wc -l)
+    parcel_send "$(jq -n --arg changes "$CHANGES" '{changes: ($changes|trim|tonumber)}')"
+}
+
 # get a list of all the password entries which match the config
 function action_list() {
     update_config
