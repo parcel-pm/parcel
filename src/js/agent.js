@@ -420,22 +420,13 @@ new (class Agent extends EventTarget {
                 }
             }
 
-            // origin-matching search
-            matches = matches
-                .filter((entry) => {
-                    if (search) {
-                        let p = new RegExp(search, "ui");
-                        return p.test(entry.name);
-                    }
-                    return true;
-                })
-                .sort((a, b) => {
-                    if (a.matchesHost && !b.matchesHost) return -1;
-                    if (!a.matchesHost && b.matchesHost) return 1;
-                    if (a.matchesHostPart && !b.matchesHostPart) return -1;
-                    if (!a.matchesHostPart && b.matchesHostPart) return 1;
-                    return a.name.localeCompare(b.name);
-                });
+            matches = matches.sort((a, b) => {
+                if (a.matchesHost && !b.matchesHost) return -1;
+                if (!a.matchesHost && b.matchesHost) return 1;
+                if (a.matchesHostPart && !b.matchesHostPart) return -1;
+                if (!a.matchesHostPart && b.matchesHostPart) return 1;
+                return a.name.localeCompare(b.name);
+            });
             for (let i = 0; i < matches.length; i++) {
                 matches[i].sortOrder = i;
             }
@@ -446,17 +437,22 @@ new (class Agent extends EventTarget {
             });
         }
 
-        // unrestricted search
-        if (!limit) {
-            for (let entry of await this.#getEntries()) {
-                if (!matches.includes(entry)) {
-                    if (search) {
-                        let p = new RegExp(search, "ui");
-                        if (p.test(entry.name)) matches.push(entry);
-                    }
+        // add all entries for unrestricted search
+        if (!limit && search?.length) for (const entry of await this.#getEntries()) if (!matches.includes(entry)) matches.push(entry);
+
+        // filter by space-separated regex search terms
+        if (search) {
+            for (const term of search.split(/\s+/u)) {
+                try {
+                    let p = new RegExp(term, "ui");
+                    matches = matches.filter((entry) => p.test(entry.name));
+                } catch (err) {
+                    console.warn(`Invalid search term: ${term}`);
+                    throw err;
                 }
             }
         }
+
         for (let i = 0; i < matches.length; i++) {
             if (!matches[i].hasOwnProperty("sortOrder")) {
                 matches[i].sortOrder = i;
