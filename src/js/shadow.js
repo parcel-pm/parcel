@@ -14,7 +14,9 @@ if (!_attachShadow) {
             root.addEventListener("click", (ev) => {
                 const evUUID = crypto.randomUUID();
                 ev.target.setAttribute("parcel-shadow-event", evUUID);
-                document.dispatchEvent(new CustomEvent("parcel-shadow-click", { detail: { host: hostUUID, target: evUUID } }));
+                document.dispatchEvent(
+                    new CustomEvent("parcel-shadow-click", { detail: { host: hostUUID, target: evUUID, x: ev.clientX, y: ev.clientY } }),
+                );
             });
         }, 0);
         return root;
