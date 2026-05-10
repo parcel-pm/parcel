@@ -11,13 +11,20 @@ if (!_attachShadow) {
             const hostUUID = crypto.randomUUID();
             this.setAttribute("is-shadow", "");
             this.setAttribute("parcel-shadow-host", hostUUID);
-            root.addEventListener("click", (ev) => {
+
+            const shadowEvents = new WeakSet();
+            const clickHandler = (ev) => {
+                if (shadowEvents.has(ev)) return; // avoids handling the same event on both the target element *and* the shadow host
+                shadowEvents.add(ev);
                 const evUUID = crypto.randomUUID();
                 ev.target.setAttribute("parcel-shadow-event", evUUID);
                 document.dispatchEvent(
                     new CustomEvent("parcel-shadow-click", { detail: { host: hostUUID, target: evUUID, x: ev.clientX, y: ev.clientY } }),
                 );
-            });
+            };
+
+            root.addEventListener("click", clickHandler);
+            this.addEventListener("click", clickHandler);
         }, 0);
         return root;
     };

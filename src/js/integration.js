@@ -324,9 +324,11 @@
      * @param {HTMLElement} target - The clicked element.
      * @param {number} x - The x coordinate of the click.
      * @param {number} y - The y coordinate of the click.
+     * @param {boolean} isShadowClick - Whether the click originated from the shadow intercept
      * @returns {void}
      */
-    async function handleTriggerClick(target, x, y) {
+    async function handleTriggerClick(target, x, y, isShadowClick = false) {
+        if (!isShadowClick && target.hasAttribute("is-shadow")) return; // ignore duplicate clicks from shadow hosts
         if (target._lastClicked && target._lastClicked > Date.now() - 350) return; // debounce multiple quick clicks
         target._lastClicked = Date.now();
 
@@ -367,7 +369,7 @@
             async (ev) => {
                 const target = Helpers.shadowSelector(`[parcel-shadow-event="${ev.detail.target}"]`, document);
                 target.removeAttribute("parcel-shadow-event");
-                if (target) handleTriggerClick(target, ev.detail.x, ev.detail.y);
+                if (target) handleTriggerClick(target, ev.detail.x, ev.detail.y, true);
             },
             { capture: true, passive: true },
         );
