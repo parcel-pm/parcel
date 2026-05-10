@@ -329,6 +329,7 @@
      */
     async function handleTriggerClick(target, x, y, isShadowClick = false) {
         if (!isShadowClick && target.hasAttribute("is-shadow")) return; // ignore duplicate clicks from shadow hosts
+        if (target?.control) return; // ignore clicks on labels, we'll handle them via the cascaded click on its associated element
         if (target._lastClicked && target._lastClicked > Date.now() - 350) return; // debounce multiple quick clicks
         target._lastClicked = Date.now();
 
