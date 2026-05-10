@@ -272,8 +272,6 @@
             };
         }
 
-        //const popup = (el._parcelPopup = document.createElement("div"));
-        //popup._parcelTarget = el;
         const popup = document.createElement("div");
         popup._parcelCreated = Date.now();
         popup._parcelToken = token;
