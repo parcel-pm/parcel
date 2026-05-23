@@ -125,6 +125,7 @@ export const TargetSchema = {
         fallback: { type: "string", minLength: 1 },
         fallbackMatch: { type: "string", format: "regex", minLength: 1 },
         hoist: { type: "boolean", required: true, default: false },
+        highlightSpecial: { type: "boolean", required: true, default: false },
         label: { type: "string" },
         name: { type: "string", required: true },
         onMissing: {

@@ -9,6 +9,7 @@ export const defaultTargets = [
         name: "secret",
         label: "Secret",
         hoist: true,
+        highlightSpecial: true,
         pattern: "^(secret|password):",
         onMissing: "naked-top",
         related: ["login", "totp"],

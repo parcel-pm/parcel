@@ -253,7 +253,7 @@
                 if (value === null) continue;
                 let el = document.createElement("parcel-value");
                 el.setAttribute("data-label", target.label || target.name);
-                el.setValue(target.dynamic ? () => this.#plaintext.getValue(target.name) : value);
+                el.setValue(target.dynamic ? () => this.#plaintext.getValue(target.name) : value, target.highlightSpecial);
                 this.#root.appendChild(el);
             }
 
