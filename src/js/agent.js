@@ -267,6 +267,8 @@ new (class Agent extends EventTarget {
      */
     async #connect(port) {
         var authorised = false;
+        var tabId = null;
+        var token = null;
 
         if (port.name?.startsWith("popup-bridge:")) {
             await this.#bridgePopup(port);
@@ -302,6 +304,8 @@ new (class Agent extends EventTarget {
                     if (message?.action === "auth" && (this.#authorisedTokens.has(message.token) || message.token === "broadcast")) {
                         if (message.token !== "broadcast") this.#authorisedTokens.delete(message.token);
                         authorised = true;
+                        token = message.token;
+                        tabId = message?.tab?.id || null;
                         return;
                     }
                     if (!authorised) throw new Error("Unauthorised port");
@@ -321,8 +325,18 @@ new (class Agent extends EventTarget {
                     // decrypt the specified entry
                     updateStatus("Decrypting entry...");
                     const result = await this.#callNative("decrypt", { path: message.path }, this.#config.decryptTimeout * 1000);
-                    clearStatus();
-                    port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
+                    try {
+                        clearStatus();
+                        port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
+                    } catch (err) {
+                        // the port is disconnected, most likely as a result of https://bugzilla.mozilla.org/show_bug.cgi?id=1292701
+                        if (message?.intent === "fill" && token === "broadcast" && tabId) {
+                            console.warn("Falling back to fire-and-forget fill from agent");
+                            const tabPort = chrome.tabs.connect(tabId, { name: "broadcast", frameId: 0 });
+                            tabPort.onMessage.addListener(() => {}); // ignore responses, because we aren't an actual popup instance
+                            tabPort.postMessage({ action: "fill", config: this.#config, plaintext: result.plaintext });
+                        } else throw err;
+                    }
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     updateStatus("Checking for config changes...");
