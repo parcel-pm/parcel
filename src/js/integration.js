@@ -285,6 +285,16 @@
             };
         }
 
+        // adjust coordinates for scroll position
+        position = {
+            top: position.top + window.scrollY,
+            bottom: position.bottom + window.scrollY,
+            left: position.left + window.scrollX,
+            right: position.right + window.scrollX,
+            x: position.x + window.scrollX,
+            y: position.y + window.scrollY,
+        };
+
         const popup = document.createElement("div");
         popup._parcelCreated = Date.now();
         popup._parcelToken = token;
