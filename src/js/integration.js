@@ -15,7 +15,7 @@
         if (port.name !== "trigger") return;
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "trigger-popup") {
-                triggerPopup(msg.token, msg.frameId, msg.position);
+                triggerPopup(msg.token, msg.frameId, msg.position, msg.origin);
             } else if (msg?.action === "close-popup") {
                 document.querySelectorAll(".parcel-popup").forEach((popup) => popup.remove());
             } else if (msg?.action === "resize-popup") {
@@ -386,6 +386,7 @@
                 frameId,
                 token: target._parcelToken,
                 position: target.getBoundingClientRect(),
+                origin: window.location.origin,
             });
         } catch (err) {
             // dispatch other clicks to the root frame too, so that they can be used to close the popup
@@ -466,7 +467,9 @@
             return;
         }
         port.onMessage.addListener(async (msg) => {
-            if (msg?.action === "fill-value") {
+            if (msg?.action === "ready") {
+                port.postMessage({ action: "origin", origin: window.location.origin });
+            } else if (msg?.action === "fill-value") {
                 // Fill the target field with the selected value
                 updateStatus("Filling value...");
                 await fillField(el, null, null, null, msg.value);
