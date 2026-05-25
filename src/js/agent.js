@@ -270,6 +270,11 @@ new (class Agent extends EventTarget {
         var tabId = null;
         var token = null;
 
+        port.onDisconnect.addListener(() => {
+            // ignore global disconnect errors (expected from bfcache)
+            chrome.runtime.lastError;
+        });
+
         if (port.name?.startsWith("popup-bridge:")) {
             await this.#bridgePopup(port);
             return;

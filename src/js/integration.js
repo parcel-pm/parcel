@@ -5,7 +5,11 @@
     const { Schema, SelectorSchema } = await import(chrome.runtime.getURL("/js/schema.js"));
     const targetSelectors = import(chrome.runtime.getURL("/js/selectors.js"));
     const targetBindings = {};
-    const authPort = chrome.runtime.connect({ name: "auth" });
+    let authPort = chrome.runtime.connect({ name: "auth" });
+    window.addEventListener("pageshow", ev => {
+        // re-establish connection to the auth port on bfcache restore
+        if (ev.persisted) authPort = chrome.runtime.connect({ name: "auth" });
+    });
     var frameId = 0;
 
     /**
@@ -39,7 +43,11 @@
             }
         });
     });
-    const triggerPort = chrome.runtime.connect({ name: "trigger" });
+    let triggerPort = chrome.runtime.connect({ name: "trigger" });
+    window.addEventListener("pageshow", ev => {
+        // re-establish connection to the trigger port on bfcache restore
+        if (ev.persisted) triggerPort = chrome.runtime.connect({ name: "trigger" });
+    });
     window.addEventListener("message", (ev) => {
         if (ev.data?.action === "parcel-frame-id") {
             const frameEl = [...document.querySelectorAll("iframe")].find((f) => f.contentWindow === ev.source);
