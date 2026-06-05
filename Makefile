@@ -55,3 +55,7 @@ endif
 	(cd chrome && zip -r ../dist/parcel-chrome-$(VERSION).zip *)
 	(cd firefox && zip -r ../dist/parcel-firefox-$(VERSION).zip *)
 	for file in dist/*; do gpg --detach-sign --armor "$$file"; done
+
+.PHONY: test-native
+test-native:
+	node test/native-host-test.js
