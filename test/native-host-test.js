@@ -339,6 +339,76 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             env.cleanup();
         }
     });
+
+    test("creates parcelrc if it does not exist", async () => {
+        const home = mkdtempSync(join(tmpdir(), "parcel-test-"));
+        const passdir = join(home, ".password-store");
+        const logdir = join(home, ".local", "log");
+        mkdirSync(passdir, { recursive: true });
+        mkdirSync(logdir, { recursive: true });
+
+        // No parcelrc, no .parcel.json, no password entries, and no mock GPG
+        const env = { home, passdir, bin: null, knownSigner: null };
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            const parcelrc = join(home, ".config", "parcel", "parcelrc");
+            const content = readFileSync(parcelrc, "utf8");
+            assert.ok(content.includes("VALID_SIGNERS"), "parcelrc should contain default VALID_SIGNERS");
+        } finally {
+            proc.kill();
+            rmSync(home, { recursive: true, force: true });
+        }
+    });
+
+    test("does not modify existing parcelrc", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const original = "# custom header\nPASSWORD_STORE_DIR=\"custom\"\n";
+        writeFileSync(parcelrc, original);
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            const content = readFileSync(parcelrc, "utf8");
+            assert.strictEqual(content, original, "Existing parcelrc should not be modified");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("installing a new host script can overwrite bootstrap functions", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+
+            // Host script that overrides parcel_send and defines action_test_override.
+            // The override happens during eval AFTER action_install returns,
+            // so the install response still uses the original parcel_send format.
+            const overrideScript = `function parcel_send() {
+    parcel_transmit '{"token":"test","data":{"was_overridden":true}}'
+}
+function action_test_override() {
+    parcel_send '{"custom_action":"fired"}'
+}
+`;
+            send({ action: "install", script: overrideScript, signature: "sig" });
+            const installMsg = await read();
+            // Install uses the OLD parcel_send — expect standard format
+            assert.strictEqual(installMsg.data?.success, true, "Install response should use original format, got: " + JSON.stringify(installMsg));
+
+            // After eval reload, send a message triggering the new action
+            send({ action: "test_override" });
+            const msg = await read();
+            // Now parcel_send is overridden — expect the marker payload
+            assert.strictEqual(msg.data?.was_overridden, true, "Expected overridden parcel_send after eval, got: " + JSON.stringify(msg));
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
