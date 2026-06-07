@@ -61,7 +61,7 @@ export class Plaintext {
      * @returns {boolean}
      */
     async hasValue(name) {
-        return this.getValue(name) !== null;
+        return (await this.getValue(name)) !== null;
     }
 
     /**
