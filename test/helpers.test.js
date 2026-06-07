@@ -71,11 +71,11 @@ describe("Helpers", () => {
 
         assert.ok(
             result.refreshAt >= Math.floor(before / (step * 1000)) * step * 1000 + step * 1000,
-            "refreshAt should be the next epoch boundary"
+            "refreshAt should be the next epoch boundary",
         );
         assert.ok(
             result.generatedAt >= Math.floor(before / (step * 1000)) * step * 1000,
-            "generatedAt should be the current epoch boundary"
+            "generatedAt should be the current epoch boundary",
         );
         assert.strictEqual(result.interval, step * 1000);
     });
@@ -373,7 +373,7 @@ describe("Helpers", () => {
         const results = Helpers.shadowSelectorAll(".foo", root);
         assert.deepStrictEqual(
             results.map((r) => r.id),
-            ["a", "b"]
+            ["a", "b"],
         );
     });
 
@@ -396,7 +396,7 @@ describe("Helpers", () => {
         const results = Helpers.shadowSelectorAll(".foo", root);
         assert.deepStrictEqual(
             results.map((r) => r.id),
-            ["outer", "inner"]
+            ["outer", "inner"],
         );
     });
 

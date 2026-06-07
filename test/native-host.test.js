@@ -73,10 +73,7 @@ VALID_SIGNERS="${knownSigner}"
 
     // .parcel.json
     const parcelJson = join(passdir, ".parcel.json");
-    writeFileSync(
-        parcelJson,
-        JSON.stringify({ rules: [{ pattern: "." }] }),
-    );
+    writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }] }));
 
     // Fake password entries
     writeFileSync(join(passdir, "test-entry.gpg"), "encrypted-a");
@@ -364,7 +361,7 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
     test("does not modify existing parcelrc", async () => {
         const env = createTestEnv();
         const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const original = "# custom header\nPASSWORD_STORE_DIR=\"custom\"\n";
+        const original = '# custom header\nPASSWORD_STORE_DIR="custom"\n';
         writeFileSync(parcelrc, original);
 
         const { proc, read } = spawnBootstrap(env);
@@ -397,7 +394,11 @@ function action_test_override() {
             send({ action: "install", script: overrideScript, signature: "sig" });
             const installMsg = await read();
             // Install uses the OLD parcel_send — expect standard format
-            assert.strictEqual(installMsg.data?.success, true, "Install response should use original format, got: " + JSON.stringify(installMsg));
+            assert.strictEqual(
+                installMsg.data?.success,
+                true,
+                "Install response should use original format, got: " + JSON.stringify(installMsg),
+            );
 
             // After eval reload, send a message triggering the new action
             send({ action: "test_override" });
@@ -473,7 +474,10 @@ describe("Main host script", () => {
 
             send({ action: "decrypt", path: "/etc/passwd", intent: "test", origin: "test-origin" });
             const msg = await read();
-            assert.ok(msg.error?.toLowerCase().includes("access denied") || msg.error?.toLowerCase().includes("out of scope"), `Expected access denied, got: ${JSON.stringify(msg)}`);
+            assert.ok(
+                msg.error?.toLowerCase().includes("access denied") || msg.error?.toLowerCase().includes("out of scope"),
+                `Expected access denied, got: ${JSON.stringify(msg)}`,
+            );
         } finally {
             proc.kill();
             env.cleanup();
@@ -490,7 +494,10 @@ describe("Main host script", () => {
             const fakePath = join(env.passdir, "missing.gpg");
             send({ action: "decrypt", path: fakePath, intent: "test", origin: "test-origin" });
             const msg = await read();
-            assert.ok(msg.error?.toLowerCase().includes("not found") || msg.error?.toLowerCase().includes("access denied"), `Expected not found or access denied, got: ${JSON.stringify(msg)}`);
+            assert.ok(
+                msg.error?.toLowerCase().includes("not found") || msg.error?.toLowerCase().includes("access denied"),
+                `Expected not found or access denied, got: ${JSON.stringify(msg)}`,
+            );
         } finally {
             proc.kill();
             env.cleanup();

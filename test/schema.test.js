@@ -134,7 +134,7 @@ describe("Schema.validate", () => {
                     x: { type: "number", required: true, default: 10 },
                 },
             },
-            data
+            data,
         );
         assert.strictEqual(data.x, 10);
     });
@@ -148,7 +148,7 @@ describe("Schema.validate", () => {
                     x: { type: "number", required: true, default: 10 },
                 },
             },
-            data
+            data,
         );
         assert.strictEqual(data.x, 5);
     });
@@ -161,7 +161,7 @@ describe("Schema.validate", () => {
                     name: { type: "string", required: true },
                 },
             },
-            { name: "alice" }
+            { name: "alice" },
         );
     });
 
@@ -175,9 +175,9 @@ describe("Schema.validate", () => {
                             name: { type: "string" },
                         },
                     },
-                    { name: "alice", extra: "bad" }
+                    { name: "alice", extra: "bad" },
                 ),
-            /Unknown property \/extra/
+            /Unknown property \/extra/,
         );
     });
 
@@ -196,9 +196,9 @@ describe("Schema.validate", () => {
                             },
                         },
                     },
-                    { a: {} }
+                    { a: {} },
                 ),
-            /Missing required property \/a\/b/
+            /Missing required property \/a\/b/,
         );
     });
 
@@ -226,7 +226,7 @@ describe("Schema.validate", () => {
                 type: "array",
                 items: { type: "string" },
             },
-            ["a", "b"]
+            ["a", "b"],
         );
         assert.throws(
             () =>
@@ -235,9 +235,9 @@ describe("Schema.validate", () => {
                         type: "array",
                         items: { type: "string" },
                     },
-                    ["a", 2]
+                    ["a", 2],
                 ),
-            /Invalid type for \[1\]/
+            /Invalid type for \[1\]/,
         );
     });
 
@@ -264,9 +264,9 @@ describe("Schema.validate", () => {
                             },
                         },
                     },
-                    [{ x: "ok" }, { y: "bad" }]
+                    [{ x: "ok" }, { y: "bad" }],
                 ),
-            /Missing required property \[1\]\/x/
+            /Missing required property \[1\]\/x/,
         );
     });
 });
@@ -284,7 +284,7 @@ describe("Meta-schema", () => {
                     name: { type: "string", required: true },
                     age: { type: "integer", minimum: 0 },
                 },
-            })
+            }),
         );
     });
 
@@ -294,7 +294,7 @@ describe("Meta-schema", () => {
                 type: "array",
                 items: { type: "string", minLength: 1 },
                 minItems: 0,
-            })
+            }),
         );
     });
 

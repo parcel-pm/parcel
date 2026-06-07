@@ -2,12 +2,19 @@ VERSION ?= $(shell cat .version)
 CURRENT_VERSION := $(shell cat .version)
 WEBPACK_MODE := development
 
+PRETTIER := prettier
+
 .PHONY: all
 all: extension chrome firefox
 
 .PHONY: extension
 extension:
 	$(MAKE) VERSION=$(VERSION) -C ./src
+
+.PHONY: prettier
+prettier:
+	$(PRETTIER) --write 'test/*.{js,json}'
+	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier
 
 .PHONY: clean
 clean:
@@ -41,7 +48,7 @@ release: clean extension
 ifeq ($(VERSION), $(CURRENT_VERSION))
 else
 	echo $(VERSION) > .version
-	jq ".version = \"$(VERSION)\"" src/manifest.json | prettier --parser json | sponge src/manifest.json
+	jq ".version = \"$(VERSION)\"" src/manifest.json | $(PRETTIER) --parser json | sponge src/manifest.json
 	git reset
 	git add .version src/manifest.json src/asc/*.asc
 	git commit -m "Release v$(VERSION)"

@@ -1,5 +1,3 @@
-PRETTIER := prettier
-
 CLEAN_FILES := dist
 PRETTIER_FILES := '**/*.{js,json,less,css,html,xhtml}'
 DIST_FILES := \
