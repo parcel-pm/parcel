@@ -97,6 +97,36 @@ export class Schema {
 }
 
 /**
+ * The meta-schema for validating schema definitions.
+ * @since 1.0.0
+ */
+export const MetaSchema = {
+    type: "object",
+    properties: {
+        type: { type: "string", required: true, enum: ["string", "number", "boolean", "integer", "object", "array"] },
+        required: { type: "boolean" },
+        default: {},
+        minLength: { type: "integer", minimum: 0 },
+        maxLength: { type: "integer", minimum: 0 },
+        pattern: { type: "string", minLength: 1 },
+        flags: { type: "string" },
+        format: { type: "string", enum: ["regex"] },
+        enum: { type: "array", items: { type: "string" } },
+        minimum: { type: "number" },
+        maximum: { type: "number" },
+        minItems: { type: "integer", minimum: 0 },
+        maxItems: { type: "integer", minimum: 0 },
+        value: {},
+        properties: { type: "object" },
+        items: {},
+    },
+};
+
+// Self-reference: properties values and items must themselves be valid schemas.
+MetaSchema.properties.properties.items = MetaSchema;
+MetaSchema.properties.items = MetaSchema;
+
+/**
  * The schema for selectors.
  * @since 1.0.0
  */
