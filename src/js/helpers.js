@@ -78,6 +78,23 @@ export class Helpers {
     }
 
     /**
+     * Normalise a field name to the canonical target name defined in the config
+     * @since 1.0.0
+     * @param {object} config - The current parcel config
+     * @param {string} name - The field name to normalise
+     * @returns {string}
+     */
+    static normaliseName(config, name) {
+        name = name.toLowerCase();
+        for (const target of config.targets?.concat(config.additionalTargets || []) || []) {
+            if (!target.pattern) continue;
+            const pattern = new RegExp(target.pattern, "ui");
+            if (pattern.test(`${name}:`)) return target.name;
+        }
+        return name;
+    }
+
+    /**
      * Get the appropriate value for the target type
      * @since 1.0.0
      * @param {string} plaintext - The plaintext to fill from
@@ -86,6 +103,7 @@ export class Helpers {
      */
     static async getValue(plaintext, config, type) {
         config = await config;
+        type = Helpers.normaliseName(config, type);
         const targetRule = config.targets.concat(config.additionalTargets || []).reduce((acc, rule) => {
             if (rule.name === type) {
                 acc = rule;

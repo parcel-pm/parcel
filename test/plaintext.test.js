@@ -9,14 +9,15 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
 import { Plaintext } from "../src/js/plaintext.js";
+import { Helpers } from "../src/js/helpers.js";
 
 describe("Plaintext", () => {
     const minimalConfig = {
         targets: [
-            { name: "login", pattern: "^login:", onMissing: "null", transform: [] },
-            { name: "secret", pattern: "^secret:", onMissing: "null", transform: [] },
-            { name: "totp", pattern: "^totp:", onMissing: "null", transform: ["totp"] },
-            { name: "email", pattern: "^email:", onMissing: "null", transform: [] },
+            { name: "login", pattern: "^(user|username|login|email):", onMissing: "null", transform: [] },
+            { name: "secret", pattern: "^(secret|password):", onMissing: "null", transform: [] },
+            { name: "totp", pattern: "^(otc|otp|totp|code|2fa|two-factor|two_factor):", onMissing: "null", transform: ["totp"] },
+            { name: "tel", pattern: "^(tel|phone|number|ph):", onMissing: "null", transform: [] },
         ],
     };
 
@@ -37,42 +38,36 @@ describe("Plaintext", () => {
     // normaliseName
     // -----------------------------------------------------------------------
     test("normaliseName canonicalises login aliases", () => {
-        const pt = new Plaintext("", minimalConfig);
         for (const alias of ["login", "user", "username"]) {
-            assert.strictEqual(pt.normaliseName(alias), "login", `Failed for ${alias}`);
+            assert.strictEqual(Helpers.normaliseName(minimalConfig, alias), "login", `Failed for ${alias}`);
         }
     });
 
-    test("normaliseName passes email through", () => {
-        const pt = new Plaintext("", minimalConfig);
-        assert.strictEqual(pt.normaliseName("email"), "email");
+    test("normaliseName maps email to login", () => {
+        assert.strictEqual(Helpers.normaliseName(minimalConfig, "email"), "login");
     });
 
     test("normaliseName canonicalises secret aliases", () => {
-        const pt = new Plaintext("", minimalConfig);
         for (const alias of ["secret", "password"]) {
-            assert.strictEqual(pt.normaliseName(alias), "secret", `Failed for ${alias}`);
+            assert.strictEqual(Helpers.normaliseName(minimalConfig, alias), "secret", `Failed for ${alias}`);
         }
     });
 
     test("normaliseName canonicalises totp aliases", () => {
-        const pt = new Plaintext("", minimalConfig);
         for (const alias of ["totp", "otp", "otc", "code", "2fa", "two-factor", "two_factor"]) {
-            assert.strictEqual(pt.normaliseName(alias), "totp", `Failed for ${alias}`);
+            assert.strictEqual(Helpers.normaliseName(minimalConfig, alias), "totp", `Failed for ${alias}`);
         }
     });
 
     test("normaliseName canonicalises phone aliases", () => {
-        const pt = new Plaintext("", minimalConfig);
         for (const alias of ["tel", "number", "phone", "ph"]) {
-            assert.strictEqual(pt.normaliseName(alias), "tel", `Failed for ${alias}`);
+            assert.strictEqual(Helpers.normaliseName(minimalConfig, alias), "tel", `Failed for ${alias}`);
         }
     });
 
     test("normaliseName lowercases unknown names", () => {
-        const pt = new Plaintext("", minimalConfig);
-        assert.strictEqual(pt.normaliseName("CUSTOM_FIELD"), "custom_field");
-        assert.strictEqual(pt.normaliseName("MyField"), "myfield");
+        assert.strictEqual(Helpers.normaliseName(minimalConfig, "CUSTOM_FIELD"), "custom_field");
+        assert.strictEqual(Helpers.normaliseName(minimalConfig, "MyField"), "myfield");
     });
 
     // -----------------------------------------------------------------------
@@ -161,11 +156,22 @@ describe("Plaintext", () => {
         }
     });
 
-    test("getValue fallback normalises totp alias before transform", async () => {
+    test("getValue normalises totp alias before transform", async () => {
         const realNow = Date.now;
         Date.now = () => 30_000;
         try {
-            const config = { targets: [] };
+            const config = {
+                targets: [
+                    {
+                        name: "totp",
+                        pattern: "^(otc|otp|totp|code|2fa|two-factor|two_factor):",
+                        onMissing: "null",
+                        strip: true,
+                        trim: true,
+                        transform: ["totp"],
+                    },
+                ],
+            };
             const pt = new Plaintext("totp: JBSWY3DPEHPK3PXP\n", config);
             const result = await pt.getValue("otp");
             assert.strictEqual(typeof result, "object");

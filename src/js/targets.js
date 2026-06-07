@@ -22,7 +22,7 @@ export const defaultTargets = [
         fallback: "totp-url",
         hoist: true,
         onMissing: "fallback",
-        pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):(?!.*otpauth://)",
+        pattern: "^(otc|otp|totp|code|2fa|authenticator|(?:two|2)[_\-]factor):(?!.*otpauth://)",
         related: ["login", "secret"],
         transform: ["totp"],
     },
@@ -30,7 +30,7 @@ export const defaultTargets = [
         name: "totp-url",
         fallback: "totp-url-raw",
         onMissing: "fallback",
-        pattern: "^(otc|otp|totp|2fa|authenticator|(?:two|2)[_\-]factor):",
+        pattern: "^(otc|otp|totp|code|2fa|authenticator|(?:two|2)[_\-]factor):",
         transform: ["totp-url"],
     },
     { name: "totp-url-raw", pattern: "^otpauth://totp/.*", strip: false, transform: ["totp-url"] },
@@ -78,4 +78,5 @@ export const defaultTargets = [
         pattern: "^((card|cc)[_-]?)?(csc|cvv|cvc):",
         related: ["card", "cardholder", "cardexp", "cardexp-month", "cardexp-year"],
     },
+    { name: "tel", pattern: "^(tel|phone|number|ph):", related: [] },
 ];

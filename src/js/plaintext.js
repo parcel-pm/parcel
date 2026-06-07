@@ -40,7 +40,7 @@ export class Plaintext {
      * @returns {string|null}
      */
     async getValue(name) {
-        name = this.normaliseName(name);
+        name = Helpers.normaliseName(this.#config, name);
         try {
             return await Helpers.getValue(this.#plaintext, this.#config, name);
         } catch (err) {
@@ -62,41 +62,6 @@ export class Plaintext {
      */
     async hasValue(name) {
         return (await this.getValue(name)) !== null;
-    }
-
-    /**
-     * Normalise a field name to a known type.
-     * @since 1.0.0
-     * @param {string} name - The field name to normalise
-     * @returns {string}
-     */
-    normaliseName(name) {
-        switch (name) {
-            case "login":
-            case "user":
-            case "username":
-                return "login";
-            case "email":
-                return "email";
-            case "secret":
-            case "password":
-                return "secret";
-            case "totp":
-            case "otp":
-            case "otc":
-            case "code":
-            case "2fa":
-            case "two-factor":
-            case "two_factor":
-                return "totp";
-            case "tel":
-            case "number":
-            case "phone":
-            case "ph":
-                return "tel";
-            default:
-                return name.toLowerCase();
-        }
     }
 
     /**
