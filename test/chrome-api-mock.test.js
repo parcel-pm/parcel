@@ -165,10 +165,7 @@ describe("chrome-api-mock", () => {
     test("fetch throws for unregistered URL", async () => {
         const mock = createChromeMock();
         mock.installFetch();
-        await assert.rejects(
-            async () => globalThis.fetch("file:///extension/unknown"),
-            /fetch not mocked/,
-        );
+        await assert.rejects(async () => globalThis.fetch("file:///extension/unknown"), /fetch not mocked/);
     });
 
     test("contextualIdentities.onRemoved can be fired", () => {
