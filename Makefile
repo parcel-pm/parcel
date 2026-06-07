@@ -1,6 +1,5 @@
 VERSION ?= $(shell cat .version)
 CURRENT_VERSION := $(shell cat .version)
-WEBPACK_MODE := development
 
 PRETTIER := prettier
 
@@ -24,7 +23,8 @@ clean:
 .PHONY: chrome
 chrome: extension
 	rsync -av src/dist/ chrome/
-	#[ $(WEBPACK_MODE) = "production" ] || jq ".key=\"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAted7WSl3dHs767uh16stdYaXCOXv3XGcWokWsDd56svrU6zhTrEzBkZGozMdqOygDBfZQ6eaRKlR4vHu/7tny1Z3f/rRO7c9dSk6pQjF/gNmsfNd4XyrtujRmPiPwi3Gcyn1Sizpkhn+Bfp3gvim/jLkqpZu9rOgSMxZOaqLOs2SSdaOr9dWhqV5eo6el5D/diL6HDzzMbgUr8NxePQ1PnZnoX1Qjms/jIfxpeEYZeaEjFNCQJKffK/zZWs8CD+mTEbJALYxwuMNueKsie2J07buyW1ZTtczeei45MDQc6yY0C7lcqhk+/7nqnJZfdkc0g1fNvTPXwzGxhFr+bpfZwIDAQAB\"" src/dist/manifest.json > chrome/manifest.json
+	# Always inject the Chrome extension key for unpacked/local installs
+	jq ".key=\"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAted7WSl3dHs767uh16stdYaXCOXv3XGcWokWsDd56svrU6zhTrEzBkZGozMdqOygDBfZQ6eaRKlR4vHu/7tny1Z3f/rRO7c9dSk6pQjF/gNmsfNd4XyrtujRmPiPwi3Gcyn1Sizpkhn+Bfp3gvim/jLkqpZu9rOgSMxZOaqLOs2SSdaOr9dWhqV5eo6el5D/diL6HDzzMbgUr8NxePQ1PnZnoX1Qjms/jIfxpeEYZeaEjFNCQJKffK/zZWs8CD+mTEbJALYxwuMNueKsie2J07buyW1ZTtczeei45MDQc6yY0C7lcqhk+/7nqnJZfdkc0g1fNvTPXwzGxhFr+bpfZwIDAQAB\"" src/dist/manifest.json > chrome/manifest.json
 
 .PHONY: firefox
 firefox: extension
@@ -43,7 +43,6 @@ firefox: extension
 	        " src/dist/manifest.json > firefox/manifest.json
 
 .PHONY: release
-release: WEBPACK_MODE=production
 release: clean extension
 ifeq ($(VERSION), $(CURRENT_VERSION))
 else
@@ -54,7 +53,7 @@ else
 	git commit -m "Release v$(VERSION)"
 	git tag v$(VERSION)
 endif
-	$(MAKE) WEBPACK_MODE=$(WEBPACK_MODE) chrome firefox
+	$(MAKE) chrome firefox
 	[ -d dist ] || mkdir -p dist
 	git archive -o dist/parcel-$(VERSION).tar --format tar --prefix=parcel-$(VERSION)/ v$(VERSION)
 	find src/sites | xargs tar -uhf dist/parcel-$(VERSION).tar --transform "s,^,parcel-$(VERSION)/,"
