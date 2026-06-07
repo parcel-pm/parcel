@@ -66,11 +66,12 @@ test-browser-mock:
 
 .PHONY: test-modules
 test-modules:
-	node --test test/helpers.test.js
+	node --test test/helpers.test.js test/plaintext.test.js
 
 .PHONY: test
 test:
 	node --test \
-		test/native-host.test.js \
 		test/chrome-api-mock.test.js \
-		test/helpers.test.js
+		test/helpers.test.js \
+		test/native-host.test.js \
+		test/plaintext.test.js
