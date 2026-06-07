@@ -36,9 +36,9 @@ export class Schema {
         }
         switch (type) {
             case "string": {
-                if (schema.minLength && data.length < schema.minLength)
+                if (schema.hasOwnProperty("minLength") && data.length < schema.minLength)
                     throw new Error(`Invalid value for ${path}: must be at least ${schema.minLength} characters long.`);
-                if (schema.maxLength && data.length > schema.maxLength)
+                if (schema.hasOwnProperty("maxLength") && data.length > schema.maxLength)
                     throw new Error(`Invalid value for ${path}: must be at most ${schema.maxLength} characters long.`);
                 if (schema.pattern && !new RegExp(schema.pattern, schema.flags || "u").test(data))
                     throw new Error(`Invalid value for ${path}: must match ${schema.pattern}.`);
@@ -58,8 +58,8 @@ export class Schema {
             }
             case "number":
                 {
-                    if (schema.minimum && data < schema.minimum) throw new Error(`Value for ${path} is too low.`);
-                    if (schema.maximum && data > schema.maximum) throw new Error(`Value for ${path} is too high.`);
+                    if (schema.hasOwnProperty("minimum") && data < schema.minimum) throw new Error(`Value for ${path} is too low.`);
+                    if (schema.hasOwnProperty("maximum") && data > schema.maximum) throw new Error(`Value for ${path} is too high.`);
                 }
                 break;
             case "object":
@@ -76,7 +76,8 @@ export class Schema {
                             Schema.validate(schema.properties[key], data[key], `${path === "/" ? "" : path}/${key}`);
                         }
                         for (const key of Object.keys(data)) {
-                            if (!schema.properties[key]) throw new Error(`Unknown property ${path}/${key}.`);
+                            const keyPath = `${path === "/" ? "" : path}/${key}`;
+                            if (!schema.properties[key]) throw new Error(`Unknown property ${keyPath}.`);
                         }
                     }
                 }
@@ -84,10 +85,12 @@ export class Schema {
             case "array":
                 {
                     if (schema.items) {
-                        if (schema.minItems && data.length < schema.minItems) throw new Error(`Array at ${path} has too few items.`);
-                        if (schema.maxItems && data.length > schema.maxItems) throw new Error(`Array at ${path} has too many items.`);
+                        if (schema.hasOwnProperty("minItems") && data.length < schema.minItems)
+                            throw new Error(`Array at ${path} has too few items.`);
+                        if (schema.hasOwnProperty("maxItems") && data.length > schema.maxItems)
+                            throw new Error(`Array at ${path} has too many items.`);
                         for (let i = 0; i < data.length; i++) {
-                            Schema.validate(schema.items, data[i], `${path}[${i}]`);
+                            Schema.validate(schema.items, data[i], `${path === "/" ? "" : path}[${i}]`);
                         }
                     }
                 }
