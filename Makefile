@@ -72,7 +72,7 @@ test-browser-mock:
 
 .PHONY: test-modules
 test-modules:
-	node --test test/helpers.test.js test/plaintext.test.js test/schema.test.js test/selectors.test.js test/targets.test.js test/agent.test.js test/integration.test.js
+	node --test test/helpers.test.js test/plaintext.test.js test/schema.test.js test/selectors.test.js test/targets.test.js test/shadow.test.js test/agent.test.js test/integration.test.js
 
 .PHONY: test
 test:
@@ -84,5 +84,6 @@ test:
 		test/schema.test.js \
 		test/selectors.test.js \
 		test/targets.test.js \
+		test/shadow.test.js \
 		test/agent.test.js \
 		test/integration.test.js
