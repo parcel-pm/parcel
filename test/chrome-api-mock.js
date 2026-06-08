@@ -78,7 +78,7 @@ export function createChromeMock(opts = {}) {
 
         const receiver = Object.freeze({
             name,
-            sender: null,
+            sender,
             get disconnected() {
                 return bDisconnected;
             },
@@ -151,15 +151,14 @@ export function createChromeMock(opts = {}) {
             },
             connect(info = {}) {
                 const name = info.name ?? "";
-                const pair = _makePortPair(name, /* sender */ null);
-                runtimeOnConnect._fire(pair.receiver);
+                const pair = _makePortPair(name, info.sender ?? null);
+                queueMicrotask(() => runtimeOnConnect._fire(pair.receiver));
                 return pair.caller;
             },
             connectNative(hostName) {
                 // Returns a port-like object.  Tests can inspect nativePorts.
                 const pair = _makePortPair(`native:${hostName}`, /* sender */ null);
                 nativePorts.set(hostName, pair);
-                runtimeOnConnect._fire(pair.receiver);
                 return pair.caller;
             },
         },

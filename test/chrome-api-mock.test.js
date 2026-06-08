@@ -69,13 +69,14 @@ describe("chrome-api-mock", () => {
         assert.deepStrictEqual(all, { y: 2 });
     });
 
-    test("chrome.runtime.connect creates paired ports", () => {
+    test("chrome.runtime.connect creates paired ports", async () => {
         const mock = createChromeMock();
         let receiverPort = null;
         mock.chrome.runtime.onConnect.addListener((port) => {
             receiverPort = port;
         });
         const caller = mock.chrome.runtime.connect({ name: "test" });
+        await undefined; // let queueMicrotask fire onConnect
 
         assert.ok(receiverPort);
         assert.strictEqual(receiverPort.name, "test");
@@ -89,16 +90,14 @@ describe("chrome-api-mock", () => {
 
     test("chrome.runtime.connectNative creates paired ports", () => {
         const mock = createChromeMock();
-        let receiverPort = null;
-        mock.chrome.runtime.onConnect.addListener((port) => {
-            receiverPort = port;
-        });
         const caller = mock.chrome.runtime.connectNative("com.example.host");
-        assert.ok(receiverPort);
-        assert.strictEqual(receiverPort.name, "native:com.example.host");
+        const pair = mock.getNativePort("com.example.host");
+        assert.ok(pair);
+        assert.strictEqual(pair.caller, caller);
+        assert.strictEqual(pair.receiver.name, "native:com.example.host");
 
         const received = [];
-        receiverPort.onMessage.addListener((msg) => received.push(msg));
+        pair.receiver.onMessage.addListener((msg) => received.push(msg));
         caller.postMessage({ action: "list" });
         assert.deepStrictEqual(received, [{ action: "list" }]);
     });
@@ -122,13 +121,14 @@ describe("chrome-api-mock", () => {
         assert.deepStrictEqual(received, [{ action: "trigger-popup" }]);
     });
 
-    test("port disconnect fires onDisconnect listeners on both sides", () => {
+    test("port disconnect fires onDisconnect listeners on both sides", async () => {
         const mock = createChromeMock();
         let receiverPort = null;
         mock.chrome.runtime.onConnect.addListener((port) => {
             receiverPort = port;
         });
         const caller = mock.chrome.runtime.connect({ name: "trigger" });
+        await undefined; // let queueMicrotask fire onConnect
 
         let callerDisconnected = false;
         let receiverDisconnected = false;
@@ -176,13 +176,14 @@ describe("chrome-api-mock", () => {
         assert.deepStrictEqual(events, [{ contextualIdentity: { cookieStoreId: "abc" } }]);
     });
 
-    test("onMessage listeners can be removed", () => {
+    test("onMessage listeners can be removed", async () => {
         const mock = createChromeMock();
         let receiverPort = null;
         mock.chrome.runtime.onConnect.addListener((port) => {
             receiverPort = port;
         });
         const caller = mock.chrome.runtime.connect({ name: "msg" });
+        await undefined; // let queueMicrotask fire onConnect
 
         const received = [];
         const handler = (msg) => received.push(msg);
