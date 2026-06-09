@@ -374,9 +374,15 @@
             const p = document.createElement("p");
             p.classList.add("error");
             p.textContent = msg.error;
-            document.querySelectorAll("p.error").forEach((el) => el.remove());
+            document.querySelectorAll("p.error").forEach((el) => {
+                if (el._errorTimer) clearTimeout(el._errorTimer);
+                el.remove();
+            });
             document.body.insertAdjacentElement("afterbegin", p);
-            setTimeout(() => p.remove(), 5000);
+            p._errorTimer = setTimeout(() => {
+                delete p._errorTimer;
+                p.remove();
+            }, 5000);
         } else if (msg?.action == "origin") {
             if (tab.url) {
                 const tabURL = new URL(tab.url);
@@ -529,15 +535,25 @@
             p.classList.add("error");
             if (msg.hasOwnProperty("category")) p.classList.add(`error-category-${msg.category}`);
             p.textContent = msg.error;
-            document.querySelectorAll("p.error").forEach((el) => el.remove());
+            document.querySelectorAll("p.error").forEach((el) => {
+                if (el._errorTimer) clearTimeout(el._errorTimer);
+                el.remove();
+            });
             document.body.insertAdjacentElement("afterbegin", p);
             document.getElementById("modal-shade").classList.add("hidden");
             p.scrollIntoView({ behavior: "instant", block: "nearest" });
-            setTimeout(() => p.remove(), 10000);
+            p._errorTimer = setTimeout(() => {
+                delete p._errorTimer;
+                p.remove();
+            }, 10000);
         } else if (msg.action === "clear-errors") {
-            if (msg.hasOwnProperty("category"))
-                document.querySelectorAll(`p.error.error-category-${msg.category}`).forEach((el) => el.remove());
-            else document.querySelectorAll("p.error").forEach((el) => el.remove());
+            const selector = msg.hasOwnProperty("category")
+                ? `p.error.error-category-${msg.category}`
+                : "p.error";
+            document.querySelectorAll(selector).forEach((el) => {
+                if (el._errorTimer) clearTimeout(el._errorTimer);
+                el.remove();
+            });
         }
     });
 
