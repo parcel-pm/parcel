@@ -418,6 +418,50 @@ function action_test_override() {
 // ---------------------------------------------------------------------------
 
 describe("Main host script", () => {
+    test("works with a non-default PASSWORD_STORE_DIR", async () => {
+        const env = createTestEnv();
+        const customPassdir = join(env.home, "custom-password-store");
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const logfile = join(env.home, ".local", "log", "parcel-host.log");
+
+        mkdirSync(customPassdir, { recursive: true });
+        mkdirSync(join(customPassdir, "subfolder"), { recursive: true });
+        writeFileSync(join(customPassdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "." }] }));
+        writeFileSync(join(customPassdir, "custom-entry.gpg"), "encrypted-custom");
+        writeFileSync(join(customPassdir, "subfolder", "nested-custom.gpg"), "encrypted-custom-nested");
+        writeFileSync(
+            parcelrc,
+            `PASSWORD_STORE_DIR="${customPassdir}"
+LOGFILE="${logfile}"
+VALID_SIGNERS="${env.knownSigner}"
+`,
+        );
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "configure" });
+            const configMsg = await read();
+            assert.strictEqual(configMsg.data?.passdir, customPassdir);
+
+            send({ action: "list" });
+            const listMsg = await read();
+            assert.ok(Array.isArray(listMsg.data), `Expected array, got: ${JSON.stringify(listMsg.data)}`);
+            assert.deepStrictEqual(
+                listMsg.data.map((entry) => entry.name),
+                ["custom-entry", "subfolder/nested-custom"],
+            );
+
+            const testPath = join(customPassdir, "custom-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const decryptMsg = await read();
+            assert.strictEqual(decryptMsg.data?.path, testPath);
+            assert.strictEqual(decryptMsg.data?.plaintext, "test-decrypted-content");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_configure returns config with passdir and rules", async () => {
         const env = createTestEnv();
         const { proc, read, send } = await installMainScript(env);
