@@ -1,4 +1,8 @@
 {
     "name": "parcel",
-    "type": "module"
+    "type": "module",
+    "devDependencies": {
+        "jsdom": "^29.1.1",
+        "prettier": "^3.8.4"
+    }
 }
