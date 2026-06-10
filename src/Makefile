@@ -31,6 +31,10 @@ default: prettier dist
 prettier:
 	$(PRETTIER) --write $(PRETTIER_FILES)
 
+.PHONY: prettier-check
+prettier-check:
+	$(PRETTIER) --check $(PRETTIER_FILES)
+
 .PHONY: clean
 clean:
 	rm -rfv $(CLEAN_FILES)

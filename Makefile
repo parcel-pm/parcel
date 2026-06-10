@@ -78,8 +78,13 @@ test-modules:
 test-application:
 	node --test $(TEST_FLAGS) test/agent.test.js test/integration.test.js test/popup.test.js
 
+.PHONY: test-syntax
+test-syntax:
+	$(PRETTIER) --check 'test/*.{js,json}'
+	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier-check
+
 .PHONY: test
-test:
+test: test-syntax
 	node --test $(TEST_FLAGS) \
 		test/chrome-api-mock.test.js \
 		test/helpers.test.js \
