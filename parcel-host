@@ -170,11 +170,11 @@ function main() {
 
 # ensure jq works
 if ! command -v jq &> /dev/null; then
-    parcel_transmit '{"token: "broadcast", "error":"Cannot find jq ('${JQ:-jq}'): Please configure the correct path for it in parcelrc"}'
+    parcel_transmit '{"token": "broadcast", "error": "Cannot find jq ('${JQ:-jq}'): Please configure the correct path for it in parcelrc"}'
     exit 1
 fi
 if ! jq --version &> /dev/null; then
-    parcel_transmit '{"token": "broadcast", "error":"jq is not executable: '"${JQ:-jq}"'"}' 1
+    parcel_transmit '{"token": "broadcast", "error": "jq is not executable: '"${JQ:-jq}"'"}'
     exit 1
 fi
 
