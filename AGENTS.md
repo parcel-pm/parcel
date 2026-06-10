@@ -35,3 +35,5 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Keep browser portability explicit. Firefox-specific behavior is handled in packaging (`Makefile`) and tiny shims like `src/js/integration.es6.js`; do not fork large logic files just for Firefox.
 - Extend config-driven behavior through the schema-backed selector/target system before adding ad hoc special cases. New fill/extraction behavior should usually mean updating `targets.js`, `selectors.js`, and the schemas/defaults that validate them.
 - Treat `src/publicsuffix` as a vendored upstream subtree. Ignore it for normal Parcel work unless the task is specifically about PSL data or its tooling.
+- Run `make prettier` after making any changes to ensure that they comply with the project's formatting conventions.
+- Always verify that the full `make test` suite passes before considering a task complete.
