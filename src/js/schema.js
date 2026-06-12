@@ -191,6 +191,7 @@ export const ConfigSchema = {
         decryptBucket: { type: "integer", required: true, minimum: 0, default: 24 }, // default also set in parcel-host (DECRYPT_BUCKET_SIZE_DEFAULT)
         decryptRate: { type: "number", required: true, minimum: 0, default: 0.006667 }, // default also set in parcel-host (DECRYPT_BUCKET_RATE_DEFAULT)
         decryptTimeout: { type: "number", required: true, minimum: 1, default: 60 },
+        defaultRules: { type: "boolean", required: true, default: false },
         disableContextPopup: { type: "boolean", required: true, default: false },
         fillRelated: { type: "boolean", required: true, default: true },
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },

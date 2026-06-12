@@ -7,9 +7,11 @@
     --color-bg-selected: light-dark(#eaeaea, #3a3a3a);
     --color-bg-status: light-dark(#f0f0f0, #353535);
     --color-bg-error: #dd0000;
+    --color-bg-warning: light-dark(#ffa500, #ddcc00);
     --color-bg-input: light-dark(#eeeeee, #656565);
     --color-text: light-dark(#000000, #dbdbdb);
     --color-text-error: #ffffff;
+    --color-text-warning: #000000;
     --color-text-inverted: #ffffff;
     --color-text-tag: #3a3a3a;
     --color-text-tag-inverted: light-dark(#ffffff, #dbdbdb);
@@ -65,6 +67,13 @@ body {
 p.error {
     background-color: var(--color-bg-error);
     color: var(--color-text-error);
+    font-size: 12.5px;
+    margin: 0;
+    padding: 2px;
+}
+p.warning {
+    background-color: var(--color-bg-warning);
+    color: var(--color-text-warning);
     font-size: 12.5px;
     margin: 0;
     padding: 2px;

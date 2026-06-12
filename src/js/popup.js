@@ -581,6 +581,15 @@
         }
     });
 
+    // show the default-rules warning
+    config.then((config) => {
+        if (!config.defaultRules) return;
+        const p = document.createElement("p");
+        p.classList.add("warning");
+        p.textContent = "No whitelist rules are configured - your entire password store is accessible!";
+        document.body.insertAdjacentElement("afterbegin", p);
+    });
+
     // tell the tab we're ready
     await new Promise((resolve) => requestAnimationFrame(resolve));
     tabPort.postMessage({ action: "ready" });

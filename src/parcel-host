@@ -60,7 +60,7 @@ function load_config() {
         CONFIG_MODIFIED="$(date +%s)"
     fi
     local REALPASSDIR="$(readlink -f "$PASSWORD_STORE_DIR")"
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}]} end)' <<< "$CONFIG")"; then
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}], defaultRules: true} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
 }
