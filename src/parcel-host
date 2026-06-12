@@ -37,6 +37,17 @@ function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1"
 }
 
+# get a millisecond timestamp with MacOS fallback to whole seconds
+function get_timestamp_ms() {
+    local TS
+    TS="$(date +%s%3N 2>/dev/null)"
+    if [[ "$TS" =~ ^[0-9]{13}$ ]]; then
+        echo "$TS"
+    else
+        date +%s000
+    fi
+}
+
 # load the configuration
 function load_config() {
     if [ -f "$PARCELFILE" ]; then
@@ -202,7 +213,7 @@ function check_decrypt_rate_limit() {
     fi
 
     local NOW
-    NOW="$(date +%s%N | cut -b1-13)"
+    NOW="$(get_timestamp_ms)"
 
     local BUCKET_MILLIS=$((BUCKET_SIZE * 1000))
 
