@@ -777,4 +777,59 @@ VALID_SIGNERS="${env.knownSigner}"
             env.cleanup();
         }
     });
+
+    test("action_decrypt respects rate limit: allows within bucket", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            const anotherPath = join(env.passdir, "another-entry.gpg");
+
+            // First 3 decrypts should succeed
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg1 = await read();
+            assert.strictEqual(msg1.data?.plaintext, "test-decrypted-content", `First decrypt failed: ${JSON.stringify(msg1)}`);
+
+            send({ action: "decrypt", path: anotherPath, intent: "test", origin: "test-origin" });
+            const msg2 = await read();
+            assert.strictEqual(msg2.data?.plaintext, "test-decrypted-content", `Second decrypt failed: ${JSON.stringify(msg2)}`);
+
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg3 = await read();
+            assert.strictEqual(msg3.data?.plaintext, "test-decrypted-content", `Third decrypt failed: ${JSON.stringify(msg3)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_decrypt respects rate limit: blocks excess", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 1 }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg1 = await read();
+            assert.strictEqual(msg1.data?.plaintext, "test-decrypted-content", `First decrypt failed: ${JSON.stringify(msg1)}`);
+
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg2 = await read();
+            assert.ok(msg2.error?.toLowerCase().includes("rate limit"), `Expected rate limit error, got: ${JSON.stringify(msg2)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
 });

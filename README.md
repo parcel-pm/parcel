@@ -189,6 +189,8 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `auditDecrypt` | boolean | `false` | If `true`, logs every decryption attempt (success or failure) to the host log file. |
 | `cacheTTL` | number | `10` | Seconds the extension caches the entry list before re-querying the host. |
 | `decryptTimeout` | number | `60` | Seconds before a decryption request is aborted. |
+| `decryptBucket` | integer | `24` | Token-bucket capacity for decryption rate limiting (one token per GPG decrypt). |
+| `decryptRate` | number | `0.006667` (24 per hour) | Token refill rate in tokens per second for decryption rate limiting. |
 | `disableContextPopup` | boolean | `false` | If `true`, disables the inline / context popup. |
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |

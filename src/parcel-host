@@ -23,6 +23,12 @@ ALLOWED_FILES=()
 if [ ! -d "$PASSWORD_STORE_DIR" ]; then
     parcel_error "Invalid password store directory: $PASSWORD_STORE_DIR" 1
 fi
+
+# token-bucket rate limiter for action_decrypt
+DECRYPT_BUCKET_TOKENS=""
+DECRYPT_BUCKET_LAST=""
+DECRYPT_BUCKET_SIZE_DEFAULT=24 # default also set in schema.js
+DECRYPT_BUCKET_RATE_DEFAULT=0.006667 # default also set in schema.js
 PARCELFILE="$PASSWORD_STORE_DIR/.parcel.json"
 CONFIG="{}"
 CONFIG_MODIFIED=0
@@ -180,12 +186,60 @@ function audit_decrypt() {
     echo "[$TIMESTAMP] DECRYPT $INTENT $ORIGIN $FILE_PATH: $MESSAGE" >&5
 }
 
+# check the token-bucket rate limiter for action_decrypt
+function check_decrypt_rate_limit() {
+    local BUCKET_SIZE="$(jq -r '.decryptBucket' <<< "$CONFIG")"
+    local RATE="$(jq -r '.decryptRate' <<< "$CONFIG")"
+    if [ "$BUCKET_SIZE" == "null" ]; then
+        BUCKET_SIZE=$DECRYPT_BUCKET_SIZE_DEFAULT
+    fi
+    if [ "$RATE" == "null" ]; then
+        RATE=$DECRYPT_BUCKET_RATE_DEFAULT
+    fi
+    # rate limiting disabled when bucket or rate is zero
+    if [ "$BUCKET_SIZE" -eq 0 ] || [ "$(printf '%.6f' "$RATE" | sed 's/^-//' | sed 's/^0*$//' | sed 's/^\./0./' | grep -qx '0.0*')" ]; then
+        return 0
+    fi
+
+    local NOW
+    NOW="$(date +%s%N | cut -b1-13)"
+
+    local BUCKET_MILLIS=$((BUCKET_SIZE * 1000))
+
+    if [ -z "$DECRYPT_BUCKET_TOKENS" ] && [ -z "$DECRYPT_BUCKET_LAST" ]; then
+        DECRYPT_BUCKET_TOKENS="$BUCKET_MILLIS"
+        DECRYPT_BUCKET_LAST="$NOW"
+    fi
+
+    local ELAPSED_MS=$((NOW - DECRYPT_BUCKET_LAST))
+    local REFILL
+    REFILL=$(printf '%s\n' "$ELAPSED_MS $RATE" | awk '{ printf "%.0f", $1 * $2 }')
+
+    DECRYPT_BUCKET_TOKENS=$((DECRYPT_BUCKET_TOKENS + REFILL))
+    if [ "$DECRYPT_BUCKET_TOKENS" -gt "$BUCKET_MILLIS" ]; then
+        DECRYPT_BUCKET_TOKENS="$BUCKET_MILLIS"
+    fi
+    DECRYPT_BUCKET_LAST="$NOW"
+
+    if [ "$DECRYPT_BUCKET_TOKENS" -lt 1000 ]; then
+        return 1
+    fi
+
+    DECRYPT_BUCKET_TOKENS=$((DECRYPT_BUCKET_TOKENS - 1000))
+    return 0
+}
+
 # decrypt and return the contents of a password entry
 function action_decrypt() {
     update_config
     local FILE_PATH="$(jq -r '.path' <<< "$1")"
     local INTENT="$(jq -r '.intent' <<< "$1")"
     local ORIGIN="$(jq -r '.origin' <<< "$1")"
+    if ! check_decrypt_rate_limit; then
+        audit_decrypt "$FILE_PATH" "Denied (rate limit)" "$INTENT" "$ORIGIN"
+        parcel_error "Decryption rate limit exceeded"
+        return 0
+    fi
     local ALLOW=0
     local OUT
     for ALLOWED in "${ALLOWED_FILES[@]}"; do
