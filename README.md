@@ -4,7 +4,7 @@
 
 Parcel is a browser extension that securely searches, displays, and automatically fills credentials from a [pass](https://www.passwordstore.org/)-style password store directly into web forms. It complements `pass`; it does not replace it.
 
-Parcel is designed with security as its highest priority: the extension has **no network access**, **no third-party dependencies**, and **no compiled native host**. All communication between the browser and your GPG-encrypted password store happens through a signed, auditable bash native-messaging host.
+Parcel is designed with security as its highest priority: the extension has **no network access**, **no third-party dependencies**, and **no compiled native host**. All communication between the browser and your GPG-encrypted password store happens through a signed, auditable bash native-messaging host. Further details are available in [SECURITY.md](SECURITY.md).
 
 ---
 
