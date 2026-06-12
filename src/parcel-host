@@ -136,7 +136,7 @@ function action_list() {
                 | ($top.rules|map(select(.ignore==true).pattern)) as $ignore
                 | .entries | (
                     map(
-                        .={path: .path, name: .path | sub("^" + $top.passdir + "/"; "")|sub(".gpg$"; ""), is_link: .is_link, real: .real}
+                        .={path: .path, name: .path | ltrimstr($top.passdir + "/") | rtrimstr(".gpg"), is_link: .is_link, real: .real}
                         | . as $entry
                         | select(
                             reduce $include[] as $pattern (false; . or ($entry.name|test($pattern)))

@@ -24,7 +24,7 @@ import { join } from "node:path";
  */
 function createTestEnv(opts = {}) {
     const home = mkdtempSync(join(tmpdir(), "parcel-test-"));
-    const passdir = join(home, ".password-store");
+    const passdir = join(home, opts.passdirName ?? ".password-store");
     const configdir = join(home, ".config", "parcel");
     const logdir = join(home, ".local", "log");
     const bindir = join(home, "bin");
@@ -531,6 +531,22 @@ VALID_SIGNERS="${env.knownSigner}"
             const msg = await read();
             const names = msg.data.map((e) => e.name).sort();
             assert.ok(names.includes("entry with space"), `Expected spaced entry in ${JSON.stringify(names)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list preserves literal path characters in store and entry names", async () => {
+        const env = createTestEnv({ passdirName: ".password-store[qa]+(1)" });
+        writeFileSync(join(env.passdir, "entry[with](regex)+^$.gpg"), "encrypted-regex");
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name).sort();
+            assert.ok(names.includes("entry[with](regex)+^$"), `Expected literal entry name in ${JSON.stringify(names)}`);
         } finally {
             proc.kill();
             env.cleanup();
