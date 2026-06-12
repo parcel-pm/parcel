@@ -184,6 +184,8 @@ export const ConfigSchema = {
     properties: {
         additionalSelectors: SelectorSchema,
         additionalTargets: { type: "array", items: TargetSchema },
+        allowExternalLinks: { type: "boolean", required: true, default: false },
+        allowLinks: { type: "boolean", required: true, default: false },
         auditDecrypt: { type: "boolean", required: true, default: false },
         cacheTTL: { type: "number", required: true, minimum: 0, default: 10 },
         decryptTimeout: { type: "number", required: true, minimum: 1, default: 60 },
@@ -192,6 +194,7 @@ export const ConfigSchema = {
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },
         modified: { type: "integer", required: true, minimum: 1 },
         passdir: { type: "string", required: true },
+        realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
         rules: {
             type: "array",

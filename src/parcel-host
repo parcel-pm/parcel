@@ -42,7 +42,8 @@ function load_config() {
         CONFIG="{}"
         CONFIG_MODIFIED="$(date +%s)"
     fi
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + (if has("rules") then null else {rules:[{pattern:"."}]} end)' <<< "$CONFIG")"; then
+    local REALPASSDIR="$(readlink -f "$PASSWORD_STORE_DIR")"
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}]} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
 }
@@ -96,9 +97,38 @@ function action_list() {
         parcel_error "Unable to scan files: $FIND_ERR"
         return 0
     fi
+    local REAL_OUT="$(printf '%s' "$FIND_OUT" | tr '\n' '\0' | xargs -0 -n100 readlink -f || true)"
+    local SYMLINKS=()
+    while IFS= read -r link; do
+        if [ -n "$link" ]; then
+            SYMLINKS+=("$link/")
+        fi
+    done < <(find "$PASSWORD_STORE_DIR" -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -type l -print)
+    local IS_LINK=""
+    while IFS= read -r line; do
+        if [ -n "$line" ]; then
+            local linked=0
+            if test -L "$line"; then
+                linked=1
+            else
+                for prefix in "${SYMLINKS[@]}"; do
+                    if [[ "$line" == "$prefix"* ]]; then
+                        linked=1
+                        break
+                    fi
+                done
+            fi
+            IS_LINK+="$linked"$'\n'
+        fi
+    done <<< "$FIND_OUT"
     local OUT="$(
-        echo "$FIND_OUT" |
-            jq -nR '.entries=[inputs | select(length > 0)]' |
+            jq -n --rawfile path <(echo "$FIND_OUT") --rawfile real <(echo "$REAL_OUT") --rawfile is_link <(echo "$IS_LINK") '
+                [$path, $real, $is_link]
+                | map(rtrimstr("\n") | split("\n") | map(select(length > 0)))
+                | transpose
+                | map({path: .[0], real: .[1], is_link: (.[2] | tonumber)})
+                | {entries: .}
+                ' |
             jq -s '
                 .[0] * .[1]
                 | . as $top
@@ -106,11 +136,20 @@ function action_list() {
                 | ($top.rules|map(select(.ignore==true).pattern)) as $ignore
                 | .entries | (
                     map(
-                        .={path: ., name: . | sub("^" + $top.passdir + "/"; "")|sub(".gpg$"; "")}
+                        .={path: .path, name: .path | sub("^" + $top.passdir + "/"; "")|sub(".gpg$"; ""), is_link: .is_link, real: .real}
                         | . as $entry
                         | select(
                             reduce $include[] as $pattern (false; . or ($entry.name|test($pattern)))
                             and (reduce $ignore[] as $pattern (false; . or ($entry.name|test($pattern)))|not)
+                            and (
+                                ($entry.is_link == 0)
+                                or (
+                                    ($top.allowLinks == true) and (
+                                        ($entry.real | startswith($top.realPassdir))
+                                        or (($entry.real | startswith($top.realPassdir) | not) and $top.allowExternalLinks == true)
+                                    )
+                                )
+                            )
                         )
                     )
                     | sort_by(.name)

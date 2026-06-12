@@ -81,6 +81,10 @@ VALID_SIGNERS="${knownSigner}"
     mkdirSync(join(passdir, "subfolder"), { recursive: true });
     writeFileSync(join(passdir, "subfolder", "nested.gpg"), "encrypted-c");
 
+    // Internal symlink (target inside password store)
+    writeFileSync(join(passdir, "internal-target.gpg"), "encrypted-i");
+    symlinkSync(join(passdir, "internal-target.gpg"), join(passdir, "internal-link.gpg"));
+
     // Symlinked directory outside the password store
     const outsideDir = join(home, "outside-store");
     mkdirSync(outsideDir, { recursive: true });
@@ -492,20 +496,41 @@ VALID_SIGNERS="${env.knownSigner}"
 
     test("action_list returns filtered entries sorted by name", async () => {
         const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
         const { proc, read, send } = await installMainScript(env);
         try {
             send({ action: "list" });
             const msg = await read();
             assert.ok(Array.isArray(msg.data), `Expected array, got: ${JSON.stringify(msg.data)}`);
-            assert.strictEqual(msg.data.length, 5);
+            assert.strictEqual(msg.data.length, 7);
             const names = msg.data.map((e) => e.name).sort();
             assert.deepStrictEqual(names, [
                 "another-entry",
+                "internal-link",
+                "internal-target",
                 "subfolder/nested",
                 "symlinked-dir/symlinked-entry",
                 "symlinked-dir/symlinked-sub/deep",
                 "test-entry",
             ]);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list preserves entries with spaces in filenames", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.passdir, "entry with space.gpg"), "encrypted-space");
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name).sort();
+            assert.ok(names.includes("entry with space"), `Expected spaced entry in ${JSON.stringify(names)}`);
         } finally {
             proc.kill();
             env.cleanup();
@@ -531,6 +556,9 @@ VALID_SIGNERS="${env.knownSigner}"
 
     test("action_list includes symlinked directory entries and allows decrypt", async () => {
         const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
         const { proc, read, send } = await installMainScript(env);
         try {
             send({ action: "list" });
@@ -542,6 +570,60 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "decrypt", path: symlinked.path, intent: "test", origin: "test-origin" });
             const decryptMsg = await read();
             assert.strictEqual(decryptMsg.data?.plaintext, "test-decrypted-content");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list excludes symlinked entries when allowLinks is false", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: false }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const entries = msg.data;
+            const symlinked = entries.find((e) => e.name === "symlinked-dir/symlinked-entry");
+            assert.strictEqual(symlinked, undefined, `Expected no symlinked entries, got: ${JSON.stringify(entries.map((e) => e.name))}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list with allowLinks=true and allowExternalLinks=false includes internal links but excludes external links", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: false }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name).sort();
+            assert.ok(names.includes("internal-link"), `Expected internal-link in ${JSON.stringify(names)}`);
+            assert.ok(!names.includes("symlinked-dir/symlinked-entry"), `Expected no external links, got: ${JSON.stringify(names)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list with allowLinks=false and allowExternalLinks=true still excludes all links", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: false, allowExternalLinks: true }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name).sort();
+            assert.ok(!names.includes("internal-link"), `Expected no internal links, got: ${JSON.stringify(names)}`);
+            assert.ok(!names.includes("symlinked-dir/symlinked-entry"), `Expected no external links, got: ${JSON.stringify(names)}`);
         } finally {
             proc.kill();
             env.cleanup();
