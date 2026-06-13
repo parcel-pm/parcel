@@ -113,7 +113,7 @@ function action_install() {
     fi
 
     # verify signature
-    if ! local OUT="$(gpg --status-fd=1 --quiet --verify --auto-key-import <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
+    if ! local OUT="$(gpg --status-fd=1 --quiet --verify --trust-model always --auto-key-import <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
         parcel_error "Signature verification failed"
         return 0
     fi
