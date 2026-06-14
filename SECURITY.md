@@ -83,7 +83,7 @@ The entirety of Parcel's configuration lives in a `.parcel.json` file at the roo
 | **Absent `.parcel.json` reveals all entries** | An empty password store is not a useful default. Users who want restriction must opt in by creating the file. |
 | **Content script injected into all URLs** | Parcel needs to detect form fields before the user interacts with them. The `host_permissions` and `content_scripts` declarations in `manifest.json` are scoped to `<all_urls>`, which is the only way to support arbitrary login pages. The content script does not execute remote code and does not communicate externally. |
 | **Entry rules do not use dereferenced paths** | For portability and usability, file paths are not dereferenced prior to evaluating them against the whitelist / ignore rules. Users should not enable either of the symlink options unless they are certain that all links within the scope of their whitelisting rules are trustworthy. |
-| **No clipboard auto-clear** | Automatically clearing the clipboard after copying credentials requires first *reading* the clipboard to ensure that the data to be cleared is still present. In order to avoid holding a read-clipboard permission, which would be a notable additional attack surface, Parcel does not implement this feature. |
+| **No clipboard auto-clear** | Automatically clearing the clipboard after copying credentials requires first *reading* the clipboard to ensure that the data to be cleared is still present. In order to avoid holding a `clipboardRead` permission, which would be a notable additional attack surface, Parcel does not implement this feature. |
 
 
 ## Security-Related Configuration
