@@ -91,7 +91,7 @@ before(async () => {
 <body>
 <template id="parcel-detail-template"><style>:host { display: block; }</style></template>
 <template id="parcel-value-template">
-  <style>:host { display: flex; } .label { width: 68px; } .value-container { flex-grow: 1; }</style>
+  <style>:host { display: flex; } .label { width: 68px; } .value-container { flex-grow: 1; min-width: 0; overflow: hidden; } .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }</style>
   <span class="label"></span>
   <div class="value-container"><span class="value"></span><span class="spacer"></span><button class="copy"></button></div>
 </template>

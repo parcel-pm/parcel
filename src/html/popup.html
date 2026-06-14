@@ -47,6 +47,11 @@
                 }
                 span,
                 .value-container {
+                    &.value {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
                     &.label {
                         background-color: var(--color-modal-bg-invert);
                         border-radius: 2px 0 0 2px;
@@ -75,6 +80,8 @@
                     flex-grow: 1;
                     gap: 0 8px;
                     padding-left: 8px;
+                    min-width: 0;
+                    overflow: hidden;
                 }
                 .copy {
                     border: none;
