@@ -27,6 +27,7 @@
     --color-modal-item-border: light-dark(#c8c8c8, #525252);
     --color-modal-item-focus: light-dark(#d5d5d5, #505050);
     --color-modal-highlight-1: light-dark(#d25524, #d29624);
+    --color-text-muted: light-dark(#666666, #999999);
     --color-modal-highlight-2: light-dark(#3333ee, #5dd123);
     --color-progress: light-dark(#3333ee, #bd861a);
 }
@@ -141,16 +142,30 @@ ul {
             border-bottom: none;
         }
         .tag {
+            align-self: center;
             border-radius: 0.5em;
             display: inline-block;
             font-family: "Roboto", Calibri, sans-serif;
             padding: 0.2em 0.5em;
         }
+        .name-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            min-width: 0;
+        }
         .name {
             margin-right: 0.35em;
-            flex-grow: 1;
+        }
+        .path {
+            color: var(--color-text-muted);
+            font-size: 0.8em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .historyNuke {
+            align-self: center;
             background: url("/img/icon-history-nuke.svg") no-repeat center / contain;
             border: none;
             flex-shrink: 0;
@@ -163,6 +178,7 @@ ul {
             opacity: 1;
         }
         .detail {
+            align-self: center;
             background: url("/img/icon-show-details.svg") no-repeat center / contain;
             border: none;
             flex-shrink: 0;

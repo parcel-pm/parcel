@@ -450,11 +450,25 @@
                     li.appendChild(tag);
                 }
 
+                const nameContainer = document.createElement("div");
+                nameContainer.classList.add("name-container");
+
                 const name = document.createElement("span");
-                name.setAttribute("title", entry.path);
                 name.classList.add("name");
                 name.textContent = entry.rule.strip ? entry.name.replace(new RegExp(entry.rule.strip, "ui"), "") : entry.name;
-                li.appendChild(name);
+                nameContainer.appendChild(name);
+
+                const pathSpan = document.createElement("span");
+                pathSpan.classList.add("path");
+                const passdir = (await config).passdir;
+                if (passdir && entry.path.startsWith(passdir)) {
+                    pathSpan.textContent = entry.path.slice(passdir.length + (entry.path.charAt(passdir.length) === "/" ? 1 : 0));
+                } else {
+                    pathSpan.textContent = entry.path;
+                }
+                if (pathSpan.textContent.replace(/.gpg$/, "") !== name.textContent) nameContainer.appendChild(pathSpan);
+
+                li.appendChild(nameContainer);
 
                 const url = new URL(tab.url || "undefined-url://");
                 const hash = await sha256(url.origin);
