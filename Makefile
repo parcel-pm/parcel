@@ -33,7 +33,7 @@ firefox: extension
 		.background.scripts=[.background.service_worker] \
 		|del(.background.service_worker) \
 		|.permissions += [\"contextualIdentities\"] \
-		|.browser_specific_settings.gecko.id=\"parcel@mozilla.org\" \
+		|.browser_specific_settings.gecko.id=\"parcel@erayd.net\" \
 		|.browser_specific_settings.gecko.data_collection_permissions.required=[\"none\"] \
 		|.content_scripts |= map(\
 		    if .type == \"module\" \
