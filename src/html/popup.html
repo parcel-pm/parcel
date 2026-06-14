@@ -115,16 +115,20 @@
                     overflow: hidden;
                     white-space: pre;
                     min-width: 0;
+                    counter-increment: line;
+                    --line-number-display: inline-block;
                     &:before {
                         background-color: var(--color-modal-item-focus);
                         color: var(--color-modal-highlight-1);
-                        counter-increment: line;
                         content: counter(line);
-                        display: inline-block;
+                        display: var(--line-number-display);
                         flex-shrink: 0;
                         padding-right: 5px;
                         text-align: right;
                         width: 20px;
+                    }
+                    &.scrolling {
+                        --line-number-display: none;
                     }
                 }
                 .copy {

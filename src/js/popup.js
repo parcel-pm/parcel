@@ -93,11 +93,18 @@
     class ParcelPlaintextLine extends HTMLElement {
         static observedAttributes = ["data-value"];
         #root;
+        #marqueeId = null;
+        #scrollTimeout = null;
+        #originalText = null;
 
         constructor() {
             super();
             this.#root = this.attachShadow({ mode: "open" });
             this.#root.appendChild(document.getElementById("parcel-plaintext-line-template").content.cloneNode(true));
+
+            let line = this.#root.querySelector(".line");
+            line.addEventListener("mouseenter", () => this.#startHover(line));
+            line.addEventListener("mouseleave", () => this.#endHover(line));
 
             this.#root.querySelector(".copy").addEventListener("click", async (ev) => {
                 ev.stopPropagation();
@@ -110,6 +117,73 @@
                     tabPort.postMessage({ action: "fill-value", value: this.getValue() });
                 });
             }
+        }
+
+        disconnectedCallback() {
+            this.#endHover();
+        }
+
+        #startHover(line) {
+            if (line.scrollWidth <= line.clientWidth) return;
+
+            this.#originalText = line.textContent;
+            let displayText = this.#originalText.replace(/^[^:]+:\s*/, "");
+            line.textContent = displayText;
+
+            if (line.scrollWidth <= line.clientWidth) return;
+
+            line.classList.add("scrolling");
+            if (line.scrollWidth <= line.clientWidth) return;
+
+            this.#scrollTimeout = setTimeout(() => {
+                line.textContent = "";
+                let track = document.createElement("span");
+                track.style.display = "inline-flex";
+                track.style.whiteSpace = "pre";
+                track.style.flexShrink = "0";
+
+                let s1 = document.createElement("span");
+                s1.textContent = displayText;
+                s1.style.flexShrink = "0";
+                let s2 = document.createElement("span");
+                s2.textContent = displayText;
+                s2.style.flexShrink = "0";
+                s2.style.marginLeft = "2ch";
+
+                track.appendChild(s1);
+                track.appendChild(s2);
+                line.appendChild(track);
+
+                let gap = parseFloat(getComputedStyle(s2).marginLeft) || 0;
+                let width = s1.scrollWidth + gap;
+                let start = performance.now();
+                let speed = 60;
+
+                let step = (now) => {
+                    let elapsed = now - start;
+                    let pos = -(((elapsed * speed) / 1000) % width);
+                    track.style.transform = `translateX(${pos}px)`;
+                    this.#marqueeId = requestAnimationFrame(step);
+                };
+                this.#marqueeId = requestAnimationFrame(step);
+            }, 500);
+        }
+
+        #endHover() {
+            let line = this.#root.querySelector(".line");
+            if (this.#scrollTimeout) {
+                clearTimeout(this.#scrollTimeout);
+                this.#scrollTimeout = null;
+            }
+            if (this.#marqueeId) {
+                cancelAnimationFrame(this.#marqueeId);
+                this.#marqueeId = null;
+            }
+            if (this.#originalText !== null) {
+                line.textContent = this.#originalText;
+                this.#originalText = null;
+            }
+            line.classList.remove("scrolling");
         }
 
         attributeChangedCallback(name, oldValue, newValue) {
@@ -126,7 +200,7 @@
          * @returns {string}
          */
         getValue() {
-            let line = this.#root.querySelector(".line").textContent,
+            let line = this.#originalText !== null ? this.#originalText : this.#root.querySelector(".line").textContent,
                 matches = line.match(/^[a-z0-9_\-]+:(?!\/\/)\s*(.+)$/iu);
             if (matches) return matches[1];
             return line.trim();
@@ -138,6 +212,7 @@
          * @param {string} value - The value to display
          */
         setValue(value) {
+            this.#endHover();
             this.#root.querySelector(".line").textContent = value;
         }
     }
