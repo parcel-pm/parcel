@@ -157,6 +157,7 @@ ul {
     box-sizing: content-box;
     color: var(--color-text);
     font-size: 12px;
+    font-family: "Roboto", Calibri, sans-serif;
     height: 14px;
     margin: 0;
     padding: 1px 4px 1px 18px;
