@@ -71,7 +71,7 @@ chmod 0600 "$PARCELRC"
 fi
 
 # check that parcelrc has the correct permissions
-if [ "$PARCELRC" != "$(find "$PARCELRC" -maxdepth 1 -type f -perm 0600)" ]; then
+if [ "$PARCELRC" != "$(find "$PARCELRC" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ]; then
     parcel_transmit '{"token": "broadcast", "error": "parcelrc file must have permissions 0600"}'
     exit 1
 fi
