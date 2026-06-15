@@ -155,7 +155,11 @@ function action_install() {
 # main event loop
 function main() {
     while MSG_LEN="$(printf %ld 0x$(dd bs=4 count=1 2> /dev/null | od -An -tx4 | tr -d '[:space:]') 2>/dev/null)"; do
-        local MESSAGE="$(head -c $MSG_LEN)"
+        if [ "$MSG_LEN" -gt 16777216 ]; then
+            parcel_error "Message is too large (max 16MiB): $MSG_LEN bytes"
+            exit 1
+        fi
+        local MESSAGE="$(head -c "$MSG_LEN")"
         local NEW_TOKEN="$(jq -r .token <<< "$MESSAGE")"
         if [ -n "$NEW_TOKEN" ]; then
             TOKEN="$NEW_TOKEN"
