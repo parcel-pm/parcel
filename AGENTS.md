@@ -43,3 +43,4 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - The most critical constraints are documented in `CONSTITUTION.md`.
 - A more detailed overview of the security model, threat surface, and mitigations can be found in `SECURITY.md`.
 - The results of security reviews are summarised in `security-review/findings.md`, with individual reports available in the `security-review/reviews` subdirectory.
+- Agents conducting security reviews are not allowed to access the full text of prior reviews, but may access the summary in `findings.md`.
