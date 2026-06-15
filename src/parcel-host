@@ -313,7 +313,7 @@ function action_decrypt() {
         parcel_error "Access Denied: Path out of scope: $FILE_PATH"
         return 0
     fi
-    if ! OUT="$(gpg --decrypt --quiet --batch --no-tty --yes < "$FILE_PATH" 2>/dev/null)"; then
+    if ! OUT="$(gpg --decrypt --quiet --batch --no-tty --yes --output - < "$FILE_PATH" 2>/dev/null)"; then
         audit_decrypt "$FILE_PATH" "Decryption failed" "$INTENT" "$ORIGIN"
         parcel_error "Failed to decrypt $FILE_PATH"
         return 0
