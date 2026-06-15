@@ -61,6 +61,15 @@ the extension and fingerprint users based on the extension's unique ID.
 **Response:** The listed files are all required by the popup. Narrowing this list is not possbile without breaking the extension.
 The resulting fingerprint surface is considered an acceptable tradeoff to allow the extension to function.
 
+### History metadata is obscured, not truly secret
+
+**Description:** The extension's history uses an unsalted hash of the origin / scope and the entry path. This allows an attacker with access
+to local storage to brute-force which entries have been used on which origins.
+
+**Response:** This is deliberate. The history is convenience metadata, not a secret, and adding salting or encryption would simply be an
+obfuscation measuer that would give a false sense of security. Users who are concerned about this can disable history entirely via the
+`saveHistory` configuration option.
+
 ### `HOST_HASH` resolution order is fragile on systems that rely on `parcelrc` `PATH` changes
 
 **Description:** The bootstrap looks for the sha256 binary before loading `parcelrc`, which means that `parcelrc` cannot set the `PATH` for
