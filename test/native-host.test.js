@@ -70,6 +70,7 @@ LOGFILE="${join(logdir, "parcel-host.log")}"
 VALID_SIGNERS="${knownSigner}"
 `,
     );
+    chmodSync(parcelrc, 0o600);
 
     // .parcel.json
     const parcelJson = join(passdir, ".parcel.json");
@@ -387,6 +388,22 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             await read(); // bootstrap msg
             const content = readFileSync(parcelrc, "utf8");
             assert.strictEqual(content, original, "Existing parcelrc should not be modified");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects parcelrc with incorrect permissions", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        chmodSync(parcelrc, 0o644);
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            const msg = await read();
+            assert.strictEqual(msg.error, "parcelrc file must have permissions 0600");
+            assert.strictEqual(msg.token, "broadcast");
         } finally {
             proc.kill();
             env.cleanup();
