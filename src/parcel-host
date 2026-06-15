@@ -189,11 +189,11 @@ function audit_decrypt() {
     if [ "$SHOULD_AUDIT" != "true" ]; then
         return 0
     fi
-    local FILE_PATH="$1"
+    local FILE_PATH="${1//[[:cntrl:]]/}"
     local TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    local MESSAGE="$2"
-    local INTENT="$3"
-    local ORIGIN="$4"
+    local MESSAGE="${2//[[:cntrl:]]/}"
+    local INTENT="${3//[[:cntrl:]]/}"
+    local ORIGIN="${4//[[:cntrl:]]/}"
     echo "[$TIMESTAMP] DECRYPT $INTENT $ORIGIN $FILE_PATH: $MESSAGE" >&5
 }
 
