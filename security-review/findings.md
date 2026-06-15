@@ -10,19 +10,32 @@ New findings are listed below. Existing findings from the previous review are om
 
 ### Log-bloating via unbounded audit-log fields
 
-**Description:** The audit log strips control characters but does not limit the length of fields such as `FILE_PATH`, `INTENT`, or `ORIGIN`, which could allow a compromised extension to cause unbounded log growth.
+**Description:** The audit log strips control characters but does not limit the length of fields such as `FILE_PATH`, `INTENT`, or `ORIGIN`,
+which could allow a compromised extension to cause unbounded log growth.
+
+**Response:** Added length limits to these fields in #56.
 
 ### No Content Security Policy declared in manifest
 
 **Description:** The extension relies on the browser's default MV3 CSP rather than an explicit declaration.
 
+**Response:** Added CSP to manifest in #55.
+
 ### Search regex ReDoS risk in service worker
 
-**Description:** User-provided search terms are compiled as regular expressions without length limits or ReDoS checks, which could transiently hang the service worker.
+**Description:** User-provided search terms are compiled as regular expressions without length limits or ReDoS checks, which could
+transiently hang the service worker.
+
+**Response:** If the user wishes to DoS themselves via a typed regular expression, that's on them ;-). The status quo is therefore
+acceptable.
 
 ### `shadow.js` runs in MAIN world and patches global prototype
 
-**Description:** `shadow.js` patches `Element.prototype.attachShadow` in the page's JavaScript realm, which increases detectability and exposes a small interference surface.
+**Description:** `shadow.js` patches `Element.prototype.attachShadow` in the page's JavaScript realm, which increases detectability and
+exposes a small interference surface.
+
+**Response:** This is considered an acceptable tradeoff. The patch supports core functionality, and alternatives have significant
+performance penalties.
 
 ## [security-review-copilot-gpt_5.4-20260614-v1.0.0.md](reviews/security-review-copilot-gpt_5.4-20260614-v1.0.0.md)
 
