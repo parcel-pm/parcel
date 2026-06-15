@@ -774,6 +774,35 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("action_decrypt sanitises control characters in audit fields", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], auditDecrypt: true }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({
+                action: "decrypt",
+                path: testPath,
+                intent: "bad\nintent",
+                origin: "bad\norigin",
+            });
+            await read();
+
+            const log = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(!log.includes("bad\n"), "Expected newlines to be stripped from audit log");
+            assert.ok(log.includes("badintent"), "Expected intent to be concatenated after stripping newline");
+            assert.ok(log.includes("badorigin"), "Expected origin to be concatenated after stripping newline");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_decrypt does not audit when disabled", async () => {
         const env = createTestEnv();
         const { proc, read, send } = await installMainScript(env);
