@@ -119,6 +119,14 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `additionalTargets` | Custom target mappings for extracting and filling credential data. |
 | `targets` | Complete replacement for built-in target extraction rules. |
 
+## Security Reviews
+
+Parcel is subject to regular automated security reviews in order to surface any potential vulnerabilities. These reviews, along with a summary of findings and the maintainers' responses, are published in the `security-reviews` directory in this repository.
+
+Where a review is conducted against a specific release, that review is included in the release artifacts on GitHub.
+
+If you are a security professional who is interested in contributing to the project by performing a review, please open a new issue to coordinate this.
+
 ## Reporting Security Issues
 
 If you discover a security vulnerability in Parcel, please open a GitHub issue for it. If the vulnerability is serious, please report it privately to the core maintainers listed in [`CONSTITUTION.md`](CONSTITUTION.md) so that it can be addressed before public disclosure. Vulnerabilities should be reported with a clear description of the issue, the steps to reproduce it, and the version affected.
