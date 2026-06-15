@@ -21,6 +21,18 @@ TOKEN="broadcast"
 PARCEL_HOST=""
 BOOTSTRAP_VERSION="1"
 
+# transmit message in native messaging host protocol
+function parcel_transmit() {
+    local LC_ALL=C
+    local s=$1 n=${#1} b
+    printf -v b '\\x%02x\\x%02x\\x%02x\\x%02x' \
+        "$(( n       & 255 ))" \
+        "$(( n >> 8  & 255 ))" \
+        "$(( n >> 16 & 255 ))" \
+        "$(( n >> 24 & 255 ))"
+    printf '%b%s' "$b" "$s"
+}
+
 # create default startup config file if it doesn't exist
 PARCELRC="$HOME/.config/parcel/parcelrc"
 if [ ! -e "$PARCELRC" ]; then
@@ -55,6 +67,13 @@ if [ ! -e "$PARCELRC" ]; then
 # bootstrap script will verify the hash of the script before executing it.
 #HOST_HASH="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 EOT
+chmod 0600 "$PARCELRC"
+fi
+
+# check that parcelrc has the correct permissions
+if [ "$PARCELRC" != "$(find "$PARCELRC" -type f -perm 0600)" ]; then
+    parcel_transmit '{"token": "broadcast", "error": "parcelrc file must have permissions 0600"}'
+    exit 1
 fi
 
 # load startup config & set up dedicated logging
@@ -71,17 +90,6 @@ if [ -n "$JQ" ]; then function jq() { "$JQ" "$@"; return $?; }; fi
 # Ensure we have a usable sha256
 SHA256="$(command -v sha256sum || command -v sha256)"
 
-# transmit message in native messaging host protocol
-function parcel_transmit() {
-    local LC_ALL=C
-    local s=$1 n=${#1} b
-    printf -v b '\\x%02x\\x%02x\\x%02x\\x%02x' \
-        "$(( n       & 255 ))" \
-        "$(( n >> 8  & 255 ))" \
-        "$(( n >> 16 & 255 ))" \
-        "$(( n >> 24 & 255 ))"
-    printf '%b%s' "$b" "$s"
-}
 
 # sender for errors
 # $1: error message
