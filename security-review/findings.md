@@ -26,7 +26,7 @@ or pollute audit log entries.
 **Description:** The "no network access" rule is a governance rule that relies on user compliance, and is not a technical containment
 boundary.
 
-**Response:** This is addressed in [SECURITY.md](SECURITY.md), and is a deliberate tradeoff. It is not possible to technically enforce
+**Response:** This is addressed in [SECURITY.md](../SECURITY.md), and is a deliberate tradeoff. It is not possible to technically enforce
 no network access and also allow the extension to interact with the page. This is therefore enforced at a policy level during code review.
 
 ### Default visibility is intentionally permissive and increases blast radius
@@ -34,7 +34,7 @@ no network access and also allow the extension to interact with the page. This i
 **Description:** If the user has not configured a whitelist, the extension will provide a default that shows all entries in the password
 store.
 
-**Response:** This is addressed in [SECURITY.md](SECURITY.md), and is a deliberate tradeoff for the sake of usability. The popup will
+**Response:** This is addressed in [SECURITY.md](../SECURITY.md), and is a deliberate tradeoff for the sake of usability. The popup will
 display a persistent warning at the top (immediately above the search bar) until the user configures a whitelist.
 
 ### parcelrc is a trusted code-execution boundary and should be treated as such
