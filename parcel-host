@@ -113,13 +113,15 @@ function action_install() {
     fi
 
     # verify signature
-    if ! local OUT="$(gpg --status-fd=1 --quiet --verify --trust-model always --auto-key-import <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
+    local OUT
+    if ! OUT="$(gpg --status-fd=1 --quiet --verify --trust-model always --auto-key-import <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
         parcel_error "Signature verification failed"
         return 0
     fi
 
     # verify signer
-    if ! local SIGNER="$(grep VALIDSIG <<< "$OUT" | cut -d' ' -f12)" || [ -z "$SIGNER" ]; then
+    local SIGNER
+    if ! SIGNER="$(grep VALIDSIG <<< "$OUT" | cut -d' ' -f12)" || [ -z "$SIGNER" ]; then
         parcel_error "Signature verification failed: No primary fingerprint:\n$OUT"
         return 0
     fi
