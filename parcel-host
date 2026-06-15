@@ -113,11 +113,18 @@ function action_install() {
     fi
 
     # verify signature
+    local KEYRING
+    if ! KEYRING="$(mktemp)"; then # gpg cannot process keys without an actual file, so we must use a temporary file for the keyring in order to avoid polluting the user's own
+        parcel_error "Unable to create temporary file for keyring"
+        return 0
+    fi
     local OUT
-    if ! OUT="$(gpg --status-fd=1 --quiet --verify --trust-model always --auto-key-import <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
+    if ! OUT="$(gpg --status-fd=1 --quiet --verify --trust-model always --auto-key-import --no-default-keyring --keyring "$KEYRING" <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
+        rm -f "$KEYRING" "$KEYRING"~
         parcel_error "Signature verification failed"
         return 0
     fi
+    rm -f "$KEYRING" "$KEYRING"~
 
     # verify signer
     local SIGNER

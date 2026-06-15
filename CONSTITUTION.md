@@ -91,6 +91,10 @@ The only exceptions to this rule are:
    information. This log file must never, under any circumstances, contain any
    part of the user's decrypted credential files.
 
+ - The native host bootstrap script may create a temporary gpg keyring for the
+   purpose of verifying the signature of the bundled native host, in order to
+   avoid polluting the user's existing gpg keyring with the release signing keys.
+
 For clarity, this also means that Parcel is prohibited from modifying its own
 configuration.
 
