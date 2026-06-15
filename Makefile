@@ -57,7 +57,6 @@ endif
 	$(MAKE) chrome firefox
 	[ -d dist ] || mkdir -p dist
 	git archive -o dist/parcel-$(VERSION).tar --format tar --prefix=parcel-$(VERSION)/ v$(VERSION)
-	find src/sites | xargs tar -uhf dist/parcel-$(VERSION).tar --transform "s,^,parcel-$(VERSION)/,"
 	gzip -9 dist/parcel-$(VERSION).tar
 	(cd chrome && zip -r ../dist/parcel-chrome-$(VERSION).zip *)
 	(cd firefox && zip -r ../dist/parcel-firefox-$(VERSION).zip *)
