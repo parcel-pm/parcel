@@ -445,6 +445,29 @@ function action_test_override() {
             env.cleanup();
         }
     });
+
+    test("rejects oversized messages", async () => {
+        const env = createTestEnv();
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+
+            // Send a length prefix exceeding the 16 MiB limit
+            const oversized = Buffer.alloc(4);
+            oversized.writeUInt32LE(16777217, 0);
+            proc.stdin.write(oversized);
+
+            const response = await read();
+            assert.ok(response.error?.toLowerCase().includes("too large"), `Expected size-limit error, got: ${JSON.stringify(response)}`);
+
+            // The host should exit after rejecting the oversized message
+            await new Promise((resolve) => proc.on("exit", resolve));
+            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
+        } finally {
+            if (!proc.killed) proc.kill();
+            env.cleanup();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
