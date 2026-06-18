@@ -136,7 +136,7 @@ function action_changes_since() {
     if [[ -z "$SINCE" || "$SINCE" == "null" || ! "$SINCE" =~ ^[0-9]{10}$ ]]; then
         parcel_error "Invalid timestamp: $SINCE"
     fi
-    SINCE="$(date -d "$SINCE" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -j -f "%s" "$SINCE" +'%Y-%m-%d %H:%M:%S')"
+    SINCE="$(date -d "@$SINCE" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -j -f "%s" "$SINCE" +'%Y-%m-%d %H:%M:%S')"
 
     local ROOTS=()
     while IFS= read -r ROOT; do
