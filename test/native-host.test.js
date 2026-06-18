@@ -10,7 +10,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readFileSync, symlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readFileSync, readdirSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,15 +24,23 @@ import { join } from "node:path";
  */
 function createTestEnv(opts = {}) {
     const home = mkdtempSync(join(tmpdir(), "parcel-test-"));
-    const passdir = join(home, opts.passdirName ?? ".password-store");
+    const passdirName = opts.passdirName ?? ".password-store";
+    const passdir = join(home, passdirName);
     const configdir = join(home, ".config", "parcel");
     const logdir = join(home, ".local", "log");
     const bindir = join(home, "bin");
 
-    mkdirSync(passdir, { recursive: true });
     mkdirSync(configdir, { recursive: true });
     mkdirSync(logdir, { recursive: true });
     mkdirSync(bindir, { recursive: true });
+
+    if (opts.rootSymlink) {
+        const realPassdir = join(home, `${passdirName}-real`);
+        mkdirSync(realPassdir, { recursive: true });
+        symlinkSync(realPassdir, passdir);
+    } else {
+        mkdirSync(passdir, { recursive: true });
+    }
 
     // Mock gpg binary.
     // The bootstrap extracts the signer via: grep VALIDSIG | cut -d' ' -f12
@@ -109,6 +117,21 @@ VALID_SIGNERS="${knownSigner}"
             rmSync(home, { recursive: true, force: true });
         },
     };
+}
+
+/**
+ * Recursively set directory modification times to a fixed point in the past.
+ * This lets changes_since tests assert about specific newer directories without
+ * the password store root itself appearing changed.
+ */
+function setDirectoryMtimesSync(dir, date) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const child = join(dir, entry.name);
+        if (entry.isDirectory()) {
+            setDirectoryMtimesSync(child, date);
+        }
+    }
+    utimesSync(dir, date, date);
 }
 
 /**
@@ -686,6 +709,158 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("action_list avoids duplicate names with symlinked directories and files", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Internal directory symlink pointing to a subdirectory inside the store
+        mkdirSync(join(env.passdir, "real-dir"), { recursive: true });
+        writeFileSync(join(env.passdir, "real-dir", "inside.gpg"), "encrypted-inside");
+        symlinkSync(join(env.passdir, "real-dir"), join(env.passdir, "link-dir"));
+
+        // Multiple file symlinks pointing to the same target
+        writeFileSync(join(env.passdir, "shared-target.gpg"), "encrypted-shared");
+        symlinkSync(join(env.passdir, "shared-target.gpg"), join(env.passdir, "shared-link-a.gpg"));
+        symlinkSync(join(env.passdir, "shared-target.gpg"), join(env.passdir, "shared-link-b.gpg"));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name);
+            const uniqueNames = [...new Set(names)];
+            assert.strictEqual(names.length, uniqueNames.length, `Duplicate names in action_list output: ${JSON.stringify(names)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list does not get stuck on a symlink loop", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Create two subdirectories that symlink to each other, forming a loop.
+        const loopA = join(env.passdir, "loop-a");
+        const loopB = join(env.passdir, "loop-b");
+        mkdirSync(loopA, { recursive: true });
+        mkdirSync(loopB, { recursive: true });
+        symlinkSync(loopB, join(loopA, "to-b"), "dir");
+        symlinkSync(loopA, join(loopB, "to-a"), "dir");
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            // The host must not hang; it may return either an error or the entry list.
+            assert.ok(
+                Array.isArray(msg.data) || msg.error?.toLowerCase().includes("unable to scan files"),
+                `Expected response or scan error, got: ${JSON.stringify(msg)}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list rejects a symlinked password-store root when allowLinks is false", async () => {
+        const env = createTestEnv({ rootSymlink: true });
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: false }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            assert.ok(
+                msg.error?.toLowerCase().includes("password_store_dir is a symlink") ||
+                    msg.error?.toLowerCase().includes("allowlinks is not enabled"),
+                `Expected symlink root error, got: ${JSON.stringify(msg)}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list works with a symlinked password-store root when allowLinks is true", async () => {
+        const env = createTestEnv({ rootSymlink: true });
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name);
+            assert.ok(names.includes("test-entry"), `Expected store entries from symlinked root, got: ${JSON.stringify(names)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_decrypt works with a symlinked password-store root when allowLinks is true", async () => {
+        const env = createTestEnv({ rootSymlink: true });
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_changes_since works with a symlinked password-store root when allowLinks is true", async () => {
+        const env = createTestEnv({ rootSymlink: true });
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true }));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const since = String(Math.floor(Date.now() / 1000) - 5);
+            send({ action: "changes_since", since });
+            const msg = await read();
+            assert.strictEqual(typeof msg.data?.changes, "number", `Expected numeric change count, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list returns an error when find emits an error starting with 'find:'", async () => {
+        const env = createTestEnv();
+        const restrictedDir = join(env.passdir, "restricted");
+        mkdirSync(restrictedDir, { recursive: true });
+        writeFileSync(join(restrictedDir, "secret.gpg"), "encrypted-secret");
+        chmodSync(restrictedDir, 0o000);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            assert.ok(
+                msg.error?.toLowerCase().includes("unable to scan files") || msg.error?.toLowerCase().includes("find:"),
+                `Expected find scan error, got: ${JSON.stringify(msg)}`,
+            );
+        } finally {
+            // restore permissions so cleanup can remove the directory
+            chmodSync(restrictedDir, 0o755);
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_decrypt rejects out-of-scope path", async () => {
         const env = createTestEnv();
         const { proc, read, send } = await installMainScript(env);
@@ -886,6 +1061,78 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "changes_since", since: "not-a-timestamp" });
             const msg = await read();
             assert.ok(msg.error?.toLowerCase().includes("invalid"), `Expected invalid timestamp error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_changes_since ignores denied external symlink directory changes", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: false }));
+
+        // Ensure the password store itself does not appear newer than the reference time.
+        setDirectoryMtimesSync(env.passdir, new Date("2000-01-01T00:00:00Z"));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const since = Math.floor(Date.now() / 1000);
+            const future = new Date((since + 5) * 1000);
+            utimesSync(join(env.home, "outside-store", "symlinked-sub"), future, future);
+
+            send({ action: "changes_since", since: String(since) });
+            const msg = await read();
+            assert.strictEqual(msg.data?.changes, 0, `Expected denied external changes to be ignored, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_changes_since does not get stuck on a symlink loop", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Create two subdirectories that symlink to each other, forming a loop.
+        const loopA = join(env.passdir, "loop-a");
+        const loopB = join(env.passdir, "loop-b");
+        mkdirSync(loopA, { recursive: true });
+        mkdirSync(loopB, { recursive: true });
+        symlinkSync(loopB, join(loopA, "to-b"), "dir");
+        symlinkSync(loopA, join(loopB, "to-a"), "dir");
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const since = String(Math.floor(Date.now() / 1000));
+            send({ action: "changes_since", since });
+            const msg = await read();
+            assert.strictEqual(typeof msg.data?.changes, "number", `Expected numeric change count, got: ${JSON.stringify(msg)}`);
+            assert.ok(msg.data.changes >= 0, `Expected non-negative change count, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_changes_since includes allowed external symlink directory changes", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Ensure the password store itself does not appear newer than the reference time.
+        setDirectoryMtimesSync(env.passdir, new Date("2000-01-01T00:00:00Z"));
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const since = Math.floor(Date.now() / 1000);
+            const future = new Date((since + 5) * 1000);
+            utimesSync(join(env.home, "outside-store", "symlinked-sub"), future, future);
+
+            send({ action: "changes_since", since: String(since) });
+            const msg = await read();
+            assert.ok(msg.data?.changes > 0, `Expected allowed external changes to be counted, got: ${JSON.stringify(msg)}`);
         } finally {
             proc.kill();
             env.cleanup();

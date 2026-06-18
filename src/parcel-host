@@ -73,6 +73,56 @@ function update_config() {
     fi
 }
 
+# collect a list of scan roots that comply with the configured symlink settings
+collect_roots() {
+    local REAL_PASSDIR="$(readlink -f "$1")"
+    local ROOTS=("$1")
+    local ROOT_IDX=0
+    local ALLOW_LINKS="$2"
+    local ALLOW_EXTERNAL_LINKS="$3"
+
+    if [ "$ALLOW_LINKS" != "true" ]; then
+        if [ -L "$1" ]; then
+            # check allowLinks, but not allowExternalLinks, as the password store *root* being a link is not considered external
+            parcel_error "PASSWORD_STORE_DIR is a symlink, but allowLinks is not enabled." 1
+        fi
+        printf '%s\n' "${ROOTS[@]}"
+        return 0
+    fi
+
+    while [ $ROOT_IDX -lt ${#ROOTS[@]} ]; do
+        local CURRENT="${ROOTS[$ROOT_IDX]}"
+        while IFS= read -r LINK; do
+            if [ -z "$LINK" ]; then
+                continue
+            fi
+            local TARGET
+            if ! TARGET="$(readlink -f "$LINK" 2>/dev/null)"; then
+                continue
+            fi
+            if [ "$ALLOW_EXTERNAL_LINKS" == "true" ] || [[ "$TARGET" == "$REAL_PASSDIR"/* ]]; then
+                if [ ! -d "$TARGET" ]; then
+                    continue
+                fi
+                local ALREADY_INCLUDED=0
+                for ROOT in "${ROOTS[@]}"; do
+                    if [ "$ROOT" == "$LINK" ]; then
+                        ALREADY_INCLUDED=1
+                        break
+                    fi
+                done
+                if [ $ALREADY_INCLUDED -eq 0 ]; then
+                    ROOTS+=("$LINK") # save the non-dereferenced path, as the user may want the same entry accessible via multiple links
+                fi
+            fi
+        done < <(find -H -- "$CURRENT"/ \( -name '.git' -prune \) -o \( -type l -not -path "$CURRENT/.*" -not -path "$CURRENT/**/.*" -print \))
+        ROOT_IDX=$((ROOT_IDX + 1))
+    done
+
+    # return the list
+    printf '%s\n' "${ROOTS[@]}"
+}
+
 # get the current config
 function action_configure() {
     update_config
@@ -86,23 +136,49 @@ function action_changes_since() {
     if [[ -z "$SINCE" || "$SINCE" == "null" || ! "$SINCE" =~ ^[0-9]{10}$ ]]; then
         parcel_error "Invalid timestamp: $SINCE"
     fi
-    SINCE="$(date -d "$SINCE" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -j -f "%s" "$SINCE" +'%Y-%m-%d %H:%M:%S')"
-    CHANGES=$(find -L "$PASSWORD_STORE_DIR" \( -type d -name '.git' -prune \) -o \( -type d -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -newermt "$SINCE" -print \) | wc -l)
-    parcel_send "$(jq -n --arg changes "$CHANGES" '{changes: ($changes|gsub("\\s+"; "")|tonumber)}')"
+    SINCE="$(date -d "@$SINCE" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -j -f "%s" "$SINCE" +'%Y-%m-%d %H:%M:%S')"
+
+    local ROOTS=()
+    while IFS= read -r ROOT; do
+        ROOTS+=("$ROOT")
+    done < <(collect_roots "$PASSWORD_STORE_DIR" "$(jq -r '.allowLinks' <<< "$CONFIG")" "$(jq -r '.allowExternalLinks' <<< "$CONFIG")")
+
+    local EXCLUDE=()
+    for ROOT in "${ROOTS[@]}"; do
+        EXCLUDE+=( -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" )
+    done
+
+    if find -H -- "${ROOTS[@]}" \( -type d -name '.git' -prune \) -o \( -type d "${EXCLUDE[@]}" -newermt "$SINCE" -print \) | read -r _; then
+        # we don't care about the actual number of changed directories, just whether there are any
+        parcel_send '{"changes": 1}'
+        return 0
+    fi
+
+    parcel_send '{"changes": 0}'
 }
 
 # get a list of all the password entries which match the config
 function action_list() {
     update_config
-    local MIXED="$(
-        {
-            find -L "$PASSWORD_STORE_DIR" \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "$PASSWORD_STORE_DIR/.*" -not -path "$PASSWORD_STORE_DIR/**/.*" -name '*.gpg' -print \)
-        } 2>&1 || true
-    )"
+
+    local ALLOW_LINKS="$(jq -r '.allowLinks' <<< "$CONFIG")"
+    local ALLOW_EXTERNAL_LINKS="$(jq -r '.allowExternalLinks' <<< "$CONFIG")"
+
+    local ROOTS=()
+    while IFS= read -r ROOT; do
+        ROOTS+=("$ROOT")
+    done < <(collect_roots "$PASSWORD_STORE_DIR" "$ALLOW_LINKS" "$ALLOW_EXTERNAL_LINKS")
+
+    local MIXED=""
+    for ROOT in "${ROOTS[@]}"; do
+        MIXED+="$(
+            find -H -- "$ROOT"/ \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" -name '*.gpg' -print \) 2>&1 || true
+        )"$'\n'
+    done
+
     local FIND_OUT=""
     local FIND_ERR=""
     while true; do
-        IFS= read -r line <<< "" || break
         IFS= read -r line || break
         if [[ "$line" == "find:"* ]]; then
             FIND_ERR+="$line"$'\n'
@@ -114,7 +190,9 @@ function action_list() {
         parcel_error "Unable to scan files: $FIND_ERR"
         return 0
     fi
+
     local REAL_OUT="$(printf '%s' "$FIND_OUT" | tr '\n' '\0' | xargs -0 -n100 readlink -f || true)"
+
     local SYMLINKS=()
     while IFS= read -r link; do
         if [ -n "$link" ]; then
