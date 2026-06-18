@@ -6,7 +6,7 @@ Parcel is a browser extension that securely searches, displays, and automaticall
 
 Parcel is designed with security as its highest priority: the extension has **does not access the network**, has **no third-party dependencies**, and uses a **plaintext native host**. All communication between the browser and your GPG-encrypted password store happens through a signed, auditable bash native-messaging host. Further details are available in [SECURITY.md](SECURITY.md).
 
----
+![Popup UI demo](https://github.com/user-attachments/assets/f758380e-96fd-4710-bf70-2f0a72101d25)
 
 ## Features
 
