@@ -1,66 +1,66 @@
 {
-    "manifest_version": 3,
-    "version": "1.0.0",
-    "name": "Parcel",
-    "description": "A simple password manager with no third-party dependencies.",
-    "homepage_url": "https://github.com/parcel-pm/parcel/",
-    "author": "Steve Gilberd <steve@erayd.net>",
-    "permissions": ["nativeMessaging", "storage"],
-    "host_permissions": ["<all_urls>"],
-    "background": {
-        "service_worker": "js/agent.js",
-        "type": "module"
+  "manifest_version": 3,
+  "version": "1.0.1",
+  "name": "Parcel",
+  "description": "A simple password manager with no third-party dependencies.",
+  "homepage_url": "https://github.com/parcel-pm/parcel/",
+  "author": "Steve Gilberd <steve@erayd.net>",
+  "permissions": ["nativeMessaging", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "js/agent.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["js/shadow.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
     },
-    "content_scripts": [
-        {
-            "matches": ["<all_urls>"],
-            "js": ["js/shadow.js"],
-            "run_at": "document_start",
-            "all_frames": true,
-            "world": "MAIN"
-        },
-        {
-            "matches": ["<all_urls>"],
-            "js": ["js/integration.js"],
-            "type": "module",
-            "run_at": "document_start",
-            "all_frames": true
-        }
-    ],
-    "content_security_policy": {
-        "extension_pages": "script-src 'self'; object-src 'self';"
-    },
-    "web_accessible_resources": [
-        {
-            "resources": [
-                "html/popup.html",
-                "img/logo-small.svg",
-                "js/helpers.js",
-                "js/integration.js",
-                "js/popup.js",
-                "js/schema.js",
-                "js/selectors.js",
-                "js/targets.js"
-            ],
-            "matches": ["<all_urls>"]
-        }
-    ],
-    "action": {
-        "default_popup": "html/popup.html"
-    },
-    "icons": {
-        "16": "img/logo-16.png",
-        "32": "img/logo-32.png",
-        "64": "img/logo-64.png",
-        "128": "img/logo-128.png"
-    },
-    "commands": {
-        "_execute_action": {
-            "suggested_key": {
-                "default": "Ctrl+Shift+F",
-                "mac": "Command+Shift+F"
-            },
-            "description": "Open Parcel popup"
-        }
+    {
+      "matches": ["<all_urls>"],
+      "js": ["js/integration.js"],
+      "type": "module",
+      "run_at": "document_start",
+      "all_frames": true
     }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "html/popup.html",
+        "img/logo-small.svg",
+        "js/helpers.js",
+        "js/integration.js",
+        "js/popup.js",
+        "js/schema.js",
+        "js/selectors.js",
+        "js/targets.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "action": {
+    "default_popup": "html/popup.html"
+  },
+  "icons": {
+    "16": "img/logo-16.png",
+    "32": "img/logo-32.png",
+    "64": "img/logo-64.png",
+    "128": "img/logo-128.png"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Open Parcel popup"
+    }
+  }
 }
