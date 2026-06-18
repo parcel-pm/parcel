@@ -1,7 +1,7 @@
 VERSION ?= $(shell cat .version)
 CURRENT_VERSION := $(shell cat .version)
 
-PRETTIER := prettier
+PRETTIER := $(PWD)/node_modules/.bin/prettier
 
 .PHONY: all
 all: extension chrome firefox
