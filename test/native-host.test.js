@@ -10,7 +10,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readFileSync, symlinkSync, utimesSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readFileSync, readdirSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -117,6 +117,21 @@ VALID_SIGNERS="${knownSigner}"
             rmSync(home, { recursive: true, force: true });
         },
     };
+}
+
+/**
+ * Recursively set directory modification times to a fixed point in the past.
+ * This lets changes_since tests assert about specific newer directories without
+ * the password store root itself appearing changed.
+ */
+function setDirectoryMtimesSync(dir, date) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const child = join(dir, entry.name);
+        if (entry.isDirectory()) {
+            setDirectoryMtimesSync(child, date);
+        }
+    }
+    utimesSync(dir, date, date);
 }
 
 /**
@@ -1057,6 +1072,9 @@ VALID_SIGNERS="${env.knownSigner}"
         const parcelJson = join(env.passdir, ".parcel.json");
         writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: false }));
 
+        // Ensure the password store itself does not appear newer than the reference time.
+        setDirectoryMtimesSync(env.passdir, new Date("2000-01-01T00:00:00Z"));
+
         const { proc, read, send } = await installMainScript(env);
         try {
             const since = Math.floor(Date.now() / 1000);
@@ -1102,6 +1120,9 @@ VALID_SIGNERS="${env.knownSigner}"
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
         writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Ensure the password store itself does not appear newer than the reference time.
+        setDirectoryMtimesSync(env.passdir, new Date("2000-01-01T00:00:00Z"));
 
         const { proc, read, send } = await installMainScript(env);
         try {
