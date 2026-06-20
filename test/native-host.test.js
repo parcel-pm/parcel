@@ -1196,7 +1196,10 @@ VALID_SIGNERS="${env.knownSigner}"
     test("action_decrypt respects rate limit: blocks excess", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
-        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 1 }));
+        // Use a very slow refill rate so that timing differences between the
+        // two decrypts (e.g. slow processing on CI) cannot refill enough
+        // tokens for the second decrypt to succeed.
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
 
         const { proc, read, send } = await installMainScript(env);
         try {
