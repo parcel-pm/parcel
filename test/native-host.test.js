@@ -838,28 +838,32 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
-    test("action_list returns an error when find emits an error starting with 'find:'", async () => {
-        const env = createTestEnv();
-        const restrictedDir = join(env.passdir, "restricted");
-        mkdirSync(restrictedDir, { recursive: true });
-        writeFileSync(join(restrictedDir, "secret.gpg"), "encrypted-secret");
-        chmodSync(restrictedDir, 0o000);
+    test(
+        "action_list returns an error when find emits an error starting with 'find:'",
+        { skip: typeof process.getuid === "function" && process.getuid() === 0 ? "chmod restrictions don't apply to root" : false },
+        async () => {
+            const env = createTestEnv();
+            const restrictedDir = join(env.passdir, "restricted");
+            mkdirSync(restrictedDir, { recursive: true });
+            writeFileSync(join(restrictedDir, "secret.gpg"), "encrypted-secret");
+            chmodSync(restrictedDir, 0o000);
 
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            const msg = await read();
-            assert.ok(
-                msg.error?.toLowerCase().includes("unable to scan files") || msg.error?.toLowerCase().includes("find:"),
-                `Expected find scan error, got: ${JSON.stringify(msg)}`,
-            );
-        } finally {
-            // restore permissions so cleanup can remove the directory
-            chmodSync(restrictedDir, 0o755);
-            proc.kill();
-            env.cleanup();
-        }
-    });
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                const msg = await read();
+                assert.ok(
+                    msg.error?.toLowerCase().includes("unable to scan files") || msg.error?.toLowerCase().includes("find:"),
+                    `Expected find scan error, got: ${JSON.stringify(msg)}`,
+                );
+            } finally {
+                // restore permissions so cleanup can remove the directory
+                chmodSync(restrictedDir, 0o755);
+                proc.kill();
+                env.cleanup();
+            }
+        },
+    );
 
     test("action_decrypt rejects out-of-scope path", async () => {
         const env = createTestEnv();
