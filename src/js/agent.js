@@ -3,8 +3,16 @@ import { Schema, ConfigSchema } from "./schema.js";
 import { Helpers } from "./helpers.js";
 
 /**
- * Main agent class
- * @since 0.1.0
+ * Main agent class.
+ *
+ * Coordinates the native host, validates & caches config, brokers runtime ports, and
+ * exposes the public `search()` entry point.
+ *
+ * @fires ready - Dispatched when the native host has finished initialising.
+ * @fires initFailed - Dispatched with an error message string when initialisation fails.
+ * @fires entriesUpdated - Dispatched with the latest entry list whenever it is refreshed.
+ * @fires parcel::native::* - Dispatched for broadcast messages from the native host, named `parcel::native::<action>`.
+ * @since 1.0.0
  */
 export class Agent extends EventTarget {
     #connectedNative = false;
@@ -17,7 +25,10 @@ export class Agent extends EventTarget {
     #authorisedTokens = new Set();
     #publicSuffixList = null;
 
-    /** @since 1.0.0 */
+    /**
+     * Construct a new Agent instance.
+     * @since 1.0.0
+     */
     constructor() {
         super();
 
@@ -36,7 +47,7 @@ export class Agent extends EventTarget {
     /**
      * Initialise the agent & native host.
      * @since 1.0.0
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async #init() {
         try {
@@ -64,7 +75,7 @@ export class Agent extends EventTarget {
      * Clear saved history for a removed contextual identity.
      * @since 1.0.0
      * @param {string} cookieStoreId - The cookie store ID of the removed contextual identity.
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async #clearContainerHistory(cookieStoreId) {
         if (!cookieStoreId) return;
@@ -78,7 +89,7 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Connect to the native host.
+     * Open a connection to the native host.
      * @since 1.0.0
      * @returns {void}
      */
@@ -90,12 +101,13 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Call the native host
+     * Call the native host.
      * @since 1.0.0
      * @param {string} action - The action to send to the native host.
-     * @param {object} message - The message to send to the native host.
-     * @param {number} timeout - The timeout for the call.
-     * @returns {mixed} - The native host response payload.
+     * @param {object} [message={}] - The message to send to the native host.
+     * @param {number} [timeout=2000] - The timeout for the call in milliseconds.
+     * @returns {Promise<*>} The native host response payload.
+     * @throws {Error} If not connected to the native host, the call times out, or the host returns an error.
      */
     async #callNative(action, message = {}, timeout = 2000) {
         try {
@@ -135,10 +147,10 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Handles messages from the native host.
+     * Handle messages from the native host.
      * @since 1.0.0
      * @param {object} message - The message from the native host.
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async #onNativeMessage(message) {
         if (message.token === "broadcast") {
@@ -156,9 +168,9 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Handles disconnections from the native host.
+     * Handle disconnections from the native host, reinitialising on unexpected disconnects.
      * @since 1.0.0
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async #onNativeDisconnect() {
         this.#connectedNative = false;
@@ -180,6 +192,7 @@ export class Agent extends EventTarget {
      * Wait until the native host has finished initialising.
      * @since 1.0.0
      * @returns {Promise<void>}
+     * @throws {Error} If initialisation previously failed.
      */
     async #waitUntilReady() {
         if (this.#config) return;
@@ -195,6 +208,7 @@ export class Agent extends EventTarget {
      * @since 1.0.0
      * @param {object} config - The configuration object.
      * @returns {void}
+     * @throws {Error} If the configuration fails schema validation.
      */
     #setConfig(config) {
         // validate the provided configuration
@@ -212,7 +226,7 @@ export class Agent extends EventTarget {
     /**
      * Set the list of available pass entries.
      * @since 1.0.0
-     * @param {object} list - The list of available pass entries from the native host.
+     * @param {object[]} entries - The list of available pass entries from the native host.
      * @returns {void}
      */
     #setEntries(entries) {
@@ -240,7 +254,9 @@ export class Agent extends EventTarget {
     /**
      * Get the list of available pass entries.
      * @since 1.0.0
-     * @returns {object[]} - The list of available pass entries.
+     * @param {number} [cacheTTL] - Override the configured cache TTL in seconds. Defaults to `this.#config.cacheTTL`.
+     * @returns {Promise<object[]>} The list of available pass entries.
+     * @throws {Error} If called before configuration is set, the native-host call rejects, or the entry list cannot be refreshed.
      */
     async #getEntries(cacheTTL = this.#config.cacheTTL) {
         let cacheAge = (Date.now() - this.#entriesUpdated) / 1000;
@@ -262,8 +278,8 @@ export class Agent extends EventTarget {
     /**
      * Handle incoming connections from the extension UI & content scripts.
      * @since 1.0.0
-     * @param {Port} port - The connection port from the origin page.
-     * @returns {void}
+     * @param {Port} port - The connection port from the extension UI or a content script.
+     * @returns {Promise<void>}
      */
     async #connect(port) {
         var authorised = false;
@@ -374,10 +390,10 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Relay a popup iframe connection to the matching content script.
+     * Relay a popup iframe connection named `popup-bridge:<token>:<frameId>` to the matching content script.
      * @since 1.0.0
      * @param {Port} port - The popup runtime port.
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async #bridgePopup(port) {
         const matches = port.name.match(/^popup-bridge:(.+?):(\d+)$/u);
@@ -418,11 +434,12 @@ export class Agent extends EventTarget {
     /**
      * Find matching entries for a given origin.
      * @since 1.0.0
-     * @param {URL} url - The url to find matching entries for.
+     * @param {URL|string} url - The url to find matching entries for.
      * @param {string} search - The search string to match against.
      * @param {boolean} [limit=true] - Whether to limit the search to the current origin.
-     * @param {string[]} [history] - A list of historical paths to include regardless of matches.
-     * @returns {object[]} - The matching entries.
+     * @param {object[]} [history=[]] - Historical fill entries (`{path, when}`) used for sort priority.
+     * @returns {Promise<object[]>} The matching entries.
+     * @throws {Error} If a search term is not a valid regular expression. The thrown error additionally has a `logAs` property set to `"info"`.
      */
     async search(url, search, limit = true, history = []) {
         // consolidate history to most-recent entry per item
@@ -508,7 +525,8 @@ export class Agent extends EventTarget {
      * Get the public suffix for a given hostname.
      * @since 1.0.0
      * @param {string} hostname - The hostname to get the public suffix for.
-     * @returns {string} - The public suffix for the given hostname, or the raw hostname if not public.
+     * @returns {Promise<string>} The public suffix for the given hostname, or the raw hostname if not public.
+     * @throws {Error} If the public-suffix list cannot be loaded or parsed.
      */
     async #getPublicSuffix(hostname) {
         if (!this.#publicSuffixList) {

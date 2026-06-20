@@ -18,9 +18,10 @@
     }
 
     /**
-     * Connect to the active tab content script, falling back to relay via the background service if necessary
+     * Connect to the active tab content script, falling back to relay via the background service if necessary.
      * @since 1.0.0
      * @returns {Promise<{tab: chrome.tabs.Tab, tabPort: chrome.runtime.Port}>}
+     * @throws {Error} If the bridge to the active tab reports an error or disconnects unexpectedly.
      */
     async function connectToTab() {
         if (chrome.tabs?.getCurrent && chrome.tabs?.query && chrome.tabs?.connect) {
@@ -66,6 +67,13 @@
     let limit = true;
     let history = [];
 
+    /**
+     * Hash a string with SHA-256, delegating to the background service worker if the
+     * Web Crypto API is unavailable in this context.
+     * @since 1.0.0
+     * @param {string} s - The string to hash.
+     * @returns {Promise<string>} The hex digest.
+     */
     const sha256 = async (s) => {
         try {
             return await Helpers.sha256(s);
@@ -219,7 +227,7 @@
     customElements.define("parcel-plaintext-line", ParcelPlaintextLine);
 
     /**
-     * Custom element for displaying extracted values in the detail view
+     * Custom element for displaying extracted values in the detail view.
      * @since 1.0.0
      */
     class ParcelValue extends HTMLElement {
@@ -256,10 +264,11 @@
         }
 
         /**
-         * Set the displayed value, supporting dynamic values if a function is provided
+         * Set the displayed value, supporting dynamic values if a function is provided.
          * @since 1.0.0
-         * @param {string|function} value - The value to display, or a function that returns the value (or an object with value and again properties for dynamic values)
-         * @param {boolean} [asChars=false] - Whether to split the value into individual character elements for styling
+         * @param {string|function} value - The value to display, or a function returning a value spec with `value`, `again`, `epoch`, `interval`, `generatedAt`, and `refreshAt` properties.
+         * @param {boolean} [asChars=false] - Whether to split the value into individual character elements for styling.
+         * @returns {Promise<void>}
          */
         async setValue(value, asChars = false) {
             if (typeof value === "function") {
@@ -303,7 +312,7 @@
     customElements.define("parcel-value", ParcelValue);
 
     /**
-     * Custom element for displaying the detail view
+     * Custom element for displaying the detail view.
      * @since 1.0.0
      */
     class ParcelDetail extends HTMLElement {
@@ -318,6 +327,12 @@
             this.#root.appendChild(document.getElementById("parcel-detail-template").content.cloneNode(true));
         }
 
+        /**
+         * Populate the detail view by hoisting high-priority values and rendering all plaintext lines.
+         * @since 1.0.0
+         * @param {Plaintext} plaintext - The plaintext instance to render.
+         * @returns {Promise<void>}
+         */
         async setPlaintext(plaintext) {
             this.#plaintext = plaintext;
             let config = await this.#plaintext.getConfig();

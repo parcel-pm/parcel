@@ -4,6 +4,13 @@
 var _attachShadow;
 if (!_attachShadow) {
     _attachShadow = Element.prototype.attachShadow;
+    /**
+     * Override of Element.prototype.attachShadow that tags shadow hosts so they can be
+     * located later, and re-dispatches clicks originating inside shadow roots.
+     * @since 1.0.0
+     * @param {object} options - The shadow root init options (mode, delegatesFocus, etc.).
+     * @returns {ShadowRoot} The created shadow root (click tracking is attached asynchronously on the next macrotask).
+     */
     Element.prototype.attachShadow = function (options) {
         const root = _attachShadow.call(this, options);
         setTimeout(() => {

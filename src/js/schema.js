@@ -9,7 +9,10 @@ import { defaultTargets } from "./targets.js";
 export class Schema {
     /**
      * Validate a data instance against a schema.
-     * @param {object} schema - The JSON schema to validate against.
+     *
+     * Applies defaults for missing required properties, mutating `data`.
+     *
+     * @param {object} schema - The schema to validate against.
      * @param {any}    data - The data instance to validate.
      * @param {string} [path="/"] - The path to the data object being validated.
      * @returns {void}
@@ -101,6 +104,7 @@ export class Schema {
 
 /**
  * The meta-schema for validating schema definitions.
+ * @type {object}
  * @since 1.0.0
  */
 export const MetaSchema = {
@@ -131,6 +135,7 @@ MetaSchema.properties.items = MetaSchema;
 
 /**
  * The schema for selectors.
+ * @type {object}
  * @since 1.0.0
  */
 export const SelectorSchema = {
@@ -148,6 +153,7 @@ export const SelectorSchema = {
 
 /**
  * The schema for targets.
+ * @type {object}
  * @since 1.0.0
  */
 export const TargetSchema = {
@@ -177,6 +183,7 @@ export const TargetSchema = {
 
 /**
  * The main configuration schema.
+ * @type {object}
  * @since 1.0.0
  */
 export const ConfigSchema = {

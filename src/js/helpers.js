@@ -1,5 +1,9 @@
 "use strict";
 
+/**
+ * Static helper utilities that are used across multiple calling classes.
+ * @since 1.0.0
+ */
 export class Helpers {
     /**
      * Convert a base32 string to an ArrayBuffer.
@@ -33,7 +37,8 @@ export class Helpers {
      * @param {string} secret - The base32 secret key.
      * @param {number} [step=30] - The time step in seconds.
      * @param {number} [digits=6] - The number of digits in the token.
-     * @returns {Promise<string>} The generated TOTP token.
+     * @returns {Promise<{value: string, refreshAt: number, generatedAt: number, interval: number}>} The generated TOTP token and timing metadata. Timestamps are in milliseconds.
+     * @throws {TypeError|DOMException} If the SubtleCrypto interface is unavailable or `importKey`/`sign` rejects (propagated from the underlying WebCrypto calls).
      */
     static async generateTOTP(secret, step = 30, digits = 6) {
         const counter = new Uint8Array(8);
@@ -65,8 +70,9 @@ export class Helpers {
     /**
      * Generate a SHA-256 hash of a string.
      * @since 1.0.0
-     * @param {string} str - The string to hash.
+     * @param {string} s - The string to hash.
      * @returns {Promise<string>} The SHA-256 hash of the string.
+     * @throws {Error} If the Web Crypto API is unavailable.
      */
     static async sha256(s) {
         if (!crypto.subtle) throw new Error("Crypto API is not available in this environment.");
@@ -95,11 +101,13 @@ export class Helpers {
     }
 
     /**
-     * Get the appropriate value for the target type
+     * Get the appropriate value for the target type.
      * @since 1.0.0
-     * @param {string} plaintext - The plaintext to fill from
-     * @param {object} config - The current parcel config
-     * @param {string} type - The target type to use
+     * @param {string} plaintext - The plaintext to fill from.
+     * @param {object} config - The current parcel config.
+     * @param {string} type - The target type to use.
+     * @returns {Promise<string|object|null>} The resolved value, or a TOTP metadata object if a TOTP transform was applied.
+     * @throws {Error} If the target type is invalid, no value is found, the target pattern is malformed, a fallback is misconfigured, or a TOTP transform fails.
      */
     static async getValue(plaintext, config, type) {
         config = await config;
@@ -166,9 +174,11 @@ export class Helpers {
     }
 
     /**
-     * querySelectorAll that also searches inside shadow roots
+     * querySelectorAll that also searches inside shadow roots.
      * @since 1.0.0
-     * @param {string} selector - The CSS selector to search for
+     * @param {string} selector - The CSS selector to search for.
+     * @param {ParentNode} [root=document] - The root to search from.
+     * @returns {Element[]} All matching elements, including those inside shadow roots.
      */
     static shadowSelectorAll(selector, root = document) {
         const results = [];
@@ -183,9 +193,11 @@ export class Helpers {
     }
 
     /**
-     * querySelector that also searches inside shadow roots
+     * querySelector that also searches inside shadow roots.
      * @since 1.0.0
-     * @param {string} selector - The CSS selector to search for
+     * @param {string} selector - The CSS selector to search for.
+     * @param {ParentNode} [root=document] - The root to search from.
+     * @returns {?Element} The first matching element, or null if none is found.
      */
     static shadowSelector(selector, root = document) {
         const result = root.querySelector(selector);
@@ -201,10 +213,10 @@ export class Helpers {
     }
 
     /**
-     * Get luma for an RGB hex colour
+     * Get luma for an RGB hex colour.
      * @since 1.0.0
-     * @param {string} hex - The RGB hex colour to get the luminance for
-     * @returns {number} The luminance of the colour (0-1)
+     * @param {string} hex - The RGB hex colour to get the luminance for.
+     * @returns {number} The luminance of the colour (0-1). Returns `NaN` if `hex` is not exactly six hexadecimal digits.
      */
     static getLuma(hex) {
         const r = parseInt(hex.substring(0, 2), 16) / 255;

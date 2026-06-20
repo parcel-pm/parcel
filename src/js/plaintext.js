@@ -10,6 +10,11 @@ export class Plaintext {
     #plaintext;
     #config;
 
+    /**
+     * @since 1.0.0
+     * @param {string} plaintext - The raw plaintext to wrap.
+     * @param {Promise<object>|object} config - The parcel config (or a promise resolving to it).
+     */
     constructor(plaintext, config) {
         this.#plaintext = plaintext;
         this.#config = config;
@@ -27,7 +32,7 @@ export class Plaintext {
     /**
      * Get the current config.
      * @since 1.0.0
-     * @returns {object}
+     * @returns {Promise<object>|object}
      */
     getConfig() {
         return this.#config;
@@ -37,7 +42,7 @@ export class Plaintext {
      * Get the value for a given field name.
      * @since 1.0.0
      * @param {string} name - The field name to get the value for
-     * @returns {string|null}
+     * @returns {Promise<string|null>}
      */
     async getValue(name) {
         name = Helpers.normaliseName(this.#config, name);
@@ -58,7 +63,7 @@ export class Plaintext {
      * Check if a value exists for a given field name.
      * @since 1.0.0
      * @param {string} name - The field name to check for
-     * @returns {boolean}
+     * @returns {Promise<boolean>}
      */
     async hasValue(name) {
         return (await this.getValue(name)) !== null;
@@ -69,7 +74,7 @@ export class Plaintext {
      * @since 1.0.0
      * @param {string} name - The field name to transform for
      * @param {string} value - The value to transform
-     * @returns {string}
+     * @returns {Promise<string>|string}
      */
     transform(name, value) {
         switch (name) {

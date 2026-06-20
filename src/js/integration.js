@@ -13,7 +13,10 @@
     var frameId = 0;
 
     /**
-     * Popup inter-frame trigger wiring
+     * Handle incoming "trigger" port connections (popup open/close, resize, and untargeted-click routing).
+     * @since 1.0.0
+     * @param {chrome.runtime.Port} port - The incoming "trigger" connection.
+     * @returns {void}
      */
     chrome.runtime.onConnect.addListener((port) => {
         if (port.name !== "trigger") return;
@@ -56,8 +59,9 @@
     });
 
     /**
-     * Configuration object
+     * Configuration object retrieved from the background worker.
      * @since 1.0.0
+     * @type {Promise<object>}
      */
     const config = new Promise((resolve) => {
         const port = chrome.runtime.connect({ name: "integration" });
@@ -73,8 +77,9 @@
     });
 
     /**
-     * List of valid focus targets.
+     * List of valid focus targets, filtered to the current host.
      * @since 1.0.0
+     * @type {Promise<object[]>}
      */
     const validTargets = targetSelectors.then(async (targetSelectors) => {
         let selectors = targetSelectors.targetSelectors.concat((await config).additionalSelectors || []);
@@ -85,19 +90,21 @@
     });
 
     /**
-     * List of invalid focus targets.
+     * List of blacklist-type selectors applicable to the current host.
      * @since 1.0.0
+     * @type {Promise<object[]>}
      */
     const invalidTargets = targetSelectors.then((targetSelectors) =>
         targetSelectors.targetSelectors.filter((t) => t.type === "blacklist" && (!t.host || t.host.includes(window.location.hostname))),
     );
 
     /**
-     * Get the target info for an element
+     * Get the target info for an element.
      * @since 1.0.0
      * @param {HTMLElement} el - The element to check.
-     * @param {boolean} related - Whether to use selectors that are marked only for use with related fields
-     * @returns {string|null} - The target type or null if not found.
+     * @param {boolean} [related=false] - Whether to include selectors flagged `relatedOnly` in the candidate pool.
+     * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`), or null if not found.
+     * @throws {Error} If the element is not visible, has an unsupported input type, or matches a blacklist selector.
      */
     async function getTargetInfo(el, related = false) {
         try {
@@ -135,7 +142,8 @@
      * Get fillable fields that are related to the given element.
      * @since 1.0.0
      * @param {HTMLElement} el - The element to start from.
-     * @returns {HTMLElement[]} - The related fillable fields.
+     * @returns {Promise<HTMLElement[]>} The related fillable fields within the closest aggregate group.
+     * @throws {Error} If `getTargetInfo(el)` rejects (e.g. the element is not a valid target).
      */
     async function getRelatedFields(el) {
         const targetInfo = await getTargetInfo(el);
@@ -172,12 +180,14 @@
     /**
      * Fill the appropriate value for the target element.
      * @since 1.0.0
-     * @param {HTMLElement} el - The element to target
-     * @param {string} plaintext - The plaintext to fill from
-     * @param {object} config - The current parcel config
-     * @param {string|null} type - The target type to use, or null to infer from the element
-     * @param {string|null} fillValue - The value to fill, or null to derive from the plaintext and config
-     * @param {boolean} isRelated - Whether the field being filled is a related field (as opposed to the originally clicked field)
+     * @param {HTMLElement} el - The element to target.
+     * @param {string|null} plaintext - The plaintext to derive the value from, or null when filling a direct value.
+     * @param {object|null} config - The current parcel config, or null when filling a direct value.
+     * @param {string|null} [type=null] - The target type to use, or null to infer from the element.
+     * @param {string|null} [fillValue=null] - The value to fill, or null to derive from the plaintext and config.
+     * @param {boolean} [isRelated=false] - Whether the field being filled is a related field (as opposed to the originally clicked field).
+     * @returns {Promise<void>}
+     * @throws {Error} If the target element has been removed from the DOM or is not eligible for autofill.
      */
     async function fillField(el, plaintext, config, type = null, fillValue = null, isRelated = false) {
         if (!el.parentNode) throw new Error("Target element has been removed from the DOM.");
@@ -264,12 +274,12 @@
     }
 
     /**
-     * Triggers a popup for the given element.
+     * Trigger a popup for the given element, anchoring it to the element's position.
      * @since 1.0.0
      * @param {string} token - The token for the element.
      * @param {number} frameId - The ID of the frame in which the target element resides.
      * @param {DOMRect} position - The position of the target element.
-     * @returns {void}
+     * @returns {Promise<void>}
      */
     async function triggerPopup(token, frameId, position) {
         // remove old popups
@@ -359,13 +369,13 @@
     }
 
     /**
-     * Trigger the popup when the element is clicked.
+     * Handle a click on a potential autofill target, dispatching a trigger to the root frame.
      * @since 1.0.0
-     * @param {HTMLElement} target - The clicked element.
+     * @param {HTMLElement} target - The clicked element (may be a shadow host or label-associated element).
      * @param {number} x - The x coordinate of the click.
      * @param {number} y - The y coordinate of the click.
-     * @param {boolean} isShadowClick - Whether the click originated from the shadow intercept
-     * @returns {void}
+     * @param {boolean} [isShadowClick=false] - Whether the click was re-dispatched from the shadow-DOM click intercept.
+     * @returns {Promise<void>}
      */
     async function handleTriggerClick(target, x, y, isShadowClick = false) {
         if (!isShadowClick && target.hasAttribute("is-shadow")) return; // ignore duplicate clicks from shadow hosts
@@ -418,8 +428,12 @@
     }
 
     /**
-     * Handle messages from the popup.
+     * Handle incoming connections from the popup, binding each connection to its target element
+     * and routing subsequent messages (ready / fill-value / fill / resize / close).
      * @since 1.0.0
+     * @param {chrome.runtime.Port} port - The incoming popup connection.
+     * @returns {Promise<void>}
+     * @throws {Error} If a non-broadcast connection arrives without a matching element binding.
      */
     chrome.runtime.onConnect.addListener(async (port) => {
         if (!port.name) return;

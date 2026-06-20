@@ -1,7 +1,8 @@
 "use strict";
 
 /**
- * List of valid targets.
+ * Default CSS selector rules used to identify fill targets.
+ * @type {Array<{selector: string, type: string, host?: string[], relatedOnly?: boolean}>}
  * @since 1.0.0
  */
 export var targetSelectors = [

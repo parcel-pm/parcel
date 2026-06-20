@@ -2,6 +2,7 @@
 
 /**
  * List of default targets.
+ * @type {object[]}
  * @since 1.0.0
  */
 export const defaultTargets = [
