@@ -23,8 +23,8 @@ clean:
 .PHONY: chrome
 chrome: extension
 	rsync -av src/dist/ chrome/
-	# Always inject the Chrome extension key for unpacked/local installs
-	#jq ".key=\"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAted7WSl3dHs767uh16stdYaXCOXv3XGcWokWsDd56svrU6zhTrEzBkZGozMdqOygDBfZQ6eaRKlR4vHu/7tny1Z3f/rRO7c9dSk6pQjF/gNmsfNd4XyrtujRmPiPwi3Gcyn1Sizpkhn+Bfp3gvim/jLkqpZu9rOgSMxZOaqLOs2SSdaOr9dWhqV5eo6el5D/diL6HDzzMbgUr8NxePQ1PnZnoX1Qjms/jIfxpeEYZeaEjFNCQJKffK/zZWs8CD+mTEbJALYxwuMNueKsie2J07buyW1ZTtczeei45MDQc6yY0C7lcqhk+/7nqnJZfdkc0g1fNvTPXwzGxhFr+bpfZwIDAQAB\"" src/dist/manifest.json > chrome/manifest.json
+	# Inject the webstore public key for unpacked/local installs to ensure a consistent extension ID
+	jq ".key=\"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6YffJyyl5PdZ/tpQASIn4laZtBltJWnYjzNATud3z/yXQ7deCZnTugm36m+1vsXpNs758OrMs+9tF4Ecl/88QqWyNnLUymsvz7MTVpznTY7X8Wo9yHV7RmU7LU2lC3Zg7SJ5anvVSjXvLIGgjFZTN0bBbwpsADFULni8/sk7eVh1Lx1THjc/pWNEOgEOVVsEUAOqwUwDheoJRBIK0M5lLLqup7TKP9mcMDMUq4CEwLoWge98L6D0rQMJy48VYLEXlUWTVcjeyc2DJYBaGvMVWXc81+eajQrV/NZ5hu66ofuLifDUbjr3S0v6kxlqBoAhdjMOa1twoO1Y0KXxvdDhzwIDAQAB\"" src/dist/manifest.json > chrome/manifest.json
 
 .PHONY: firefox
 firefox: extension
