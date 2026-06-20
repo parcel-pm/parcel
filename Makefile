@@ -49,6 +49,7 @@ ifeq ($(VERSION), $(CURRENT_VERSION))
 else
 	echo $(VERSION) > .version
 	jq ".version = \"$(VERSION)\"" src/manifest.json | $(PRETTIER) --parser json | sponge src/manifest.json
+	$(PRETTIER) --write src/manifest.json
 	git reset
 	git add .version src/manifest.json
 	git commit -m "Release v$(VERSION)"
