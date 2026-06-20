@@ -182,7 +182,7 @@ function action_list() {
         IFS= read -r line || break
         if [[ "$line" == "find:"* ]]; then
             FIND_ERR+="$line"$'\n'
-        else
+        elif [ -n "$line" ]; then
             FIND_OUT+="$line"$'\n'
         fi
     done <<< "$MIXED"
