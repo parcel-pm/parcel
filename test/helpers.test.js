@@ -64,7 +64,6 @@ describe("Helpers", () => {
         const step = 30;
         const before = Date.now();
         const result = await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", step, 6);
-        const after = Date.now();
 
         assert.strictEqual(result.value.length, 6);
         assert.match(result.value, /^\d{6}$/);
