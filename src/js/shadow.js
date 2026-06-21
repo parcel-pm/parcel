@@ -1,7 +1,7 @@
 "use strict";
 
 // Track shadow roots as they are created so we don't have to search for them later
-var _attachShadow;
+let _attachShadow;
 if (!_attachShadow) {
     _attachShadow = Element.prototype.attachShadow;
     /**

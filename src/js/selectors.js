@@ -5,7 +5,7 @@
  * @type {Array<{selector: string, type: string, host?: string[], relatedOnly?: boolean}>}
  * @since 1.0.0
  */
-export var targetSelectors = [
+export const targetSelectors = [
     // type: blacklist
     { selector: "input[example=blacklist i]", type: "blacklist", host: ["example.com", "example.org"] },
     { selector: "input[autocomplete~=new-password i]", type: "blacklist" },
@@ -79,16 +79,16 @@ export var targetSelectors = [
 ];
 
 // bulk aggregation selectors
-for (let u of ["login", "sign", "auth", "account", "user"]) {
-    for (let t of ["div", "section", "p", "table"]) {
-        for (let s of ["class", "id"]) {
+for (const u of ["login", "sign", "auth", "account", "user"]) {
+    for (const t of ["div", "section", "p", "table"]) {
+        for (const s of ["class", "id"]) {
             targetSelectors.push({ selector: `${t}[${s}*=${u} i]`, type: "aggregate" });
         }
     }
 }
 
 // bulk login selectors
-for (let s of ["login", "user", "username", "email"]) {
+for (const s of ["login", "user", "username", "email"]) {
     targetSelectors.push({ selector: `input[name*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[id*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[class*=${s} i]`, type: "login" });
@@ -98,8 +98,8 @@ for (let s of ["login", "user", "username", "email"]) {
 }
 
 // bulk submit button selectors
-for (let s of ["login", "log-in", "log_in", "signin", "sign-in", "sign_in", "submit", "submit-login", "continue"]) {
-    for (let t of ["input[type=button]", "button"]) {
+for (const s of ["login", "log-in", "log_in", "signin", "sign-in", "sign_in", "submit", "submit-login", "continue"]) {
+    for (const t of ["input[type=button]", "button"]) {
         targetSelectors.push({ selector: `${t}[name*=${s} i]`, type: "submit" });
         targetSelectors.push({ selector: `${t}[id*=${s} i]`, type: "submit" });
         targetSelectors.push({ selector: `${t}[class*=${s} i]`, type: "submit" });
@@ -110,7 +110,7 @@ for (let s of ["login", "log-in", "log_in", "signin", "sign-in", "sign_in", "sub
 }
 
 // bulk card selectors
-for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
+for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=ccn i]`, type: "card" });
     targetSelectors.push({ selector: `input[${s}=card i]`, type: "card" });
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=num i]`, type: "card" });
@@ -120,7 +120,7 @@ for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
 }
 
 // bulk cardholder selectors
-for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
+for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=name i]`, type: "card", relatedOnly: true });
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=holder i]`, type: "cardholder" });
     targetSelectors.push({ selector: `input[${s}^=cc i][${s}*=name i]`, type: "cardholder" });
@@ -128,13 +128,13 @@ for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
 }
 
 // bulk cardexp selectors
-for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
+for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=exp i]`, type: "cardexp" });
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=exp i]`, type: "cardexp" });
 }
 
 // bulk cardexp-month selectors
-for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
+for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=exp i][${s}*=mon i]`, type: "cardexp-month" });
     targetSelectors.push({ selector: `input[${s}^=expiry i][${s}*=mon i]`, type: "cardexp-month" });
     targetSelectors.push({ selector: `input[${s}^=expiration i][${s}*=mon i]`, type: "cardexp-month" });
@@ -148,7 +148,7 @@ for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
 }
 
 // bulk cardexp-year selectors
-for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
+for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=exp i][${s}*=year i]`, type: "cardexp-year" });
     targetSelectors.push({ selector: `input[${s}^=expiry i][${s}*=year i]`, type: "cardexp-year" });
     targetSelectors.push({ selector: `input[${s}^=expiration i][${s}*=year i]`, type: "cardexp-year" });
@@ -162,16 +162,16 @@ for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
 }
 
 // bulk cardcsc selectors
-for (let s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
-    for (let t of ["csc", "cvv", "cvc"]) targetSelectors.push({ selector: `input[${s}^=${t} i]`, type: "cardcsc" });
+for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
+    for (const t of ["csc", "cvv", "cvc"]) targetSelectors.push({ selector: `input[${s}^=${t} i]`, type: "cardcsc" });
     targetSelectors.push({ selector: `input[${s}^=security i][${s}*=code i]`, type: "cardcsc", relatedOnly: true });
     targetSelectors.push({ selector: `input[${s}^=code i]`, type: "cardcsc", relatedOnly: true });
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=security i][${s}*=code i]`, type: "cardcsc" });
 }
 
 // exclude password change fields
-for (let s of ["new", "confirm", "change", "edit"]) {
-    for (let t of ["password", "pass", "secret"]) {
+for (const s of ["new", "confirm", "change", "edit"]) {
+    for (const t of ["password", "pass", "secret"]) {
         targetSelectors.push({ selector: `input[name*=${s} i][name*=${t} i]`, type: "blacklist" });
         targetSelectors.push({ selector: `input[id*=${s} i][id*=${t} i]`, type: "blacklist" });
         targetSelectors.push({ selector: `input[class*=${s} i][class*=${t} i]`, type: "blacklist" });
@@ -182,7 +182,7 @@ for (let s of ["new", "confirm", "change", "edit"]) {
 }
 
 // exclude search fields
-for (let s of ["search", "find", "lookup", "query"]) {
+for (const s of ["search", "find", "lookup", "query"]) {
     targetSelectors.push({ selector: `input[name*=${s} i]`, type: "blacklist" });
     targetSelectors.push({ selector: `input[id*=${s} i]`, type: "blacklist" });
     targetSelectors.push({ selector: `input[class*=${s} i]`, type: "blacklist" });

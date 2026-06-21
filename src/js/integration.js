@@ -10,7 +10,7 @@
         // re-establish connection to the auth port on bfcache restore
         if (ev.persisted) authPort = chrome.runtime.connect({ name: "auth" });
     });
-    var frameId = 0;
+    let frameId = 0;
 
     /**
      * Handle incoming "trigger" port connections (popup open/close, resize, and untargeted-click routing).
@@ -82,7 +82,7 @@
      * @type {Promise<object[]>}
      */
     const validTargets = targetSelectors.then(async (targetSelectors) => {
-        let selectors = targetSelectors.targetSelectors.concat((await config).additionalSelectors || []);
+        const selectors = targetSelectors.targetSelectors.concat((await config).additionalSelectors || []);
         Schema.validate(SelectorSchema, selectors);
         return selectors.filter(
             (t) => !["blacklist", "aggregate"].includes(t.type) && (!t.host || t.host.includes(window.location.hostname)),
@@ -114,14 +114,14 @@
             if (el.hasAttribute("type") && !["text", "email", "tel", "password"].includes(el.type))
                 throw new Error(`Invalid input type: ${el.type}`);
             let finalTarget = null;
-            for (let target of (await validTargets).filter((t) => (related ? true : !t.relatedOnly))) {
+            for (const target of (await validTargets).filter((t) => (related ? true : !t.relatedOnly))) {
                 if (el.matches(target.selector) && !el.readOnly && !el.disabled) {
                     finalTarget = target;
                     break;
                 }
             }
             if (finalTarget) {
-                for (let target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
+                for (const target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
                     if (el.matches(target.selector)) {
                         el.setAttribute("parcel-blacklist", target.selector);
                         throw new Error(`Target element matches a blacklist selector: ${target.selector}`);
@@ -148,17 +148,18 @@
     async function getRelatedFields(el) {
         const targetInfo = await getTargetInfo(el);
         const aggregationSelectors = (await targetSelectors).targetSelectors.filter((s) => s.type === "aggregate");
-        for (let s of aggregationSelectors) {
-            var group = el.closest(s.selector);
+        let group;
+        for (const s of aggregationSelectors) {
+            group = el.closest(s.selector);
             if (group) break;
         }
         if (!group) return [];
         const relatedFields = [];
-        for (let target of (await validTargets).filter((t) => targetInfo.related.includes(t.type))) {
+        for (const target of (await validTargets).filter((t) => targetInfo.related.includes(t.type))) {
             for (const field of group.querySelectorAll(target.selector)) {
                 if (relatedFields.includes(field) || field === el) continue;
                 let isInvalid = false;
-                for (let target of await invalidTargets) {
+                for (const target of await invalidTargets) {
                     if (field.matches(target.selector)) {
                         isInvalid = true;
                         break;
@@ -168,7 +169,7 @@
                 try {
                     if (!field.targetInfo) field.targetInfo = await getTargetInfo(field, true);
                     if (targetInfo.related.includes(field.targetInfo?.type)) relatedFields.push(field);
-                } catch (err) {
+                } catch (_err) {
                     // if getTargetInfo throws, it means the field is not fillable, but we can ignore
                     // the error because we're only using it as an eligibility test for related fields
                 }
@@ -191,17 +192,19 @@
      */
     async function fillField(el, plaintext, config, type = null, fillValue = null, isRelated = false) {
         if (!el.parentNode) throw new Error("Target element has been removed from the DOM.");
+        let targetInfo;
+        let initialValue;
         try {
-            var targetInfo = await getTargetInfo(el, isRelated);
+            targetInfo = await getTargetInfo(el, isRelated);
         } catch (err) {
             throw new Error(`Target element is not eligible for autofill: ${err.message}`);
         }
         if (!type) type = targetInfo.type;
         if (fillValue === null) fillValue = await Helpers.getValue(plaintext, config, type);
-        if (typeof fillValue === "object" && fillValue.hasOwnProperty("value")) fillValue = fillValue.value;
+        if (typeof fillValue === "object" && Object.prototype.hasOwnProperty.call(fillValue, "value")) fillValue = fillValue.value;
 
         // Send some keyboard events indicating that value modification has started (no associated keycode)
-        for (let eventName of ["keydown", "keypress", "keyup", "input", "change"]) {
+        for (const eventName of ["keydown", "keypress", "keyup", "input", "change"]) {
             el.dispatchEvent(new Event(eventName, { bubbles: true }));
         }
 
@@ -214,12 +217,12 @@
         if (el.tagName === "SELECT") {
             let optionToSelect = Array.from(el.options).find((o) => o.value === fillValue || o.text === fillValue);
             if (!optionToSelect && type === "cardexp-year") {
-                let fullYear = (2000 + parseInt(fillValue)).toString();
+                const fullYear = (2000 + parseInt(fillValue)).toString();
                 optionToSelect = Array.from(el.options).find((o) => o.value === fullYear || o.text === fullYear);
             }
             if (!optionToSelect && type === "cardexp-month") {
-                let monthShortNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-                let monthLongNames = [
+                const monthShortNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+                const monthLongNames = [
                     "january",
                     "february",
                     "march",
@@ -233,7 +236,7 @@
                     "november",
                     "december",
                 ];
-                let monthIndex = parseInt(fillValue) - 1;
+                const monthIndex = parseInt(fillValue) - 1;
                 optionToSelect = Array.from(el.options).find(
                     (o) =>
                         o.value === fillValue.padStart(2, "0") ||
@@ -249,13 +252,13 @@
             if (optionToSelect) optionToSelect.selected = true;
         } else {
             // Set the field value directly
-            var initialValue = el.value || el.getAttribute("value");
+            initialValue = el.value || el.getAttribute("value");
             el.setAttribute("value", fillValue);
             el.value = fillValue;
         }
 
         // Send the keyboard events again indicating that value modification has finished (no associated keycode)
-        for (let eventName of ["keydown", "keypress", "keyup", "input", "change"]) {
+        for (const eventName of ["keydown", "keypress", "keyup", "input", "change"]) {
             el.dispatchEvent(new Event(eventName, { bubbles: true }));
         }
 
@@ -386,10 +389,10 @@
         //let popup = document.querySelector(".parcel-popup");
         try {
             const targetInfo = await getTargetInfo(target);
-            if (!target.hasOwnProperty("_parcelToken")) {
+            if (!Object.prototype.hasOwnProperty.call(target, "_parcelToken")) {
                 try {
                     target._parcelToken = crypto.randomUUID();
-                } catch (err) {
+                } catch (_err) {
                     // fallback for browsers without crypto.randomUUID(), typically insecure pages lacking the crypto API
                     target._parcelToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
                 }
@@ -400,7 +403,6 @@
             target.setAttribute("parcel-type", targetInfo.type);
 
             // dispatch clicks to the handler in the root frame so that the popup can be rendered there
-            const position = target.getBoundingClientRect();
             triggerPort.postMessage({
                 action: "trigger-popup",
                 frameId,
@@ -408,7 +410,7 @@
                 position: target.getBoundingClientRect(),
                 origin: window.location.origin,
             });
-        } catch (err) {
+        } catch (_err) {
             // dispatch other clicks to the root frame too, so that they can be used to close the popup
             triggerPort.postMessage({ action: "untargeted-click", frameId, x, y });
         }
@@ -439,14 +441,13 @@
         if (!port.name) return;
         if (port.name === "trigger") return; // handled in another listener
 
-        if (!targetBindings.hasOwnProperty(port.name) && port.name !== "broadcast") {
+        if (!Object.prototype.hasOwnProperty.call(targetBindings, port.name) && port.name !== "broadcast") {
             port.postMessage({ action: "close" });
             port.disconnect();
             return;
         }
         port.onDisconnect.addListener(() => delete targetBindings[port.name]);
         const updateStatus = (status) => port.postMessage({ action: "status", status });
-        const clearStatus = () => port.postMessage({ action: "clear-status" });
         let el = targetBindings[port.name];
         if (!el) {
             if (window === window.top && port.name === "broadcast") {
@@ -460,7 +461,7 @@
                         return 0;
                     })
                     .filter((t) => !t.relatedOnly);
-                for (let selector of selectors) {
+                for (const selector of selectors) {
                     el = Helpers.shadowSelector(selector.selector);
                     if (el) {
                         if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
@@ -475,7 +476,6 @@
                 }
             } else {
                 throw new Error("Element binding is missing.");
-                return;
             }
         }
         if (el._parcelToken !== port.name) {
@@ -484,8 +484,8 @@
             return;
         }
         try {
-            var targetInfo = await getTargetInfo(el);
-        } catch (err) {
+            await getTargetInfo(el);
+        } catch (_err) {
             port.postMessage({ action: "error", error: "The selected autofill candidate was unsuitable." });
             port.disconnect();
             return;
@@ -503,14 +503,14 @@
                 // fill the target field, and related fields if configured
                 try {
                     updateStatus("Filling values...");
-                    if (!msg.hasOwnProperty("config")) throw new Error("Config is missing.");
-                    if (!msg.hasOwnProperty("plaintext")) throw new Error("Plaintext is missing.");
+                    if (!Object.prototype.hasOwnProperty.call(msg, "config")) throw new Error("Config is missing.");
+                    if (!Object.prototype.hasOwnProperty.call(msg, "plaintext")) throw new Error("Plaintext is missing.");
                     await fillField(el, msg.plaintext, msg.config);
                     if (msg.config.fillRelated) {
                         for (const rel of await getRelatedFields(el)) {
                             try {
                                 await fillField(rel, msg.plaintext, msg.config, null, null, true);
-                            } catch (err) {
+                            } catch (_err) {
                                 // ignore errors when filling related form fields
                             }
                         }
@@ -522,13 +522,13 @@
                     const submitTargets = (await validTargets).filter((t) => t.type === "submit");
                     let group;
                     const aggregationSelectors = (await targetSelectors).targetSelectors.filter((s) => s.type === "aggregate");
-                    for (let s of aggregationSelectors) {
+                    for (const s of aggregationSelectors) {
                         group = el.closest(s.selector);
                         if (group) break;
                     }
                     if (group) {
-                        for (let target of submitTargets) {
-                            let submitButton = group.querySelector(target.selector);
+                        for (const target of submitTargets) {
+                            const submitButton = group.querySelector(target.selector);
                             if (submitButton) {
                                 await new Promise((resolve) => requestAnimationFrame(resolve));
                                 submitButton.focus();
