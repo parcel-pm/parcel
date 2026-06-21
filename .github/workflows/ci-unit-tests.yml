@@ -26,4 +26,4 @@ jobs:
         run: npm install
 
       - name: Run tests
-        run: make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier"
+        run: make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"

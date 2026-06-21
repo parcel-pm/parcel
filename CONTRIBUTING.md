@@ -44,6 +44,20 @@ All source code must be formatted with Prettier before committing:
 make prettier
 ```
 
+### Linting
+
+In addition to formatting, ESLint runs a semantic check that catches issues Prettier cannot (loose equality, missing `"use strict"`, `var` instead of `let`/`const`, unreachable code, unused variables, unsafe optional chaining). ESLint is a dev-only dependency and is run automatically as part of `make test-syntax` (and therefore `make test`):
+
+```bash
+# lint only
+make lint
+
+# lint + prettier check (run by CI)
+make test-syntax
+```
+
+The flat config lives at `eslint.config.js` in the repository root. Stylistic rules are turned off there via `eslint-config-prettier` so ESLint never fights Prettier; only semantic rules are enforced.
+
 ## Coding Standards
 
 ### Browser Extension

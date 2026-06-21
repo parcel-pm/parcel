@@ -2,6 +2,7 @@ VERSION ?= $(shell cat .version)
 CURRENT_VERSION := $(shell cat .version)
 
 PRETTIER := $(PWD)/node_modules/.bin/prettier
+ESLINT := $(PWD)/node_modules/.bin/eslint
 
 .PHONY: all
 all: extension chrome firefox
@@ -14,6 +15,10 @@ extension:
 prettier:
 	$(PRETTIER) --write 'test/*.{js,json}'
 	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier
+
+.PHONY: lint
+lint:
+	$(ESLINT) .
 
 .PHONY: clean
 clean:
@@ -84,6 +89,7 @@ test-application:
 test-syntax:
 	$(PRETTIER) --check 'test/*.{js,json}'
 	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier-check
+	$(ESLINT) .
 
 .PHONY: test
 test: test-syntax
