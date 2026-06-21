@@ -90,7 +90,7 @@ before(async () => {
     // warnings on routine error paths (blacklist, missing config, etc.) that
     // we don't want polluting test output.  Node's runner still reports
     // assertion failures via its own reporter.
-    const realConsole = globalThis.console;
+    const _realConsole = globalThis.console;
     globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 
     dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", { url: "http://localhost/", pretendToBeVisual: true });

@@ -82,7 +82,7 @@ function makeValidConfig(overrides = {}) {
 let dom, document, window, mock, portReceivers, portCallers;
 
 before(async () => {
-    const realConsole = globalThis.console;
+    const _realConsole = globalThis.console;
     globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 
     const popupHtml = `<!doctype html>
@@ -187,7 +187,6 @@ before(async () => {
     portReceivers = {};
     portCallers = {};
     const tabPortReceivers = {};
-    let popupReceiver = null;
 
     const origRuntimeConnect = chrome.runtime.connect.bind(chrome.runtime);
     chrome.runtime.connect = function (info) {
@@ -479,7 +478,6 @@ describe("Popup script", { concurrency: false }, () => {
         // mock's point of view the only receiver we can observe is the tab-side
         // receiver for the popup-bridge.  The popup calls `port.postMessage()`
         // on the `popup` runtime port; caller -> receiver.bOnMessage.
-        const caller = portCallers["popup"];
         const decryptPromise = new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error("Timeout waiting for decrypt")), 3000);
             const listener = (msg) => {

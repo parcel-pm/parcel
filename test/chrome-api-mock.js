@@ -179,7 +179,7 @@ export function createChromeMock(opts = {}) {
             async getCurrent() {
                 return currentTab;
             },
-            async query(queryInfo) {
+            async query(_queryInfo) {
                 // Minimal stub: always returns currentTab if set, else empty.
                 if (currentTab) return [currentTab];
                 return [];
