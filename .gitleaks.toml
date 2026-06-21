@@ -1,0 +1,15 @@
+# gitleaks configuration for Parcel.
+# Extends gitleaks' built-in ruleset; the allowlist below excludes vendored
+# upstream content that we do not own and do not want to scan.
+title = "Parcel gitleaks config"
+
+[allowlist]
+description = "Ignore vendored/submodule content and generated build outputs"
+paths = [
+  '''src/publicsuffix/.*''',
+  '''node_modules/.*''',
+  '''chrome/.*''',
+  '''firefox/.*''',
+  '''dist/.*''',
+  '''src/dist/.*''',
+]
