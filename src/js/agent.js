@@ -32,7 +32,7 @@ export class Agent extends EventTarget {
     constructor() {
         super();
 
-        this.addEventListener("parcel::native::bootstrap", (ev) => this.#init());
+        this.addEventListener("parcel::native::bootstrap", () => this.#init());
         chrome.runtime.onConnect.addListener((port) => this.#connect(port));
         if (chrome.contextualIdentities?.onRemoved) {
             chrome.contextualIdentities.onRemoved.addListener((changeInfo) =>
@@ -51,12 +51,12 @@ export class Agent extends EventTarget {
      */
     async #init() {
         try {
-            let scriptURL = chrome.runtime.getURL("parcel-host"),
+            const scriptURL = chrome.runtime.getURL("parcel-host"),
                 script = await (await fetch(scriptURL)).text(),
                 signatureURL = chrome.runtime.getURL("parcel-host.asc"),
                 signature = await (await fetch(signatureURL)).text();
             try {
-                let result = await this.#callNative("install", { script, signature });
+                const result = await this.#callNative("install", { script, signature });
                 if (!result.success) throw new Error(result.message);
                 console.log(result.message);
             } catch (err) {
@@ -116,7 +116,7 @@ export class Agent extends EventTarget {
             // putting a semaphore here, we ensure that the previous call has completed
             // first, thus avoiding any potential in-flight collisions.
             await this.#currentNativeCall;
-        } catch (err) {
+        } catch (_err) {
             // we don't care about previous errors, only that the call has completed.
             // This error has already been handled by this point, and was thrown from
             // the promise rejection callback below.
@@ -230,7 +230,7 @@ export class Agent extends EventTarget {
      * @returns {void}
      */
     #setEntries(entries) {
-        for (let rule of this.#config.rules) {
+        for (const rule of this.#config.rules) {
             if (rule.ignore) continue;
             if (!rule.color) {
                 // auto-generate tag colours for rules that don't have one defined
@@ -240,8 +240,8 @@ export class Agent extends EventTarget {
                 }
                 rule.color = Math.abs(hash).toString(16).padStart(6, "0").slice(0, 6);
             }
-            let p = new RegExp(rule.pattern, "u");
-            for (let entry of entries) {
+            const p = new RegExp(rule.pattern, "u");
+            for (const entry of entries) {
                 if (entry.rule) continue;
                 if (p.test(entry.name)) entry.rule = rule;
             }
@@ -259,7 +259,7 @@ export class Agent extends EventTarget {
      * @throws {Error} If called before configuration is set, the native-host call rejects, or the entry list cannot be refreshed.
      */
     async #getEntries(cacheTTL = this.#config.cacheTTL) {
-        let cacheAge = (Date.now() - this.#entriesUpdated) / 1000;
+        const cacheAge = (Date.now() - this.#entriesUpdated) / 1000;
         if (cacheTTL && this.#entries && cacheAge < Math.min(cacheTTL, this.#config.cacheTTL)) return this.#entries;
 
         let needRefresh = !this.#entriesUpdated;
@@ -282,9 +282,9 @@ export class Agent extends EventTarget {
      * @returns {Promise<void>}
      */
     async #connect(port) {
-        var authorised = false;
-        var tabId = null;
-        var token = null;
+        let authorised = false;
+        let tabId = null;
+        let token = null;
 
         port.onDisconnect.addListener(() => {
             // ignore global disconnect errors (expected from bfcache)
@@ -365,14 +365,14 @@ export class Agent extends EventTarget {
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     updateStatus("Checking for config changes...");
-                    let newConfig = await this.#callNative("configure");
+                    const newConfig = await this.#callNative("configure");
                     if (newConfig?.modified > this.#config.modified) {
                         this.#setConfig(newConfig);
                         updateStatus("Refreshing entry list...");
                         this.#setEntries(await this.#callNative("list"));
                     }
                     clearStatus();
-                    let response = { action: "config", config: this.#config };
+                    const response = { action: "config", config: this.#config };
                     if (port.name === "integration") response.frameId = port.sender?.frameId || 0;
                     port.postMessage(response);
                 } else if (message?.action === "sha256") {
@@ -380,9 +380,9 @@ export class Agent extends EventTarget {
                     const hash = await Helpers.sha256(message.value);
                     port.postMessage({ action: "sha256-digest", value: message.value, hash });
                 }
-                if (message.hasOwnProperty("action")) clearErrors(message.action);
+                if (Object.prototype.hasOwnProperty.call(message, "action")) clearErrors(message.action);
             } catch (err) {
-                if (err.hasOwnProperty("logAs")) console[err.logAs](err);
+                if (Object.prototype.hasOwnProperty.call(err, "logAs")) console[err.logAs](err);
                 else console.error(err);
                 port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
             }
@@ -444,7 +444,7 @@ export class Agent extends EventTarget {
     async search(url, search, limit = true, history = []) {
         // consolidate history to most-recent entry per item
         history = history.reduce((acc, entry) => {
-            if (!acc.hasOwnProperty(entry.path)) acc[entry.path] = entry;
+            if (!Object.prototype.hasOwnProperty.call(acc, entry.path)) acc[entry.path] = entry;
             else if (acc[entry.path].when < entry.when) acc[entry.path] = entry;
             return acc;
         }, {});
@@ -457,7 +457,7 @@ export class Agent extends EventTarget {
             const suffix = await this.#getPublicSuffix(origin.hostname);
             const slices = [];
             for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
-            for (let entry of await this.#getEntries()) {
+            for (const entry of await this.#getEntries()) {
                 const hash = await Helpers.sha256(entry.path);
                 entry.history = history?.[hash];
 
@@ -465,7 +465,7 @@ export class Agent extends EventTarget {
                 entry.matchesHost = parts.includes(origin.host);
                 entry.matchesHostPart = false;
                 if (!entry.matchesHost) {
-                    for (let s of slices) {
+                    for (const s of slices) {
                         if (parts.includes(s)) {
                             entry.matchesHostPart = true;
                             break;
@@ -502,7 +502,7 @@ export class Agent extends EventTarget {
         if (search) {
             for (const term of search.split(/\s+/u)) {
                 try {
-                    let p = new RegExp(term, "ui");
+                    const p = new RegExp(term, "ui");
                     matches = matches.filter((entry) => p.test(entry.name));
                 } catch (err) {
                     console.warn(`Invalid search term: ${term}`);
@@ -513,7 +513,7 @@ export class Agent extends EventTarget {
         }
 
         for (let i = 0; i < matches.length; i++) {
-            if (!matches[i].hasOwnProperty("sortOrder")) {
+            if (!Object.prototype.hasOwnProperty.call(matches[i], "sortOrder")) {
                 matches[i].sortOrder = i;
             }
         }

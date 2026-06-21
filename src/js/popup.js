@@ -14,7 +14,6 @@
         document.querySelectorAll("style, link[rel=stylesheet]").forEach((el) => el.remove());
         document.body.style.all = "unset";
         throw new Error(msg);
-        return;
     }
 
     /**
@@ -77,10 +76,10 @@
     const sha256 = async (s) => {
         try {
             return await Helpers.sha256(s);
-        } catch (err) {
+        } catch (_err) {
             console.warn("Crypto API not available in this context, delegating hash to background worker.");
             // If the crypto API isn't available in this context, hash via the background service
-            let digest = new Promise((resolve) => {
+            const digest = new Promise((resolve) => {
                 function shaListener(msg) {
                     if (msg?.action === "sha256-digest" && msg.value === s) {
                         port.onMessage.removeListener(shaListener);
@@ -110,7 +109,7 @@
             this.#root = this.attachShadow({ mode: "open" });
             this.#root.appendChild(document.getElementById("parcel-plaintext-line-template").content.cloneNode(true));
 
-            let line = this.#root.querySelector(".line");
+            const line = this.#root.querySelector(".line");
             line.addEventListener("mouseenter", () => this.#startHover(line));
             line.addEventListener("mouseleave", () => this.#endHover(line));
 
@@ -135,7 +134,7 @@
             if (line.scrollWidth <= line.clientWidth) return;
 
             this.#originalText = line.textContent;
-            let displayText = this.#originalText.replace(/^[^:]+:\s*/, "");
+            const displayText = this.#originalText.replace(/^[^:]+:\s*/, "");
             line.textContent = displayText;
 
             if (line.scrollWidth <= line.clientWidth) return;
@@ -145,15 +144,15 @@
 
             this.#scrollTimeout = setTimeout(() => {
                 line.textContent = "";
-                let track = document.createElement("span");
+                const track = document.createElement("span");
                 track.style.display = "inline-flex";
                 track.style.whiteSpace = "pre";
                 track.style.flexShrink = "0";
 
-                let s1 = document.createElement("span");
+                const s1 = document.createElement("span");
                 s1.textContent = displayText;
                 s1.style.flexShrink = "0";
-                let s2 = document.createElement("span");
+                const s2 = document.createElement("span");
                 s2.textContent = displayText;
                 s2.style.flexShrink = "0";
                 s2.style.marginLeft = "2ch";
@@ -162,14 +161,14 @@
                 track.appendChild(s2);
                 line.appendChild(track);
 
-                let gap = parseFloat(getComputedStyle(s2).marginLeft) || 0;
-                let width = s1.scrollWidth + gap;
-                let start = performance.now();
-                let speed = 60;
+                const gap = parseFloat(getComputedStyle(s2).marginLeft) || 0;
+                const width = s1.scrollWidth + gap;
+                const start = performance.now();
+                const speed = 60;
 
-                let step = (now) => {
-                    let elapsed = now - start;
-                    let pos = -(((elapsed * speed) / 1000) % width);
+                const step = (now) => {
+                    const elapsed = now - start;
+                    const pos = -(((elapsed * speed) / 1000) % width);
                     track.style.transform = `translateX(${pos}px)`;
                     this.#marqueeId = requestAnimationFrame(step);
                 };
@@ -178,7 +177,7 @@
         }
 
         #endHover() {
-            let line = this.#root.querySelector(".line");
+            const line = this.#root.querySelector(".line");
             if (this.#scrollTimeout) {
                 clearTimeout(this.#scrollTimeout);
                 this.#scrollTimeout = null;
@@ -208,8 +207,8 @@
          * @returns {string}
          */
         getValue() {
-            let line = this.#originalText !== null ? this.#originalText : this.#root.querySelector(".line").textContent,
-                matches = line.match(/^[a-z0-9_\-]+:(?!\/\/)\s*(.+)$/iu);
+            const line = this.#originalText !== null ? this.#originalText : this.#root.querySelector(".line").textContent,
+                matches = line.match(/^[a-z0-9_]+:(?!\/\/)\s*(.+)$/iu);
             if (matches) return matches[1];
             return line.trim();
         }
@@ -272,15 +271,13 @@
          */
         async setValue(value, asChars = false) {
             if (typeof value === "function") {
-                let valueFn = value,
+                const valueFn = value,
                     spec = await valueFn(),
-                    now = Date.now(),
-                    cycle = Math.floor((spec.again - spec.epoch) / 1000),
-                    interval = null,
                     container = this.#root.querySelector(".value-container");
+                let interval = null;
 
                 function refresh() {
-                    let remaining = spec.interval - (Date.now() - spec.generatedAt);
+                    const remaining = spec.interval - (Date.now() - spec.generatedAt);
                     container.style.borderImage = `linear-gradient(to right, var(--color-progress) ${(remaining / spec.interval) * 100}%, transparent 0) 1`;
                     if (remaining < 0) {
                         clearInterval(interval);
@@ -296,10 +293,10 @@
                     value = spec.value;
                 }
             }
-            let elValue = this.#root.querySelector(".value");
+            const elValue = this.#root.querySelector(".value");
             if (asChars) {
-                for (let c of [...value]) {
-                    let el = document.createElement("span");
+                for (const c of [...value]) {
+                    const el = document.createElement("span");
                     el.classList.add("char");
                     if (c.match(/[\d]/)) el.classList.add("digit");
                     else if (c.match(/\p{P}/u)) el.classList.add("punct");
@@ -319,7 +316,6 @@
         static observedAttributes = ["data-path", "data-plaintext"];
         #plaintext;
         #root;
-        #path;
 
         constructor() {
             super();
@@ -335,22 +331,22 @@
          */
         async setPlaintext(plaintext) {
             this.#plaintext = plaintext;
-            let config = await this.#plaintext.getConfig();
+            const config = await this.#plaintext.getConfig();
 
-            for (let target of config.targets.concat(config.additionalTargets || [])) {
+            for (const target of config.targets.concat(config.additionalTargets || [])) {
                 if (!target.hoist) continue;
-                let value = await this.#plaintext.getValue(target.name);
+                const value = await this.#plaintext.getValue(target.name);
                 if (value === null) continue;
-                let el = document.createElement("parcel-value");
+                const el = document.createElement("parcel-value");
                 el.setAttribute("data-label", target.label || target.name);
                 el.setValue(target.dynamic ? () => this.#plaintext.getValue(target.name) : value, target.highlightSpecial);
                 this.#root.appendChild(el);
             }
 
-            let elPlaintext = document.createElement("div");
+            const elPlaintext = document.createElement("div");
             elPlaintext.classList.add("plaintext");
-            for (let line of this.#plaintext.getPlaintext().split(/\r\n|\n|\r/iu)) {
-                let el = document.createElement("parcel-plaintext-line");
+            for (const line of this.#plaintext.getPlaintext().split(/\r\n|\n|\r/iu)) {
+                const el = document.createElement("parcel-plaintext-line");
                 el.setValue(line);
                 elPlaintext.appendChild(el);
             }
@@ -370,7 +366,7 @@
         window.addEventListener("keydown", (ev) => {
             if (["Escape", "ArrowLeft"].includes(ev.key)) {
                 ev.preventDefault();
-                let detail = document.getElementsByTagName("parcel-detail").item(0);
+                const detail = document.getElementsByTagName("parcel-detail").item(0);
                 if (detail) detail.remove();
                 else if (ev.key === "Escape") window.close();
                 document.getElementById("modal-shade").classList.add("hidden");
@@ -386,7 +382,7 @@
     } else {
         document.body.classList.add("context-popup");
         // the iframe is off-limits to the page origin, so need to tell it when we change size
-        new ResizeObserver((entries) => {
+        new ResizeObserver(() => {
             tabPort.postMessage({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
         }).observe(document.body);
         tabPort.postMessage({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
@@ -442,7 +438,7 @@
             document.querySelector("li.selected button.detail").click();
         } else if (ev.key === "ArrowLeft" && selected.tagName === "LI") {
             ev.preventDefault();
-            let detail = document.getElementsByTagName("parcel-detail").item(0);
+            const detail = document.getElementsByTagName("parcel-detail").item(0);
             if (detail) detail.remove();
             document.getElementById("modal-shade").classList.add("hidden");
             selected.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -473,7 +469,7 @@
                 delete p._errorTimer;
                 p.remove();
             }, 5000);
-        } else if (msg?.action == "origin") {
+        } else if (msg?.action === "origin") {
             if (tab.url) {
                 const tabURL = new URL(tab.url);
                 if (msg.origin !== tabURL.origin) {
@@ -563,7 +559,7 @@
                 const url = new URL(tab.url || "undefined-url://");
                 const hash = await sha256(url.origin);
                 const scope = await sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");
-                for (let he of history) {
+                for (const he of history) {
                     if (he.path === (await sha256(entry.path))) {
                         const historyButton = document.createElement("button");
                         historyButton.classList.add("historyNuke");
@@ -601,7 +597,7 @@
                 });
                 li.appendChild(button);
 
-                li.addEventListener("click", async (ev) => {
+                li.addEventListener("click", async () => {
                     port.postMessage({ action: "decrypt", intent: "fill", origin: url.origin, path: entry.path });
                     if (history?.[0]?.path === (await sha256(entry.path))) {
                         history[0].when = Date.now();
@@ -625,9 +621,9 @@
                     chrome.storage.local.set({ [`history:${scope}:${hash}`]: history.slice(0, (await config).historyLength) });
                 }
             } else if (msg.intent === "detail") {
-                let plaintext = new Plaintext(msg.plaintext, config);
+                const plaintext = new Plaintext(msg.plaintext, config);
                 document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
-                let elDetail = document.createElement("parcel-detail");
+                const elDetail = document.createElement("parcel-detail");
                 elDetail.setPlaintext(plaintext);
                 document.body.appendChild(elDetail);
             }
@@ -635,7 +631,7 @@
             document.querySelector("#status").textContent = "Error";
             const p = document.createElement("p");
             p.classList.add("error");
-            if (msg.hasOwnProperty("category")) p.classList.add(`error-category-${msg.category}`);
+            if (Object.prototype.hasOwnProperty.call(msg, "category")) p.classList.add(`error-category-${msg.category}`);
             p.textContent = msg.error;
             document.querySelectorAll("p.error").forEach((el) => {
                 if (el._errorTimer) clearTimeout(el._errorTimer);
@@ -649,7 +645,7 @@
                 p.remove();
             }, 10000);
         } else if (msg.action === "clear-errors") {
-            const selector = msg.hasOwnProperty("category") ? `p.error.error-category-${msg.category}` : "p.error";
+            const selector = Object.prototype.hasOwnProperty.call(msg, "category") ? `p.error.error-category-${msg.category}` : "p.error";
             document.querySelectorAll(selector).forEach((el) => {
                 if (el._errorTimer) clearTimeout(el._errorTimer);
                 el.remove();
@@ -660,7 +656,7 @@
     const search = document.getElementById("searchPattern");
 
     // re-run the search when the search input changes
-    search.addEventListener("input", (ev) => {
+    search.addEventListener("input", () => {
         update();
         document.querySelector(".selected").classList.remove("selected");
         search.classList.add("selected");

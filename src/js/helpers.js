@@ -19,7 +19,7 @@ export class Helpers {
             j = 0,
             val = 0,
             bits = 0;
-        for (let i of s) {
+        for (const i of s) {
             val = dict.indexOf(i);
             buf = (buf << 5) | (val & 0x1f);
             bits += 5;
@@ -42,10 +42,10 @@ export class Helpers {
      */
     static async generateTOTP(secret, step = 30, digits = 6) {
         const counter = new Uint8Array(8);
-        let now = Date.now();
+        const now = Date.now();
         let epoch = Math.floor(now / (step * 1000));
-        let when = epoch * step * 1000;
-        let next = (epoch + 1) * step * 1000;
+        const when = epoch * step * 1000;
+        const next = (epoch + 1) * step * 1000;
 
         for (let i = 7; i >= 0; i--) {
             counter[i] = epoch & 0xff;
@@ -131,7 +131,7 @@ export class Helpers {
         if (!fillValue) {
             if (targetRule.onMissing === "top") {
                 fillValue = plaintextLines[0];
-            } else if (targetRule.onMissing === "naked-top" && !plaintextLines[0].match(/^[a-z0-9_\-]+:\s+/iu)) {
+            } else if (targetRule.onMissing === "naked-top" && !plaintextLines[0].match(/^[a-z0-9_]+:\s+/iu)) {
                 fillValue = plaintextLines[0];
             } else if (targetRule.onMissing === "ntop") {
                 fillValue = plaintext.match(/(?<=\r\n|\n|\r).+/isu)?.[0];
@@ -140,9 +140,9 @@ export class Helpers {
             } else if (targetRule.onMissing === "fallback") {
                 if (!targetRule.fallback) throw new Error(`No fallback defined for field type: ${type}`);
                 try {
-                    let value = await Helpers.getValue(plaintext, config, targetRule.fallback);
+                    const value = await Helpers.getValue(plaintext, config, targetRule.fallback);
                     if (!targetRule.fallbackMatch) return value;
-                    let matches = value.match(new RegExp(targetRule.fallbackMatch, "ui"));
+                    const matches = value.match(new RegExp(targetRule.fallbackMatch, "ui"));
                     if (!matches) throw new Error(`Unable to extract fallback match for field type: ${type}`);
                     return matches[1];
                 } catch (err) {
@@ -159,7 +159,7 @@ export class Helpers {
         if (targetRule.trim) fillValue = fillValue.trim();
 
         // transform the value if configured
-        for (let transform of targetRule?.transform) {
+        for (const transform of targetRule?.transform ?? []) {
             if (transform === "totp-url") {
                 const url = new URL(fillValue);
                 const secret = url.searchParams.get("secret");
@@ -184,7 +184,7 @@ export class Helpers {
         const results = [];
         results.push(...root.querySelectorAll(selector));
         const shadowHosts = root.querySelectorAll("[is-shadow]");
-        for (let host of shadowHosts) {
+        for (const host of shadowHosts) {
             if (host.shadowRoot) {
                 results.push(...Helpers.shadowSelectorAll(selector, host.shadowRoot));
             }
@@ -203,7 +203,7 @@ export class Helpers {
         const result = root.querySelector(selector);
         if (result) return result;
         const shadowHosts = root.querySelectorAll("[is-shadow]");
-        for (let host of shadowHosts) {
+        for (const host of shadowHosts) {
             if (host.shadowRoot) {
                 const shadowResult = Helpers.shadowSelector(selector, host.shadowRoot);
                 if (shadowResult) return shadowResult;

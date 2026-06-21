@@ -34,14 +34,14 @@ export class Schema {
         }
 
         if (["string", "number", "boolean"].includes(type)) {
-            if (schema.hasOwnProperty("value") && data !== schema.value)
+            if (Object.prototype.hasOwnProperty.call(schema, "value") && data !== schema.value)
                 throw new Error(`Invalid value for ${path}: must be ${schema.value}.`);
         }
         switch (type) {
             case "string": {
-                if (schema.hasOwnProperty("minLength") && data.length < schema.minLength)
+                if (Object.prototype.hasOwnProperty.call(schema, "minLength") && data.length < schema.minLength)
                     throw new Error(`Invalid value for ${path}: must be at least ${schema.minLength} characters long.`);
-                if (schema.hasOwnProperty("maxLength") && data.length > schema.maxLength)
+                if (Object.prototype.hasOwnProperty.call(schema, "maxLength") && data.length > schema.maxLength)
                     throw new Error(`Invalid value for ${path}: must be at most ${schema.maxLength} characters long.`);
                 if (schema.pattern && !new RegExp(schema.pattern, schema.flags || "u").test(data))
                     throw new Error(`Invalid value for ${path}: must match ${schema.pattern}.`);
@@ -58,11 +58,14 @@ export class Schema {
                     }
                     break;
                 }
+                // falls through
             }
             case "number":
                 {
-                    if (schema.hasOwnProperty("minimum") && data < schema.minimum) throw new Error(`Value for ${path} is too low.`);
-                    if (schema.hasOwnProperty("maximum") && data > schema.maximum) throw new Error(`Value for ${path} is too high.`);
+                    if (Object.prototype.hasOwnProperty.call(schema, "minimum") && data < schema.minimum)
+                        throw new Error(`Value for ${path} is too low.`);
+                    if (Object.prototype.hasOwnProperty.call(schema, "maximum") && data > schema.maximum)
+                        throw new Error(`Value for ${path} is too high.`);
                 }
                 break;
             case "object":
@@ -88,9 +91,9 @@ export class Schema {
             case "array":
                 {
                     if (schema.items) {
-                        if (schema.hasOwnProperty("minItems") && data.length < schema.minItems)
+                        if (Object.prototype.hasOwnProperty.call(schema, "minItems") && data.length < schema.minItems)
                             throw new Error(`Array at ${path} has too few items.`);
-                        if (schema.hasOwnProperty("maxItems") && data.length > schema.maxItems)
+                        if (Object.prototype.hasOwnProperty.call(schema, "maxItems") && data.length > schema.maxItems)
                             throw new Error(`Array at ${path} has too many items.`);
                         for (let i = 0; i < data.length; i++) {
                             Schema.validate(schema.items, data[i], `${path === "/" ? "" : path}[${i}]`);

@@ -48,8 +48,8 @@ export class Plaintext {
         name = Helpers.normaliseName(this.#config, name);
         try {
             return await Helpers.getValue(this.#plaintext, this.#config, name);
-        } catch (err) {
-            let lines = this.#plaintext.split(/\r\n|\n|\r/iu);
+        } catch (_err) {
+            const lines = this.#plaintext.split(/\r\n|\n|\r/iu);
             if (!lines.length) return null;
             for (let line of lines) {
                 line = line.trim();
