@@ -178,21 +178,42 @@ describe("Agent", () => {
     });
 
     test("sha256", async () => {
-        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
         await settleAsync();
-        const digestPromise = nextMessage(integration, "sha256-digest");
-        integration.postMessage({ action: "sha256", value: "hello" });
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const digestPromise = nextMessage(popup, "sha256-digest");
+        popup.postMessage({ action: "sha256", value: "hello" });
         const digest = await digestPromise;
         assert.strictEqual(digest.hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
     });
 
-    test("decrypt", async () => {
-        const integration = mock.chrome.runtime.connect({ name: "integration" });
+    test("decrypt from authorised popup", async () => {
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
         await settleAsync();
-        const plaintextPromise = nextMessage(integration, "plaintext");
-        integration.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1, url: "https://example.com" } });
+        const plaintextPromise = nextMessage(popup, "plaintext");
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
         const pt = await plaintextPromise;
         assert.deepStrictEqual(pt.plaintext, { password: "hunter2" });
+    });
+
+    test("decrypt rejected from integration port", async () => {
+        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        await settleAsync();
+        const errPromise = nextMessage(integration, "error");
+        integration.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        const err = await errPromise;
+        assert.ok(err.error?.includes("not permitted"), "decrypt blocked on integration port");
+    });
+
+    test("unknown action rejected", async () => {
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const errPromise = nextMessage(popup, "error");
+        popup.postMessage({ action: "exfiltrate" });
+        const err = await errPromise;
+        assert.ok(err.error?.includes("not permitted"), "unknown action blocked");
     });
 
     test("trigger relay", async () => {
