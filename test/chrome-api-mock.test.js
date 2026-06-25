@@ -176,6 +176,22 @@ describe("chrome-api-mock", () => {
         assert.deepStrictEqual(events, [{ contextualIdentity: { cookieStoreId: "abc" } }]);
     });
 
+    test("runtime.onStartup can be fired", () => {
+        const mock = createChromeMock();
+        const events = [];
+        mock.chrome.runtime.onStartup.addListener(() => events.push("startup"));
+        mock.fireRuntimeStartup();
+        assert.deepStrictEqual(events, ["startup"]);
+    });
+
+    test("runtime.onInstalled can be fired", () => {
+        const mock = createChromeMock();
+        const events = [];
+        mock.chrome.runtime.onInstalled.addListener(() => events.push("installed"));
+        mock.fireRuntimeInstalled();
+        assert.deepStrictEqual(events, ["installed"]);
+    });
+
     test("onMessage listeners can be removed", async () => {
         const mock = createChromeMock();
         let receiverPort = null;

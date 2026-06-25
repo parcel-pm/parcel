@@ -40,7 +40,32 @@ export class Agent extends EventTarget {
             );
         }
 
+        // Explicit re-init hooks for MV3 service-worker lifecycle events.
+        // onStartup fires when the browser starts; onInstalled fires on
+        // install / update. Both can wake a cold service worker, so they are
+        // used here to guarantee the native connection is (re-)established
+        // deterministically rather than relying on the first port connection.
+        if (chrome.runtime.onStartup) {
+            chrome.runtime.onStartup.addListener(() => this.#ensureNativeConnected());
+        }
+        if (chrome.runtime.onInstalled) {
+            chrome.runtime.onInstalled.addListener(() => this.#ensureNativeConnected());
+        }
+
         // open port to native host
+        this.#connectNative();
+    }
+
+    /**
+     * Ensure the native host connection is open, (re)connecting if necessary.
+     *
+     * Idempotent: a no-op when the connection is already live, so it is safe to
+     * call from multiple lifecycle hooks (constructor, onStartup, onInstalled).
+     * @since 1.0.2
+     * @returns {void}
+     */
+    #ensureNativeConnected() {
+        if (this.#connectedNative) return;
         this.#connectNative();
     }
 
@@ -182,7 +207,11 @@ export class Agent extends EventTarget {
         }
         if (!this.#initError) {
             console.error("Native host disconnected unexpectedly - reinitialising...");
-            setTimeout(this.#connectNative.bind(this), 1000);
+            // Reconnect on the next tick. Under MV3 the service worker may be
+            // terminated inside this 1s window; on the next cold start the
+            // constructor re-runs #connectNative() anyway, so correctness is
+            // preserved either way.
+            setTimeout(() => this.#ensureNativeConnected(), 1000);
         } else {
             console.error("Native host initialisation failed - aborting.");
         }
