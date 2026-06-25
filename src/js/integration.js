@@ -398,6 +398,7 @@
                 }
             }
             targetBindings[target._parcelToken] = target;
+            addTargetInputClose(target);
             authPort.postMessage(target._parcelToken);
             target.setAttribute("parcel-selector", targetInfo.selector);
             target.setAttribute("parcel-type", targetInfo.type);
@@ -416,11 +417,42 @@
         }
     }
 
+    function removeTargetInputClose(target) {
+        if (!target?._parcelCloseOnInput) return;
+        target.removeEventListener("input", target._parcelCloseOnInput);
+        delete target._parcelCloseOnInput;
+    }
+
+    function cleanupInlineTarget(target, port = null) {
+        if (!target) return;
+        if (port && target._parcelPopupPort && target._parcelPopupPort !== port) return;
+        removeTargetInputClose(target);
+        if (!port || target._parcelPopupPort === port) delete target._parcelPopupPort;
+        if (target._parcelToken && target._parcelToken !== "broadcast") delete targetBindings[target._parcelToken];
+    }
+
+    function addTargetInputClose(target) {
+        removeTargetInputClose(target);
+        target._parcelCloseOnInput = () => {
+            if (target._parcelFilling) return;
+            const popupPort = target._parcelPopupPort;
+            cleanupInlineTarget(target, popupPort);
+            triggerPort.postMessage({ action: "close-popup" });
+            popupPort?.disconnect();
+        };
+        target.addEventListener("input", target._parcelCloseOnInput);
+    }
+
     function handleTargetKeydown(ev) {
         if (ev.defaultPrevented || ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
-        if (!ev.target?._parcelPopupPort) return;
+        const popupPort = ev.target?._parcelPopupPort;
+        if (!popupPort) return;
+        if (popupPort.disconnected) {
+            cleanupInlineTarget(ev.target, popupPort);
+            return;
+        }
         ev.preventDefault();
-        ev.target._parcelPopupPort.postMessage({ action: "focus-popup" });
+        popupPort.postMessage({ action: "focus-popup" });
     }
 
     if (!(await config).disableContextPopup) {
@@ -491,7 +523,7 @@
             return;
         }
         port.onDisconnect.addListener(() => {
-            if (el?._parcelPopupPort === port) delete el._parcelPopupPort;
+            if (port.name !== "broadcast") cleanupInlineTarget(el, port);
             delete targetBindings[port.name];
         });
         try {
@@ -502,6 +534,14 @@
             return;
         }
         if (port.name !== "broadcast") el._parcelPopupPort = port;
+        const fillBoundField = async (...args) => {
+            el._parcelFilling = true;
+            try {
+                return await fillField(el, ...args);
+            } finally {
+                delete el._parcelFilling;
+            }
+        };
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
                 port.postMessage({ action: "origin", origin: window.location.origin });
@@ -510,7 +550,8 @@
             } else if (msg?.action === "fill-value") {
                 // Fill the target field with the selected value
                 updateStatus("Filling value...");
-                await fillField(el, null, null, null, msg.value);
+                await fillBoundField(null, null, null, msg.value);
+                cleanupInlineTarget(el, port);
                 port.postMessage({ action: "close" });
                 triggerPort.postMessage({ action: "close-popup" });
             } else if (msg?.action === "fill") {
@@ -519,7 +560,7 @@
                     updateStatus("Filling values...");
                     if (!Object.prototype.hasOwnProperty.call(msg, "config")) throw new Error("Config is missing.");
                     if (!Object.prototype.hasOwnProperty.call(msg, "plaintext")) throw new Error("Plaintext is missing.");
-                    await fillField(el, msg.plaintext, msg.config);
+                    await fillBoundField(msg.plaintext, msg.config);
                     if (msg.config.fillRelated) {
                         for (const rel of await getRelatedFields(el)) {
                             try {
@@ -529,6 +570,7 @@
                             }
                         }
                     }
+                    cleanupInlineTarget(el, port);
                     port.postMessage({ action: "close" });
                     triggerPort.postMessage({ action: "close-popup" });
 
@@ -561,6 +603,7 @@
             } else if (msg?.action === "resize") {
                 triggerPort.postMessage({ action: "resize-popup", height: msg.height, width: msg.width });
             } else if (msg?.action === "close") {
+                cleanupInlineTarget(el, port);
                 triggerPort.postMessage({ action: "close-popup" });
             }
         });
