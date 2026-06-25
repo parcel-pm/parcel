@@ -416,8 +416,16 @@
         }
     }
 
+    function handleTargetKeydown(ev) {
+        if (ev.defaultPrevented || ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
+        if (!ev.target?._parcelPopupPort) return;
+        ev.preventDefault();
+        ev.target._parcelPopupPort.postMessage({ action: "focus-popup" });
+    }
+
     if (!(await config).disableContextPopup) {
         document.addEventListener("click", (ev) => handleTriggerClick(ev.target, ev.clientX, ev.clientY), { capture: true, passive: true });
+        document.addEventListener("keydown", handleTargetKeydown, { capture: true });
         document.addEventListener(
             "parcel-shadow-click",
             async (ev) => {
@@ -446,7 +454,6 @@
             port.disconnect();
             return;
         }
-        port.onDisconnect.addListener(() => delete targetBindings[port.name]);
         const updateStatus = (status) => port.postMessage({ action: "status", status });
         let el = targetBindings[port.name];
         if (!el) {
@@ -483,6 +490,10 @@
             port.disconnect();
             return;
         }
+        port.onDisconnect.addListener(() => {
+            if (el?._parcelPopupPort === port) delete el._parcelPopupPort;
+            delete targetBindings[port.name];
+        });
         try {
             await getTargetInfo(el);
         } catch (_err) {
@@ -490,9 +501,12 @@
             port.disconnect();
             return;
         }
+        if (port.name !== "broadcast") el._parcelPopupPort = port;
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
                 port.postMessage({ action: "origin", origin: window.location.origin });
+            } else if (msg?.action === "focus-target") {
+                el.focus();
             } else if (msg?.action === "fill-value") {
                 // Fill the target field with the selected value
                 updateStatus("Filling value...");

@@ -66,6 +66,16 @@
     let limit = true;
     let history = [];
 
+    function focusSelected() {
+        let selected = document.querySelector(".selected");
+        if (!selected) {
+            selected = document.getElementById("searchPattern") || document.querySelector("li");
+            selected?.classList.add("selected");
+        }
+        window.focus();
+        selected?.focus();
+    }
+
     /**
      * Hash a string with SHA-256, delegating to the background service worker if the
      * Web Crypto API is unavailable in this context.
@@ -371,7 +381,7 @@
                 else if (ev.key === "Escape") window.close();
                 document.getElementById("modal-shade").classList.add("hidden");
                 document.querySelector(".selected").scrollIntoView({ behavior: "smooth", block: "nearest" });
-                document.querySelector(".selected").focus();
+                focusSelected();
             }
         });
         tabPort.onMessage.addListener((msg) => {
@@ -407,7 +417,7 @@
     document.getElementById("modal-shade").addEventListener("click", () => {
         document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
         document.getElementById("modal-shade").classList.add("hidden");
-        document.querySelector(".selected").focus();
+        focusSelected();
     });
 
     window.addEventListener("keydown", (ev) => {
@@ -424,6 +434,11 @@
             selected.scrollIntoView({ behavior: "smooth", block: "nearest" });
             selected.focus();
         } else if (ev.key === "ArrowUp" || (ev.key === "Tab" && ev.shiftKey)) {
+            if (ev.key === "Tab" && ev.shiftKey && token !== "broadcast" && selected.id === "searchPattern") {
+                ev.preventDefault();
+                tabPort.postMessage({ action: "focus-target" });
+                return;
+            }
             ev.preventDefault();
             selected.classList.remove("selected");
             if (selected.tagName === "LI") {
@@ -451,7 +466,9 @@
 
     // listen for status & error messages returned from the content script
     tabPort.onMessage.addListener((msg) => {
-        if (msg?.action === "status") {
+        if (msg?.action === "focus-popup") {
+            focusSelected();
+        } else if (msg?.action === "status") {
             document.querySelector("#status").textContent = msg.status;
         } else if (msg?.action === "clear-status") {
             document.querySelector("#status").textContent = "Idle";
@@ -521,6 +538,7 @@
                 }
                 li = document.createElement("li");
                 li._keep = true;
+                li.tabIndex = -1;
                 li.setAttribute("data-path", entry.path);
                 if (entry.isInHistory) li.classList.add("history");
                 li.setAttribute("data-sort-order", entry.sortOrder);
@@ -671,7 +689,7 @@
     update();
 
     // UI updates when the anti-phishing mode is toggled
-    document.getElementById("searchPattern").focus();
+    if (token === "broadcast") focusSelected();
     document.getElementById("searchPattern").addEventListener("keydown", (ev) => {
         if (ev.key === "Backspace" && search.value.length === 0) {
             limit = false;

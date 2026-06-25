@@ -83,7 +83,7 @@ test-modules:
 
 .PHONY: test-application
 test-application:
-	node --test $(TEST_FLAGS) test/agent.test.js test/integration.test.js test/popup.test.js
+	node --test $(TEST_FLAGS) test/agent.test.js test/integration.test.js test/popup.test.js test/popup-context.test.js
 
 .PHONY: test-syntax
 test-syntax:
@@ -104,4 +104,5 @@ test: test-syntax
 		test/shadow.test.js \
 		test/agent.test.js \
 		test/integration.test.js \
-		test/popup.test.js
+		test/popup.test.js \
+		test/popup-context.test.js
