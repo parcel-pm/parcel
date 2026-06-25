@@ -9,7 +9,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readFileSync, readdirSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -117,6 +117,17 @@ VALID_SIGNERS="${knownSigner}"
             rmSync(home, { recursive: true, force: true });
         },
     };
+}
+
+/**
+ * Compute the SHA-256 hash of a file, the same way a user would:
+ * `sha256sum <file>`.
+ */
+function sha256sumFile(filePath) {
+    const sha256Bin = execSync("command -v sha256sum || command -v sha256", { encoding: "utf8" }).trim();
+    return execSync(`${sha256Bin} "${filePath}" | awk '{print $1}'`, {
+        encoding: "utf8",
+    }).trim();
 }
 
 /**
@@ -359,6 +370,69 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             send({ action: "install", script, signature: "sig" });
             const msg = await read();
             assert.ok(msg.error?.toLowerCase().includes("hash"), `Expected hash error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("accepts install when HOST_HASH matches sha256sum of a file with a trailing newline", async () => {
+        const env = createTestEnv();
+        const script = 'echo "Hello world!"\n';
+        const scriptFile = join(env.home, "test-script.sh");
+        writeFileSync(scriptFile, script, "utf8");
+        const hash = sha256sumFile(scriptFile);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + `\nHOST_HASH="${hash}"\n`);
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script, signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("accepts install when HOST_HASH matches sha256sum of a file without a trailing newline", async () => {
+        const env = createTestEnv();
+        const script = 'echo "Hello world!"';
+        const scriptFile = join(env.home, "test-script.sh");
+        writeFileSync(scriptFile, script, "utf8");
+        const hash = sha256sumFile(scriptFile);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + `\nHOST_HASH="${hash}"\n`);
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script, signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("accepts install when HOST_HASH matches sha256sum of a file with multiple trailing newlines", async () => {
+        const env = createTestEnv();
+        const script = 'echo "Hello world!"\n\n';
+        const scriptFile = join(env.home, "test-script.sh");
+        writeFileSync(scriptFile, script, "utf8");
+        const hash = sha256sumFile(scriptFile);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + `\nHOST_HASH="${hash}"\n`);
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script, signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install, got: ${JSON.stringify(msg)}`);
         } finally {
             proc.kill();
             env.cleanup();

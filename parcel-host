@@ -147,7 +147,7 @@ function action_install() {
 
     # verify hash
     if [ -n "$HOST_HASH" ]; then
-        HASH=$($SHA256 <<< "$SCRIPT" | awk '{print $1}')
+        HASH=$(jq -rj '.script' <<< "$1" | "$SHA256" | awk '{print $1}')
         if [ "$HASH" != "$HOST_HASH" ]; then
             parcel_error "Unapproved host script hash - please review the updated host script, then set the new hash $HASH in your parcelrc file and reload the browser extension."
             return 1

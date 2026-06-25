@@ -146,7 +146,7 @@ If this file does not exist, the bootstrap host creates a commented template on 
 | `JQ` | `jq` | Path to the `jq` binary. |
 | `LOGFILE` | `~/.local/log/parcel-host.log` | Destination for host error and audit logging. Plaintext credentials are never written here. |
 | `PASSWORD_STORE_DIR` | `~/.password-store` | Root directory of your `pass` password store. |
-| `HOST_HASH` | *(none)* | Optional SHA-256 hash of the main host script. When set, the bootstrap host will refuse to execute updated scripts until you update this value after review. |
+| `HOST_HASH` | *(none)* | Optional SHA-256 hash of `src/parcel-host` (run `sha256sum src/parcel-host`). When set, the bootstrap host will refuse to execute updated scripts until you update this value after review. |
 
 Example `parcelrc`:
 
