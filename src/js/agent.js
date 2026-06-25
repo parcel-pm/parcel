@@ -347,6 +347,16 @@ export class Agent extends EventTarget {
         const clearErrors = (category = null) => port.postMessage({ action: "clear-errors", category });
         clearStatus();
 
+        // Allow-list: map port names to the actions they are permitted to invoke.
+        // `decrypt`/`match` are privileged and only available to authorised popup ports;
+        // content-script (`integration`) ports may only request `config`/`sha256`.
+        // Unknown actions are always rejected.
+        const PORT_ACTIONS = {
+            popup: ["auth", "config", "decrypt", "match", "sha256"],
+            integration: ["config"],
+        };
+        const allowedActions = PORT_ACTIONS[port.name] || [];
+
         // listen for messages
         port.onMessage.addListener(async (message) => {
             try {
@@ -359,6 +369,11 @@ export class Agent extends EventTarget {
                         return;
                     }
                     if (!authorised) throw new Error("Unauthorised port");
+                }
+
+                // Validate the action against the port-name allow-list.
+                if (!message?.action || !allowedActions.includes(message.action)) {
+                    throw new Error(`Action "${message?.action}" is not permitted for port "${port.name}"`);
                 }
 
                 if (!this.#connectedNative) throw new Error("Not connected to native host");
