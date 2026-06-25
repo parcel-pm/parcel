@@ -136,6 +136,8 @@ export function createChromeMock(opts = {}) {
 
     const runtimeOnConnect = _makeEvent();
     const runtimeOnMessage = _makeEvent();
+    const runtimeOnStartup = _makeEvent();
+    const runtimeOnInstalled = _makeEvent();
     const contextualIdentitiesOnRemoved = _makeEvent();
 
     let lastError = null;
@@ -149,6 +151,12 @@ export function createChromeMock(opts = {}) {
             },
             get onMessage() {
                 return runtimeOnMessage;
+            },
+            get onStartup() {
+                return runtimeOnStartup;
+            },
+            get onInstalled() {
+                return runtimeOnInstalled;
             },
             get lastError() {
                 return lastError;
@@ -245,6 +253,16 @@ export function createChromeMock(opts = {}) {
         /** Fire a contextual identity removal event. */
         fireContextualIdentityRemoved(changeInfo) {
             contextualIdentitiesOnRemoved._fire(changeInfo);
+        },
+
+        /** Fire the runtime.onStartup event. */
+        fireRuntimeStartup() {
+            runtimeOnStartup._fire();
+        },
+
+        /** Fire the runtime.onInstalled event. */
+        fireRuntimeInstalled() {
+            runtimeOnInstalled._fire();
         },
 
         /** Install fetch into `globalThis` so imported modules see it. */

@@ -237,6 +237,46 @@ describe("Agent", () => {
         assert.strictEqual(a, true, "bridge disconnect caller");
         assert.strictEqual(b, true, "bridge disconnect receiver");
     });
+
+    test("onStartup reconnects native host after disconnect", async () => {
+        const original = mock.getNativePort("com.github.erayd.parcel");
+        original.caller.disconnect();
+        await settleAsync();
+        if (chrome.runtime.lastError) chrome.runtime.lastError = null;
+
+        mock.fireRuntimeStartup();
+        await settleAsync();
+
+        const reconnected = mock.getNativePort("com.github.erayd.parcel");
+        assert.notStrictEqual(reconnected, original, "onStartup established a new native connection");
+        assert.ok(reconnected, "native port exists after reconnect");
+    });
+
+    test("onInstalled reconnects native host after disconnect", async () => {
+        const original = mock.getNativePort("com.github.erayd.parcel");
+        original.caller.disconnect();
+        await settleAsync();
+        if (chrome.runtime.lastError) chrome.runtime.lastError = null;
+
+        mock.fireRuntimeInstalled();
+        await settleAsync();
+
+        const reconnected = mock.getNativePort("com.github.erayd.parcel");
+        assert.notStrictEqual(reconnected, original, "onInstalled established a new native connection");
+        assert.ok(reconnected, "native port exists after reconnect");
+    });
+
+    test("lifecycle hooks are idempotent when native host is already connected", async () => {
+        const before = mock.getNativePort("com.github.erayd.parcel");
+        assert.ok(before, "native host connected before event");
+
+        mock.fireRuntimeStartup();
+        mock.fireRuntimeInstalled();
+        await settleAsync();
+
+        const after = mock.getNativePort("com.github.erayd.parcel");
+        assert.strictEqual(after, before, "no spurious reconnect when already connected");
+    });
 });
 
 describe("Agent initialisation failures", () => {
