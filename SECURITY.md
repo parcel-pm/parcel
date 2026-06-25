@@ -50,6 +50,14 @@ If any step fails, the script is discarded and the host refuses to start.
 
 Even after signature verification, you may wish to pin the exact contents of the main host script. Setting `HOST_HASH` in `parcelrc` to the SHA-256 hash of `src/parcel-host` causes the bootstrap host to compute and compare the hash before execution. If the hash does not match, the host reports an error with the new hash and exits, giving you the opportunity to review the updated script before updating the pinned value.
 
+To compute the correct hash, use the same method the bootstrap host uses — `sha256sum` on the raw file:
+
+```bash
+sha256sum src/parcel-host
+```
+
+This ensures the value you pin matches what the host computes at runtime.
+
 This is an **opt-in** defence-in-depth measure. It is not set by default because it requires manual intervention on every update. However, as the native host has shell access to your system outside of the browser sandbox, it is ***strongly*** recommended that you enable this feature.
 
 ### Whitelist-based entry visibility
