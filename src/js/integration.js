@@ -465,21 +465,22 @@
 
     /**
      * Capture-phase keydown handler that intercepts Tab on popup-bound elements and
-     * redirects focus to the popup iframe. Skips interception when focus is suspended
-     * (e.g. during a blocking alert) or when the popup port is stale.
+     * redirects focus to the popup iframe. Uses `composedPath()` to find the bound element
+     * through shadow DOM boundaries. Skips interception when focus is suspended (e.g.
+     * during a blocking alert) or when the popup port is stale.
      * @since 1.0.2
      * @param {KeyboardEvent} ev - The keydown event.
      */
     function handleTargetKeydown(ev) {
         if (ev.defaultPrevented || ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
-        const popupPort = ev.target?._parcelPopupPort;
-        if (!popupPort) return;
-        if (ev.target?._parcelFocusSuspended) return;
+        const target = ev.composedPath().find((el) => el?._parcelPopupPort);
+        if (!target) return;
+        if (target._parcelFocusSuspended) return;
         ev.preventDefault();
         try {
-            popupPort.postMessage({ action: "focus-popup" });
+            target._parcelPopupPort.postMessage({ action: "focus-popup" });
         } catch (_err) {
-            cleanupInlineTarget(ev.target, popupPort);
+            cleanupInlineTarget(target, target._parcelPopupPort);
         }
     }
 
