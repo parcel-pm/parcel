@@ -417,12 +417,25 @@
         }
     }
 
+    /**
+     * Remove the input-close listener from a target element, if one is bound.
+     * @since 1.0.2
+     * @param {HTMLElement} target - The element to remove the listener from.
+     */
     function removeTargetInputClose(target) {
         if (!target?._parcelCloseOnInput) return;
         target.removeEventListener("input", target._parcelCloseOnInput);
         delete target._parcelCloseOnInput;
     }
 
+    /**
+     * Clean up all Parcel bindings on a target element: removes the input-close listener,
+     * deletes the popup port reference, clears the focus-suspended flag, and removes the
+     * element from the target bindings map.
+     * @since 1.0.2
+     * @param {HTMLElement} target - The element to clean up.
+     * @param {chrome.runtime.Port|null} [port=null] - If provided, only cleans up if the target's bound port matches.
+     */
     function cleanupInlineTarget(target, port = null) {
         if (!target) return;
         if (port && target._parcelPopupPort && target._parcelPopupPort !== port) return;
@@ -432,6 +445,12 @@
         if (target._parcelToken && target._parcelToken !== "broadcast") delete targetBindings[target._parcelToken];
     }
 
+    /**
+     * Bind an input event listener to the target element that closes the popup and cleans
+     * up the target binding when the user starts typing.
+     * @since 1.0.2
+     * @param {HTMLElement} target - The element to bind the input-close listener to.
+     */
     function addTargetInputClose(target) {
         removeTargetInputClose(target);
         target._parcelCloseOnInput = () => {
@@ -444,6 +463,13 @@
         target.addEventListener("input", target._parcelCloseOnInput);
     }
 
+    /**
+     * Capture-phase keydown handler that intercepts Tab on popup-bound elements and
+     * redirects focus to the popup iframe. Skips interception when focus is suspended
+     * (e.g. during a blocking alert) or when the popup port is stale.
+     * @since 1.0.2
+     * @param {KeyboardEvent} ev - The keydown event.
+     */
     function handleTargetKeydown(ev) {
         if (ev.defaultPrevented || ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
         const popupPort = ev.target?._parcelPopupPort;
@@ -536,6 +562,13 @@
             return;
         }
         if (port.name !== "broadcast") el._parcelPopupPort = port;
+        /**
+         * Fill the bound target field, setting and clearing the `_parcelFilling` flag
+         * so the input-close listener does not fire during programmatic fills.
+         * @since 1.0.2
+         * @param {...*} args - Arguments forwarded to `fillField`.
+         * @returns {Promise<void>}
+         */
         const fillBoundField = async (...args) => {
             el._parcelFilling = true;
             try {

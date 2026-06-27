@@ -66,6 +66,12 @@
     let limit = true;
     let history = [];
 
+    /**
+     * Focus the currently-selected element in the popup, defaulting to the search input
+     * or the first list item if no selection exists. Also calls `window.focus()` to bring
+     * the popup iframe to the foreground.
+     * @since 1.0.2
+     */
     function focusSelected() {
         let selected = document.querySelector(".selected");
         if (!selected) {
