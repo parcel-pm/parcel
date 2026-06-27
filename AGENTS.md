@@ -37,6 +37,9 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Treat `src/publicsuffix` as a vendored upstream subtree. Ignore it for normal Parcel work unless the task is specifically about PSL data or its tooling.
 - Run `make prettier` after making any changes to ensure that they comply with the project's formatting conventions.
 - Always verify that the full `make test` suite passes before considering a task complete.
+- All new named functions and methods should be documented with JSDoc comments, including parameter types and return types. `@since` tags should refer to the next release version, not the current one.
+- Inline closures or anonymous functions should NOT be given a JSDoc comment, but they may have a brief // comment if the purpose is not obvious.
+- When making decisions, consider the long-term implications and maintainability of the code. Avoid short-term fixes that may introduce technical debt or future issues.
 
 ## Security considerations
 
@@ -50,5 +53,15 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Never open a new PR, even if the user requests it.
 - Never open a new issue, even if the user requests it.
 - Never push to any branch, even if the user requests it.
-- Never create new commits unless the user has explicitly requested that you do so.
 - Never stage your changes unless the user has explicitly requested that you do so.
+- Never create new commits unless the user has explicitly requested that you do so.
+- All commits must be GPG-signed. If signing fails, the agent should abort the commit and report the failure to the user.
+
+## Code review
+
+- All code reviews, including reviews of PRs, should be comprehensive and thorough. Reviewers should check for correctness, security, maintainability, UX, regressions, performance, and adherence to coding standards.
+- Use up to three simultaneous subagents as you see fit to review code. Each subagent should focus on a specific aspect of the code.  Additional subagents are allowed provided no more than three are active at the same time.
+- When reviewing code, provide detailed feedback and suggestions for improvement. If you identify a problem, propose a solution or alternative approach.
+- If tradeoffs are necessary, clearly explain the reasoning behind your recommendations and the potential impact on the project.
+- When considering solutions, remember that security is paramount. More secure solutions are usually preferable unless there is a compelling reason for a tradeoff. If a proposed solution introduces or exacerbates security risks, those risks must be clearly communicated.
+- If a recommended solution mitigates security risks, explain how it does so and why it is a better approach than the alternatives.
