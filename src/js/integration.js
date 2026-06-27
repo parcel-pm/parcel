@@ -563,13 +563,7 @@
             return;
         }
         if (port.name !== "broadcast") el._parcelPopupPort = port;
-        /**
-         * Fill the bound target field, setting and clearing the `_parcelFilling` flag
-         * so the input-close listener does not fire during programmatic fills.
-         * @since 1.0.2
-         * @param {...*} args - Arguments forwarded to `fillField`.
-         * @returns {Promise<void>}
-         */
+        // Sets _parcelFilling during fill so the input-close listener doesn't fire
         const fillBoundField = async (...args) => {
             el._parcelFilling = true;
             try {
