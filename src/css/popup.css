@@ -64,6 +64,7 @@ body {
 .hidden {
     display: none !important;
 }
+/* Visually hidden, but available to screen readers (e.g. for aria-live announcements) */
 .sr-only {
     position: absolute;
     width: 1px;
