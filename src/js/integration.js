@@ -389,7 +389,11 @@
         //let popup = document.querySelector(".parcel-popup");
         try {
             const targetInfo = await getTargetInfo(target);
-            if (!Object.prototype.hasOwnProperty.call(target, "_parcelToken")) {
+            if (!Object.prototype.hasOwnProperty.call(target, "_parcelToken") || target._parcelToken === "broadcast") {
+                // A "broadcast" token is only ever set by the toolbar-popup (root-frame) binding path and is
+                // cleaned up on fill. If the toolbar popup is closed without filling, a stale "broadcast"
+                // token can remain on the element; reusing it for a context popup would load the popup iframe
+                // with token=broadcast and trip the anti-framing guard. Regenerate it to a per-element token.
                 try {
                     target._parcelToken = crypto.randomUUID();
                 } catch (_err) {

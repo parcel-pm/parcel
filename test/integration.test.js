@@ -815,4 +815,36 @@ describe("Integration script", { concurrency: false }, () => {
         const msg = await errPromise;
         assert.ok(msg.error.includes("Cannot find a suitable autofill target"));
     });
+
+    test("broadcast token is regenerated when retriggering context popup (issue #79)", async () => {
+        // Simulate the toolbar popup: open a broadcast connection against a
+        // target, then close it without filling. The element retains a stale
+        // _parcelToken === "broadcast". A subsequent click to open a context
+        // popup must NOT reuse that broadcast token, because the context popup
+        // loads in an iframe and a broadcast token would trip the anti-framing
+        // guard in popup.js.
+        clearBody();
+        const input = makeInput({ type: "email", name: "user" });
+
+        const port = mock.chrome.runtime.connect({ name: "broadcast" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        port.disconnect();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        assert.strictEqual(input._parcelToken, "broadcast");
+
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await click(input);
+        const msg = await popupPromise;
+
+        assert.notStrictEqual(msg.token, "broadcast", "context popup must not use a broadcast token");
+        assert.notStrictEqual(input._parcelToken, "broadcast", "element token must be regenerated");
+
+        const popup = document.querySelector(".parcel-popup");
+        assert.ok(popup, "popup element should exist");
+        const iframe = popup.shadowRoot.querySelector("iframe");
+        assert.ok(iframe, "shadow root should contain iframe");
+        assert.ok(!iframe.src.includes("token=broadcast"), "iframe src must not carry token=broadcast");
+    });
 });
