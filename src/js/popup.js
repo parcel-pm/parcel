@@ -407,6 +407,69 @@
                 tabPort.postMessage({ action: "close" });
             }
         });
+
+        // When the detail view is open, allow typing a 1-based plaintext line
+        // number to fill that line's value into the target element, just as
+        // clicking the line would. Digit input is accumulated and the value is
+        // filled automatically once input pauses for the timeout duration.
+        // When there are fewer than ten lines, a second digit could never form
+        // a valid index, so the value is filled immediately on the first digit
+        // instead of waiting. Escape cancels any pending input. The detail view
+        // is modal, so it captures keystrokes regardless of where focus sits.
+        let lineNumberBuffer = "";
+        let lineNumberTimer = null;
+        const LINE_NUMBER_TIMEOUT = 850;
+        window.addEventListener("keydown", (ev) => {
+            const detail = document.getElementsByTagName("parcel-detail").item(0);
+            if (!detail) return;
+            if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
+
+            if (/^\d$/.test(ev.key)) {
+                ev.preventDefault();
+                lineNumberBuffer += ev.key;
+                if (lineNumberTimer) {
+                    clearTimeout(lineNumberTimer);
+                    lineNumberTimer = null;
+                }
+                const lineCount = detail.shadowRoot.querySelectorAll("parcel-plaintext-line").length;
+                if (lineCount < 10) {
+                    fillPlaintextLine(detail, lineNumberBuffer);
+                    lineNumberBuffer = "";
+                } else {
+                    lineNumberTimer = setTimeout(() => {
+                        fillPlaintextLine(detail, lineNumberBuffer);
+                        lineNumberBuffer = "";
+                        lineNumberTimer = null;
+                    }, LINE_NUMBER_TIMEOUT);
+                }
+                return;
+            }
+            if (ev.key === "Escape") {
+                lineNumberBuffer = "";
+                if (lineNumberTimer) {
+                    clearTimeout(lineNumberTimer);
+                    lineNumberTimer = null;
+                }
+            }
+        });
+
+        /**
+         * Fill the value of a plaintext line (1-based index) from a detail view
+         * into the active target element, matching the behaviour of clicking
+         * the line. Out-of-range indices are ignored.
+         * @since 1.0.2
+         * @param {ParcelDetail} detail - The detail element containing the lines.
+         * @param {string|number} index - The 1-based line number to fill.
+         * @returns {void}
+         */
+        function fillPlaintextLine(detail, index) {
+            const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
+            const i = parseInt(index, 10);
+            if (!Number.isNaN(i) && i >= 1 && i <= lines.length) {
+                const line = lines[i - 1];
+                tabPort.postMessage({ action: "fill-value", value: line.getValue() });
+            }
+        }
     }
 
     if (tab.url) {

@@ -66,7 +66,7 @@ function makeValidConfig() {
     };
 }
 
-let document, window, mock, tabPortReceiver;
+let document, window, mock, tabPortReceiver, popupPortReceiver;
 
 before(async () => {
     globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
@@ -127,6 +127,7 @@ before(async () => {
 
     mock.chrome.runtime.onConnect.addListener((receiver) => {
         if (receiver.name !== "popup") return;
+        popupPortReceiver = receiver;
         receiver.onMessage.addListener((msg) => {
             if (msg?.action === "config") receiver.postMessage({ action: "config", config: makeValidConfig() });
         });
@@ -143,7 +144,12 @@ before(async () => {
     await settleAsync();
 });
 
-describe("Context popup focus", { concurrency: false }, () => {
+describe("Context popup", { concurrency: false }, () => {
+    async function sendDetail(plaintext) {
+        popupPortReceiver.postMessage({ action: "plaintext", intent: "detail", plaintext });
+        await settleAsync();
+    }
+
     test("does not focus search input on load", () => {
         assert.notStrictEqual(document.activeElement, document.getElementById("searchPattern"));
     });
@@ -162,5 +168,109 @@ describe("Context popup focus", { concurrency: false }, () => {
         search.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
         const msg = await focusTargetPromise;
         assert.strictEqual(msg.action, "focus-target");
+    });
+
+    test("typing a line number fills the matching plaintext line value", async () => {
+        await sendDetail("user: alice\nsecret: hunter2\nurl: https://example.com");
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+        const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
+        assert.strictEqual(lines.length, 3, "three plaintext lines rendered");
+
+        document.activeElement?.blur?.();
+
+        const fillValuePromise = nextMessage(tabPortReceiver, "fill-value", 3000);
+        window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
+        const msg = await fillValuePromise;
+        assert.strictEqual(msg.action, "fill-value");
+        assert.strictEqual(msg.value, "hunter2");
+
+        detail.remove();
+    });
+
+    test("with fewer than ten lines the fill is immediate", async () => {
+        await sendDetail("user: alice\nsecret: hunter2");
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+
+        document.activeElement?.blur?.();
+
+        let msg = null;
+        const listener = (m) => {
+            if (m?.action === "fill-value") msg = m;
+        };
+        tabPortReceiver.onMessage.addListener(listener);
+        window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
+        // Yield once so any synchronously-queued microtasks/timers settle
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        tabPortReceiver.onMessage.removeListener(listener);
+        assert.ok(msg, "fill-value sent immediately for a sub-ten line count");
+        assert.strictEqual(msg.value, "hunter2");
+
+        detail.remove();
+    });
+
+    test("out-of-range line number does nothing", async () => {
+        await sendDetail("user: bob\nsecret: s3cret");
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+
+        document.activeElement?.blur?.();
+
+        let received = false;
+        const listener = (msg) => {
+            if (msg?.action === "fill-value") received = true;
+        };
+        tabPortReceiver.onMessage.addListener(listener);
+        window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "9", bubbles: true, cancelable: true }));
+        // Wait beyond the fill timeout for an out-of-range index (no fill expected)
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        tabPortReceiver.onMessage.removeListener(listener);
+        assert.strictEqual(received, false, "no fill-value sent for out-of-range line number");
+
+        detail.remove();
+    });
+
+    test("digit input fills even when focus is on the search input", async () => {
+        await sendDetail("user: carol\nsecret: p@ss");
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+
+        const search = document.getElementById("searchPattern");
+        search.focus();
+
+        const fillValuePromise = nextMessage(tabPortReceiver, "fill-value", 3000);
+        search.dispatchEvent(new window.KeyboardEvent("keydown", { key: "1", bubbles: true, cancelable: true }));
+        const msg = await fillValuePromise;
+        assert.strictEqual(msg.action, "fill-value");
+        assert.strictEqual(msg.value, "carol");
+
+        detail.remove();
+    });
+
+    test("multi-digit line number selects the correct line", async () => {
+        const plaintext = Array.from({ length: 12 }, (_, i) => `field${i + 1}: value${i + 1}`).join("\n");
+        await sendDetail(plaintext);
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+        const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
+        assert.strictEqual(lines.length, 12, "twelve plaintext lines rendered");
+
+        document.activeElement?.blur?.();
+
+        const fillValuePromise = nextMessage(tabPortReceiver, "fill-value", 3000);
+        for (const ch of "10") {
+            window.dispatchEvent(new window.KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true }));
+        }
+        const msg = await fillValuePromise;
+        assert.strictEqual(msg.action, "fill-value");
+        assert.strictEqual(msg.value, "value10");
+
+        detail.remove();
     });
 });
