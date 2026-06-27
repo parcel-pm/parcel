@@ -447,12 +447,12 @@
         if (ev.defaultPrevented || ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
         const popupPort = ev.target?._parcelPopupPort;
         if (!popupPort) return;
-        if (popupPort.disconnected) {
-            cleanupInlineTarget(ev.target, popupPort);
-            return;
-        }
         ev.preventDefault();
-        popupPort.postMessage({ action: "focus-popup" });
+        try {
+            popupPort.postMessage({ action: "focus-popup" });
+        } catch (_err) {
+            cleanupInlineTarget(ev.target, popupPort);
+        }
     }
 
     if (!(await config).disableContextPopup) {
