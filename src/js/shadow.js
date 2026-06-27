@@ -4,6 +4,18 @@
 let _attachShadow;
 if (!_attachShadow) {
     _attachShadow = Element.prototype.attachShadow;
+
+    // Shared across all shadow hosts so that a single physical click is only
+    // re-dispatched once, even when it bubbles through several nested shadow
+    // roots. Without this, a click inside e.g. <custom-login> -> <custom-input> ->
+    // <input> would fire parcel-shadow-click twice: once for the innermost root
+    // (with the real <input> as ev.target) and again for each ancestor root
+    // (where ev.target has been retargeted to the ancestor host). The ancestor
+    // dispatch would then resolve to the host element rather than the real
+    // input, causing handleTriggerClick to reject it and close the popup that
+    // the innermost dispatch just opened.
+    const handledClicks = new WeakSet();
+
     /**
      * Override of Element.prototype.attachShadow that tags shadow hosts so they can be
      * located later, and re-dispatches clicks originating inside shadow roots.
@@ -19,10 +31,13 @@ if (!_attachShadow) {
             this.setAttribute("is-shadow", "");
             this.setAttribute("parcel-shadow-host", hostUUID);
 
-            const shadowEvents = new WeakSet();
             const clickHandler = (ev) => {
-                if (shadowEvents.has(ev)) return; // avoids handling the same event on both the target element *and* the shadow host
-                shadowEvents.add(ev);
+                // Dedup across both the shadow root and its host, and across all
+                // ancestor shadow roots the same click bubbles through. The
+                // innermost handler runs first and sees the un-retargeted target,
+                // which is the element we actually want to handle.
+                if (handledClicks.has(ev)) return;
+                handledClicks.add(ev);
                 const evUUID = crypto.randomUUID();
                 ev.target.setAttribute("parcel-shadow-event", evUUID);
                 document.dispatchEvent(
