@@ -428,6 +428,7 @@
         if (port && target._parcelPopupPort && target._parcelPopupPort !== port) return;
         removeTargetInputClose(target);
         if (!port || target._parcelPopupPort === port) delete target._parcelPopupPort;
+        delete target._parcelFocusSuspended;
         if (target._parcelToken && target._parcelToken !== "broadcast") delete targetBindings[target._parcelToken];
     }
 
@@ -447,6 +448,7 @@
         if (ev.defaultPrevented || ev.key !== "Tab" || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
         const popupPort = ev.target?._parcelPopupPort;
         if (!popupPort) return;
+        if (ev.target?._parcelFocusSuspended) return;
         ev.preventDefault();
         try {
             popupPort.postMessage({ action: "focus-popup" });
@@ -547,6 +549,10 @@
                 port.postMessage({ action: "origin", origin: window.location.origin });
             } else if (msg?.action === "focus-target") {
                 el.focus();
+            } else if (msg?.action === "focus-suspend") {
+                el._parcelFocusSuspended = true;
+            } else if (msg?.action === "focus-resume") {
+                delete el._parcelFocusSuspended;
             } else if (msg?.action === "fill-value") {
                 // Fill the target field with the selected value
                 updateStatus("Filling value...");

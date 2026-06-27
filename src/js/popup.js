@@ -490,11 +490,13 @@
             if (tab.url) {
                 const tabURL = new URL(tab.url);
                 if (msg.origin !== tabURL.origin) {
+                    tabPort.postMessage({ action: "focus-suspend" });
                     alert(
                         `The field you are trying to fill is from a different origin (${msg.origin}) than the page you ` +
                             `are browsing (${tabURL.origin}). This may be a sign of a security issue. Do not ` +
                             `enter any sensitive information into this field unless you are sure it is safe to do so.`,
                     );
+                    if (!tabPort.disconnected) tabPort.postMessage({ action: "focus-resume" });
                 }
             }
         }
