@@ -207,4 +207,43 @@ describe("Shadow root intercept shim", { concurrency: false }, () => {
             assert.strictEqual(count, 1, "parcel-shadow-click should only fire once per physical click");
         });
     });
+
+    test("click inside nested shadow roots dispatches parcel-shadow-click once with the innermost target", async () => {
+        await withShadowEnv(async (win, document) => {
+            evalShadowFresh();
+
+            // Mimic the structure on https://sandbox.mabl.com/shadow-dom:
+            // <mabl-login> -> shadow -> <mabl-input> -> shadow -> <input>
+            const outerHost = document.createElement("mabl-login");
+            const outerShadow = outerHost.attachShadow({ mode: "open" });
+
+            const innerHost = document.createElement("mabl-input");
+            const innerShadow = innerHost.attachShadow({ mode: "open" });
+
+            const innerInput = document.createElement("input");
+            innerInput.type = "password";
+            innerShadow.appendChild(innerInput);
+
+            outerShadow.appendChild(innerHost);
+            document.body.appendChild(outerHost);
+            await new Promise((r) => setTimeout(r, 10));
+
+            const received = [];
+            document.addEventListener("parcel-shadow-click", (e) => {
+                received.push(e.detail);
+            });
+
+            innerInput.dispatchEvent(new win.MouseEvent("click", { bubbles: true, composed: true, clientX: 5, clientY: 6 }));
+            await new Promise((r) => setTimeout(r, 0));
+
+            assert.strictEqual(received.length, 1, "parcel-shadow-click should fire exactly once for a click inside nested shadow roots");
+            // The innermost handler sees the un-retargeted target (the <input>),
+            // which is what fillable-target resolution requires.
+            assert.strictEqual(
+                innerInput.getAttribute("parcel-shadow-event"),
+                received[0].target,
+                "the tagged target should be the inner input",
+            );
+        });
+    });
 });
