@@ -436,7 +436,11 @@
         } else if (ev.key === "ArrowUp" || (ev.key === "Tab" && ev.shiftKey)) {
             if (ev.key === "Tab" && ev.shiftKey && token !== "broadcast" && selected.id === "searchPattern") {
                 ev.preventDefault();
-                tabPort.postMessage({ action: "focus-target" });
+                try {
+                    tabPort.postMessage({ action: "focus-target" });
+                } catch (_err) {
+                    window.close();
+                }
                 return;
             }
             ev.preventDefault();
@@ -496,7 +500,13 @@
                             `are browsing (${tabURL.origin}). This may be a sign of a security issue. Do not ` +
                             `enter any sensitive information into this field unless you are sure it is safe to do so.`,
                     );
-                    if (!tabPort.disconnected) tabPort.postMessage({ action: "focus-resume" });
+                    if (!tabPort.disconnected) {
+                        try {
+                            tabPort.postMessage({ action: "focus-resume" });
+                        } catch (_err) {
+                            // port died during alert; content script cleanup will handle the suspended state
+                        }
+                    }
                 }
             }
         }
