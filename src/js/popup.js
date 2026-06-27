@@ -692,6 +692,7 @@
 
     // UI updates when the anti-phishing mode is toggled
     if (token === "broadcast") focusSelected();
+    document.getElementById("live-region").textContent = "Parcel popup opened. Press Tab to interact.";
     document.getElementById("searchPattern").addEventListener("keydown", (ev) => {
         if (ev.key === "Backspace" && search.value.length === 0) {
             limit = false;

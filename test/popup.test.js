@@ -106,6 +106,7 @@ before(async () => {
 </div>
 <ul id="entries"></ul>
 <p id="status">Status bar</p>
+<div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 </body>
 </html>`;
 
