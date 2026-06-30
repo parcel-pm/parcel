@@ -847,4 +847,178 @@ describe("Integration script", { concurrency: false }, () => {
         assert.ok(iframe, "shadow root should contain iframe");
         assert.ok(!iframe.src.includes("token=broadcast"), "iframe src must not carry token=broadcast");
     });
+
+    // -----------------------------------------------------------------------
+    // shadow DOM target detection
+    // -----------------------------------------------------------------------
+
+    /**
+     * Build a shadow host containing the given light-DOM children and return
+     * both the host (attached to document.body) and its shadow root.
+     * The host is tagged with `is-shadow` so Helpers.shadowSelectorAll can
+     * locate it.
+     */
+    function makeShadowHost(attrs = {}) {
+        const host = document.createElement("div");
+        for (const [k, v] of Object.entries(attrs)) host.setAttribute(k, String(v));
+        document.body.appendChild(host);
+        const root = host.attachShadow({ mode: "open" });
+        // Mimic src/js/shadow.js which tags hosts asynchronously; tests need
+        // the attribute synchronously so Helpers.shadowSelectorAll can recurse.
+        host.setAttribute("is-shadow", "");
+        return { host, root };
+    }
+
+    /**
+     * Click an element that lives inside a shadow root.
+     *
+     * src/js/shadow.js re-dispatches shadow-DOM clicks as a
+     * `parcel-shadow-click` CustomEvent on document, tagging the real target
+     * with a `parcel-shadow-event` attribute so integration.js can locate it
+     * across the shadow boundary. The test harness replaces attachShadow and
+     * does not install that click intercept, so we simulate it here.
+     */
+    async function clickShadow(el) {
+        const evUUID = "test-shadow-" + Math.random().toString(36).slice(2);
+        el.setAttribute("parcel-shadow-event", evUUID);
+        document.dispatchEvent(
+            new window.CustomEvent("parcel-shadow-click", { detail: { host: "test-host", target: evUUID, x: 10, y: 10 } }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+    }
+
+    test("login field inside shadow host is detected as login type", async () => {
+        clearBody();
+        // The host attribute is decorative: getTargetInfo classifies the
+        // clicked element via el.matches(target.selector) only — it never
+        // consults target.shadow (which is a rootSelector for related-field
+        // and submit-button lookups, not type detection). A bare
+        // input[type=text] matches the shadow login selector whose `selector`
+        // field is "input[type=text i]".
+        const { root } = makeShadowHost();
+        const input = document.createElement("input");
+        input.setAttribute("type", "text");
+        root.appendChild(input);
+
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await clickShadow(input);
+        await popupPromise;
+
+        assert.strictEqual(input.getAttribute("parcel-type"), "login");
+    });
+
+    test("shadow login target is filled via fill message", async () => {
+        clearBody();
+        // As above, the host attribute is not consulted for classification.
+        const { root } = makeShadowHost();
+        const input = document.createElement("input");
+        input.setAttribute("type", "text");
+        root.appendChild(input);
+
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await clickShadow(input);
+        await popupPromise;
+
+        const token = input._parcelToken;
+        assert.ok(token);
+
+        const port = mock.chrome.runtime.connect({ name: token });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        port.postMessage({
+            action: "fill",
+            config: makeValidConfig({
+                targets: [
+                    {
+                        name: "login",
+                        pattern: "^(user|username|login|email):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                ],
+            }),
+            plaintext: "login: shadow-user",
+        });
+
+        await nextMessage(port, "close", 3000);
+        assert.strictEqual(input.value, "shadow-user");
+    });
+
+    test("related password field in light DOM is filled when login is in a shadow root", async () => {
+        // When login + password share a shadow root, the shadow-single login
+        // selectors are skipped (the root is not "single"), so we place the
+        // related password field in the same aggregate group in the light DOM.
+        // The host attribute is decorative for login classification — the
+        // inner input's own name="username" matches the light login selector
+        // input[name*=username i]. The related-fill path then uses
+        // shadowClosest to cross the shadow boundary and find the light-DOM
+        // password field via shadowSelectorAll with target.shadow as rootSelector.
+        clearBody();
+        const form = document.createElement("form");
+        form.setAttribute("class", "login-form");
+        const { root, host } = makeShadowHost();
+        const user = document.createElement("input");
+        user.setAttribute("type", "text");
+        user.setAttribute("name", "username");
+        root.appendChild(user);
+        const pass = document.createElement("input");
+        pass.setAttribute("type", "password");
+        pass.setAttribute("name", "password");
+        form.appendChild(host);
+        form.appendChild(pass);
+        document.body.appendChild(form);
+
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await clickShadow(user);
+        await popupPromise;
+
+        const token = user._parcelToken;
+        assert.ok(token);
+
+        const port = mock.chrome.runtime.connect({ name: token });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        port.postMessage({
+            action: "fill",
+            config: makeValidConfig({
+                targets: [
+                    {
+                        name: "login",
+                        pattern: "^(user|username|login|email):",
+                        related: ["secret"],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                    {
+                        name: "secret",
+                        pattern: "^(secret|password):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                ],
+            }),
+            plaintext: "login: bob\nsecret: hunter2",
+        });
+
+        await nextMessage(port, "close", 3000);
+        assert.strictEqual(user.value, "bob");
+        assert.strictEqual(pass.value, "hunter2");
+    });
 });

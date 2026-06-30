@@ -178,15 +178,17 @@ export class Helpers {
      * @since 1.0.0
      * @param {string} selector - The CSS selector to search for.
      * @param {ParentNode} [root=document] - The root to search from.
+     * @param {string|null} [rootSelector=null] - The CSS selector to match shadow hosts. If provided, only shadow roots of matching hosts will be searched.
      * @returns {Element[]} All matching elements, including those inside shadow roots.
      */
-    static shadowSelectorAll(selector, root = document) {
+    static shadowSelectorAll(selector, root = document, rootSelector = null) {
         const results = [];
         results.push(...root.querySelectorAll(selector));
         const shadowHosts = root.querySelectorAll("[is-shadow]");
         for (const host of shadowHosts) {
             if (host.shadowRoot) {
-                results.push(...Helpers.shadowSelectorAll(selector, host.shadowRoot));
+                if (rootSelector && !host.matches(rootSelector)) continue;
+                results.push(...Helpers.shadowSelectorAll(selector, host.shadowRoot, rootSelector));
             }
         }
         return results;
@@ -197,17 +199,48 @@ export class Helpers {
      * @since 1.0.0
      * @param {string} selector - The CSS selector to search for.
      * @param {ParentNode} [root=document] - The root to search from.
+     * @param {string|null} [rootSelector=null] - The CSS selector to match shadow hosts. If provided, only shadow roots of matching hosts will be searched.
      * @returns {?Element} The first matching element, or null if none is found.
      */
-    static shadowSelector(selector, root = document) {
+    static shadowSelector(selector, root = document, rootSelector = null) {
         const result = root.querySelector(selector);
         if (result) return result;
         const shadowHosts = root.querySelectorAll("[is-shadow]");
         for (const host of shadowHosts) {
             if (host.shadowRoot) {
-                const shadowResult = Helpers.shadowSelector(selector, host.shadowRoot);
+                if (rootSelector && !host.matches(rootSelector)) continue;
+                const shadowResult = Helpers.shadowSelector(selector, host.shadowRoot, rootSelector);
                 if (shadowResult) return shadowResult;
             }
+        }
+        return null;
+    }
+
+    /**
+     * closest() that crosses shadow boundaries.
+     *
+     * Native `Element.closest()` only traverses the current root's ancestor
+     * chain and stops at the shadow boundary, so a match that lives on or above
+     * the enclosing shadow host is never found. This helper walks `closest()`
+     * within the current root, and when that yields no match it climbs out of
+     * the shadow root to its host element and continues the search from there,
+     * repeating across any number of nested shadow roots.
+     * @since 1.0.2
+     * @param {Element} el - The element to start the search from.
+     * @param {string} selector - The CSS selector to match against ancestors.
+     * @returns {?Element} The closest matching ancestor (crossing shadow roots), or null if none is found.
+     */
+    static shadowClosest(el, selector) {
+        let current = el;
+        while (current) {
+            const match = current.closest(selector);
+            if (match) return match;
+            // Cross the shadow boundary: the root of `current` is a ShadowRoot
+            // whose `host` is the element in the parent tree. If `current` is
+            // already in the top-level document, `getRootNode()` returns the
+            // document itself (no `host`), and we stop.
+            const root = current.getRootNode();
+            current = root && root.host ? root.host : null;
         }
         return null;
     }

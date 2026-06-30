@@ -149,6 +149,8 @@ export const SelectorSchema = {
             host: { type: "array", items: { type: "string" } },
             relatedOnly: { type: "boolean", required: true, default: false },
             selector: { type: "string", required: true, minLength: 1 },
+            shadow: { type: "string", minLength: 1 },
+            single: { type: "boolean", required: true, default: false },
             type: { type: "string", required: true, minLength: 1 },
         },
     },

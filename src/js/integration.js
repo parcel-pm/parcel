@@ -117,21 +117,36 @@
             for (const target of (await validTargets).filter((t) => (related ? true : !t.relatedOnly))) {
                 if (el.matches(target.selector) && !el.readOnly && !el.disabled) {
                     finalTarget = target;
-                    break;
-                }
-            }
-            if (finalTarget) {
-                for (const target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
-                    if (el.matches(target.selector)) {
-                        el.setAttribute("parcel-blacklist", target.selector);
-                        throw new Error(`Target element matches a blacklist selector: ${target.selector}`);
+                    for (const target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
+                        if (el.matches(target.selector)) {
+                            el.setAttribute("parcel-blacklist", target.selector);
+                            throw new Error(`Target element matches a blacklist selector: ${target.selector}`);
+                        }
                     }
+                    finalTarget.related =
+                        (await config).targets.concat((await config).additionalTargets || []).find((t) => t.name === finalTarget.type)
+                            ?.related || [];
+                    finalTarget.isShadowSingle = false;
+
+                    // if the element is in a shadow DOM which contains no other related targets, mark is as a single-field shadow target
+                    const root = el.getRootNode();
+                    if (root?.host) {
+                        finalTarget.isShadowSingle = true;
+                        for (const target of (await validTargets).filter((t) => finalTarget?.related.includes(t.type))) {
+                            if (Helpers.shadowSelector(target.selector, root, target.shadow || null)) {
+                                finalTarget.isShadowSingle = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    // if the selector requires isShadowSingle, but the element is not in a single-field shadow DOM, skip it
+                    if (target.single && !finalTarget.isShadowSingle) continue;
+
+                    return finalTarget;
                 }
-                finalTarget.related =
-                    (await config).targets.concat((await config).additionalTargets || []).find((t) => t.name === finalTarget.type)
-                        ?.related || [];
             }
-            return finalTarget;
+            return null;
         } catch (err) {
             console.info(el); // log the target element to assist with troubleshooting selector issues
             throw err;
@@ -149,14 +164,18 @@
         const targetInfo = await getTargetInfo(el);
         const aggregationSelectors = (await targetSelectors).targetSelectors.filter((s) => s.type === "aggregate");
         let group;
-        for (const s of aggregationSelectors) {
-            group = el.closest(s.selector);
-            if (group) break;
+        if (targetInfo.isShadowSingle) group = el.getRootNode()?.host?.getRootNode(); // group singles by containing shadow host
+        if (group === document) group = null; // the document root is not a valid group
+        if (!group) {
+            for (const s of aggregationSelectors) {
+                group = Helpers.shadowClosest(el, s.selector);
+                if (group) break;
+            }
         }
         if (!group) return [];
         const relatedFields = [];
         for (const target of (await validTargets).filter((t) => targetInfo.related.includes(t.type))) {
-            for (const field of group.querySelectorAll(target.selector)) {
+            for (const field of Helpers.shadowSelectorAll(target.selector, group, target.shadow || null)) {
                 if (relatedFields.includes(field) || field === el) continue;
                 let isInvalid = false;
                 for (const target of await invalidTargets) {
@@ -386,7 +405,6 @@
         if (target._lastClicked && target._lastClicked > Date.now() - 350) return; // debounce multiple quick clicks
         target._lastClicked = Date.now();
 
-        //let popup = document.querySelector(".parcel-popup");
         try {
             const targetInfo = await getTargetInfo(target);
             if (!Object.prototype.hasOwnProperty.call(target, "_parcelToken") || target._parcelToken === "broadcast") {
@@ -404,6 +422,7 @@
             targetBindings[target._parcelToken] = target;
             addTargetInputClose(target);
             authPort.postMessage(target._parcelToken);
+            if (targetInfo?.shadow) target.setAttribute("parcel-shadow", targetInfo.shadow);
             target.setAttribute("parcel-selector", targetInfo.selector);
             target.setAttribute("parcel-type", targetInfo.type);
 
@@ -617,12 +636,12 @@
                     let group;
                     const aggregationSelectors = (await targetSelectors).targetSelectors.filter((s) => s.type === "aggregate");
                     for (const s of aggregationSelectors) {
-                        group = el.closest(s.selector);
+                        group = Helpers.shadowClosest(el, s.selector);
                         if (group) break;
                     }
                     if (group) {
                         for (const target of submitTargets) {
-                            const submitButton = group.querySelector(target.selector);
+                            const submitButton = Helpers.shadowSelector(target.selector, group);
                             if (submitButton) {
                                 await new Promise((resolve) => requestAnimationFrame(resolve));
                                 submitButton.focus();

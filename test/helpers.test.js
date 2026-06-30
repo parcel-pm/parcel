@@ -422,6 +422,215 @@ describe("Helpers", () => {
     });
 
     // -----------------------------------------------------------------------
+    // shadowSelectorAll / shadowSelector — rootSelector filtering
+    // -----------------------------------------------------------------------
+    test("shadowSelectorAll with rootSelector only searches matching hosts", () => {
+        const matchingNested = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "matching" }];
+                if (sel === "[is-shadow]") return [];
+                return [];
+            },
+        });
+        const skippedNested = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "skipped" }];
+                if (sel === "[is-shadow]") return [];
+                return [];
+            },
+        });
+        const matchingHost = _fakeHost(matchingNested, { matches: (sel) => sel === ".host-a" });
+        const skippedHost = _fakeHost(skippedNested, { matches: (sel) => sel === ".host-b" });
+        const root = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [];
+                if (sel === "[is-shadow]") return [matchingHost, skippedHost];
+                return [];
+            },
+        });
+        const results = Helpers.shadowSelectorAll(".foo", root, ".host-a");
+        assert.deepStrictEqual(
+            results.map((r) => r.id),
+            ["matching"],
+        );
+    });
+
+    test("shadowSelectorAll with rootSelector recurses through matching nested hosts", () => {
+        const inner = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "deep" }];
+                if (sel === "[is-shadow]") return [];
+                return [];
+            },
+        });
+        const innerHost = _fakeHost(inner, { matches: (sel) => sel === ".host-outer" });
+        const outerShadow = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [];
+                if (sel === "[is-shadow]") return [innerHost];
+                return [];
+            },
+        });
+        const outerHost = _fakeHost(outerShadow, { matches: (sel) => sel === ".host-outer" });
+        const root = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [];
+                if (sel === "[is-shadow]") return [outerHost];
+                return [];
+            },
+        });
+        // Both outer and inner hosts match the rootSelector, so recursion continues.
+        const results = Helpers.shadowSelectorAll(".foo", root, ".host-outer");
+        assert.deepStrictEqual(
+            results.map((r) => r.id),
+            ["deep"],
+        );
+    });
+
+    test("shadowSelectorAll with rootSelector skips non-matching hosts at nested depth", () => {
+        // The outer host matches the rootSelector, so its shadow root is
+        // searched. Inside that shadow root are two nested hosts: one that
+        // matches the rootSelector (searched) and one that does not (skipped).
+        // This pins down that rootSelector is forwarded to recursive calls,
+        // not just applied at the top level.
+        const matchingNested = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "matching-nested" }];
+                if (sel === "[is-shadow]") return [];
+                return [];
+            },
+        });
+        const skippedNested = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "skipped-nested" }];
+                if (sel === "[is-shadow]") return [];
+                return [];
+            },
+        });
+        const matchingInnerHost = _fakeHost(matchingNested, { matches: (sel) => sel === ".host-a" });
+        const skippedInnerHost = _fakeHost(skippedNested, { matches: (sel) => sel === ".host-b" });
+        const outerShadow = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [];
+                if (sel === "[is-shadow]") return [matchingInnerHost, skippedInnerHost];
+                return [];
+            },
+        });
+        const outerHost = _fakeHost(outerShadow, { matches: (sel) => sel === ".host-a" });
+        const root = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [];
+                if (sel === "[is-shadow]") return [outerHost];
+                return [];
+            },
+        });
+        const results = Helpers.shadowSelectorAll(".foo", root, ".host-a");
+        assert.deepStrictEqual(
+            results.map((r) => r.id),
+            ["matching-nested"],
+        );
+    });
+
+    test("shadowSelectorAll with rootSelector null behaves like no filter", () => {
+        const nested = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "inner" }];
+                if (sel === "[is-shadow]") return [];
+                return [];
+            },
+        });
+        const host = _fakeHost(nested, { matches: () => false });
+        const root = _fakeRoot({
+            querySelectorAll: (sel) => {
+                if (sel === ".foo") return [{ id: "outer" }];
+                if (sel === "[is-shadow]") return [host];
+                return [];
+            },
+        });
+        const results = Helpers.shadowSelectorAll(".foo", root, null);
+        assert.deepStrictEqual(
+            results.map((r) => r.id),
+            ["outer", "inner"],
+        );
+    });
+
+    test("shadowSelector with rootSelector skips non-matching hosts", () => {
+        const skippedNested = _fakeRoot({
+            querySelector: (sel) => (sel === ".foo" ? { id: "skipped" } : null),
+            querySelectorAll: () => [],
+        });
+        const matchingNested = _fakeRoot({
+            querySelector: (sel) => (sel === ".foo" ? { id: "matching" } : null),
+            querySelectorAll: () => [],
+        });
+        const skippedHost = _fakeHost(skippedNested, { matches: () => false });
+        const matchingHost = _fakeHost(matchingNested, { matches: () => true });
+        const root = _fakeRoot({
+            querySelector: () => null,
+            querySelectorAll: (sel) => (sel === "[is-shadow]" ? [skippedHost, matchingHost] : []),
+        });
+        const result = Helpers.shadowSelector(".foo", root, ".host-matching");
+        assert.deepStrictEqual(result, { id: "matching" });
+    });
+
+    test("shadowSelector with rootSelector returns null when no host matches", () => {
+        const nested = _fakeRoot({
+            querySelector: (sel) => (sel === ".foo" ? { id: "inner" } : null),
+            querySelectorAll: () => [],
+        });
+        const host = _fakeHost(nested, { matches: () => false });
+        const root = _fakeRoot({
+            querySelector: () => null,
+            querySelectorAll: (sel) => (sel === "[is-shadow]" ? [host] : []),
+        });
+        const result = Helpers.shadowSelector(".foo", root, ".host-other");
+        assert.strictEqual(result, null);
+    });
+
+    // -----------------------------------------------------------------------
+    // shadowClosest
+    // -----------------------------------------------------------------------
+    test("shadowClosest returns match within the current root", () => {
+        const parent = _fakeElement({ closest: () => null });
+        const el = _fakeElement({ closest: (sel) => (sel === ".group" ? parent : null) });
+        assert.strictEqual(Helpers.shadowClosest(el, ".group"), parent);
+    });
+
+    test("shadowClosest crosses shadow boundaries when no match in current root", () => {
+        const host = _fakeElement({ closest: (sel) => (sel === ".group" ? host : null) });
+        const shadowRoot = { host };
+        const el = _fakeElement({
+            closest: () => null,
+            getRootNode: () => shadowRoot,
+        });
+        assert.strictEqual(Helpers.shadowClosest(el, ".group"), host);
+    });
+
+    test("shadowClosest returns null when no match exists in any root", () => {
+        const shadowRoot = { host: null };
+        const el = _fakeElement({
+            closest: () => null,
+            getRootNode: () => shadowRoot,
+        });
+        assert.strictEqual(Helpers.shadowClosest(el, ".group"), null);
+    });
+
+    test("shadowClosest finds a matching host across nested shadow boundaries", () => {
+        const outerHost = _fakeElement({ closest: (sel) => (sel === ".group" ? outerHost : null) });
+        const outerRoot = { host: outerHost };
+        const innerHost = _fakeElement({
+            closest: () => null,
+            getRootNode: () => outerRoot,
+        });
+        const innerRoot = { host: innerHost };
+        const el = _fakeElement({
+            closest: () => null,
+            getRootNode: () => innerRoot,
+        });
+        assert.strictEqual(Helpers.shadowClosest(el, ".group"), outerHost);
+    });
+
+    // -----------------------------------------------------------------------
     // getLuma
     // -----------------------------------------------------------------------
     test("getLuma for black is 0", () => {
@@ -447,8 +656,16 @@ function _fakeRoot(opts) {
     };
 }
 
-function _fakeHost(shadowRoot) {
+function _fakeHost(shadowRoot, opts = {}) {
     return {
         shadowRoot,
+        matches: opts.matches ?? (() => true),
+    };
+}
+
+function _fakeElement(opts) {
+    return {
+        closest: opts.closest ?? (() => null),
+        getRootNode: opts.getRootNode ?? (() => ({ host: null })),
     };
 }
