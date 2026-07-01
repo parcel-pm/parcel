@@ -142,6 +142,7 @@
                         if (el.matches(target.selector)) {
                             el.setAttribute("parcel-blacklist", target.selector);
                             finalTarget = null;
+                            break;
                         }
                     }
 
