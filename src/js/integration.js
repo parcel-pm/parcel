@@ -117,12 +117,7 @@
             for (const target of (await validTargets).filter((t) => (related ? true : !t.relatedOnly))) {
                 if (el.matches(target.selector) && !el.readOnly && !el.disabled) {
                     finalTarget = target;
-                    for (const target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
-                        if (el.matches(target.selector)) {
-                            el.setAttribute("parcel-blacklist", target.selector);
-                            throw new Error(`Target element matches a blacklist selector: ${target.selector}`);
-                        }
-                    }
+
                     finalTarget.related =
                         (await config).targets.concat((await config).additionalTargets || []).find((t) => t.name === finalTarget.type)
                             ?.related || [];
@@ -143,7 +138,14 @@
                     // if the selector requires isShadowSingle, but the element is not in a single-field shadow DOM, skip it
                     if (target.single && !finalTarget.isShadowSingle) continue;
 
-                    return finalTarget;
+                    for (const target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
+                        if (el.matches(target.selector)) {
+                            el.setAttribute("parcel-blacklist", target.selector);
+                            finalTarget = null;
+                        }
+                    }
+
+                    if (finalTarget) return finalTarget;
                 }
             }
             return null;
