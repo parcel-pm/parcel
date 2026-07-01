@@ -953,14 +953,18 @@ describe("Integration script", { concurrency: false }, () => {
     });
 
     test("related password field in light DOM is filled when login is in a shadow root", async () => {
-        // When login + password share a shadow root, the shadow-single login
-        // selectors are skipped (the root is not "single"), so we place the
-        // related password field in the same aggregate group in the light DOM.
-        // The host attribute is decorative for login classification — the
-        // inner input's own name="username" matches the light login selector
-        // input[name*=username i]. The related-fill path then uses
-        // shadowClosest to cross the shadow boundary and find the light-DOM
-        // password field via shadowSelectorAll with target.shadow as rootSelector.
+        // The shadow host is a direct child of a <form> in the light DOM.
+        // The login field's root is the ShadowRoot, so getTargetInfo marks
+        // it isShadowSingle = true (no related targets share the shadow
+        // root). However, the isShadowSingle group-bypass path
+        // (group = el.getRootNode().host.getRootNode()) yields the document
+        // here, which getRelatedFields nullifies — so it falls
+        // through to the shadowClosest fallback path. That walk crosses the
+        // shadow boundary to find the <form class=login-form> aggregate
+        // group, and the related password field is then located in the
+        // light DOM via shadowSelectorAll with target.shadow as
+        // rootSelector. The actual isShadowSingle group-bypass path is
+        // exercised by the nested-shadow-host test below.
         clearBody();
         const form = document.createElement("form");
         form.setAttribute("class", "login-form");
@@ -975,6 +979,94 @@ describe("Integration script", { concurrency: false }, () => {
         form.appendChild(host);
         form.appendChild(pass);
         document.body.appendChild(form);
+
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await clickShadow(user);
+        await popupPromise;
+
+        const token = user._parcelToken;
+        assert.ok(token);
+
+        const port = mock.chrome.runtime.connect({ name: token });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        port.postMessage({
+            action: "fill",
+            config: makeValidConfig({
+                targets: [
+                    {
+                        name: "login",
+                        pattern: "^(user|username|login|email):",
+                        related: ["secret"],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                    {
+                        name: "secret",
+                        pattern: "^(secret|password):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                ],
+            }),
+            plaintext: "login: bob\nsecret: hunter2",
+        });
+
+        await nextMessage(port, "close", 3000);
+        assert.strictEqual(user.value, "bob");
+        assert.strictEqual(pass.value, "hunter2");
+    });
+
+    test("related password field is filled via isShadowSingle group-bypass for nested shadow host", async () => {
+        // The isShadowSingle group-bypass path in getRelatedFields
+        // (group = el.getRootNode()?.host?.getRootNode()) only produces a
+        // useful (non-document) group when the shadow host containing the
+        // filled field lives inside *another* shadow root. In that case
+        // host.getRootNode() returns the outer ShadowRoot, which becomes
+        // the group, and related fields are searched within it via
+        // shadowSelectorAll — bypassing the shadowClosest fallback.
+        //
+        // Structure:
+        //   document
+        //     └ outerHost (div, is-shadow) — outerShadow
+        //         └ innerHost (div, is-shadow) — innerShadow
+        //             ├ input[type=text name=username]  (login, filled)
+        //         └ input[type=password name=password]  (related secret)
+        //
+        // The login field is the only related target in innerShadow, so
+        // getTargetInfo marks it isShadowSingle = true. The related
+        // password field lives in the outer shadow root (the group), so it
+        // is found via the isShadowSingle group path — NOT via
+        // shadowClosest (there is no <form>/aggregate ancestor here).
+        clearBody();
+        const outerHost = document.createElement("div");
+        document.body.appendChild(outerHost);
+        const outerShadow = outerHost.attachShadow({ mode: "open" });
+        outerHost.setAttribute("is-shadow", "");
+
+        const innerHost = document.createElement("div");
+        outerShadow.appendChild(innerHost);
+        const innerShadow = innerHost.attachShadow({ mode: "open" });
+        innerHost.setAttribute("is-shadow", "");
+
+        const user = document.createElement("input");
+        user.setAttribute("type", "text");
+        user.setAttribute("name", "username");
+        innerShadow.appendChild(user);
+
+        const pass = document.createElement("input");
+        pass.setAttribute("type", "password");
+        pass.setAttribute("name", "password");
+        outerShadow.appendChild(pass);
 
         const triggerReceiver = portReceivers["trigger"];
         const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
