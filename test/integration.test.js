@@ -1021,4 +1021,72 @@ describe("Integration script", { concurrency: false }, () => {
         assert.strictEqual(user.value, "bob");
         assert.strictEqual(pass.value, "hunter2");
     });
+
+    test("submit button inside shadow host is focused after fill", async () => {
+        // After a successful fill, integration.js looks up the aggregate
+        // group containing the filled field (via Helpers.shadowClosest,
+        // which crosses shadow boundaries) and then uses
+        // Helpers.shadowSelector to find a submit button within that
+        // group. Because the submit button lives inside the shadow root,
+        // shadowSelector must recurse across the shadow boundary to find
+        // it. This test verifies that cross-shadow submit detection works.
+        clearBody();
+        const form = document.createElement("form");
+        form.setAttribute("class", "login-form");
+        const { root, host } = makeShadowHost();
+        const user = document.createElement("input");
+        user.setAttribute("type", "text");
+        user.setAttribute("name", "username");
+        const submit = document.createElement("button");
+        submit.setAttribute("type", "submit");
+        submit.setAttribute("name", "login");
+        root.appendChild(user);
+        root.appendChild(submit);
+        form.appendChild(host);
+        document.body.appendChild(form);
+
+        let focused = false;
+        submit.focus = () => {
+            focused = true;
+        };
+
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await clickShadow(user);
+        await popupPromise;
+
+        const token = user._parcelToken;
+        assert.ok(token);
+
+        const port = mock.chrome.runtime.connect({ name: token });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        port.postMessage({
+            action: "fill",
+            config: makeValidConfig({
+                targets: [
+                    {
+                        name: "login",
+                        pattern: "^(user|username|login|email):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                ],
+            }),
+            plaintext: "login: shadow-user",
+        });
+
+        await nextMessage(port, "close", 3000);
+        // submit focus runs inside requestAnimationFrame, which the test
+        // harness maps to setTimeout(0); settle the macrotask queue.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.strictEqual(user.value, "shadow-user");
+        assert.ok(focused, "submit button inside shadow host should be focused after fill");
+    });
 });
