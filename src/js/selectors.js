@@ -95,6 +95,12 @@ for (const s of ["login", "user", "username", "email"]) {
     targetSelectors.push({ selector: `input[placeholder*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[title*=${s} i]`, type: "login" });
     targetSelectors.push({ selector: `input[aria-label^=${s} i]`, type: "login" });
+    targetSelectors.push({ shadow: `[name*=${s} i]`, selector: "input[type=text i]", single: true, type: "login" });
+    targetSelectors.push({ shadow: `[id*=${s} i]`, selector: "input[type=text i]", single: true, type: "login" });
+    targetSelectors.push({ shadow: `[class*=${s} i]`, selector: "input[type=text i]", single: true, type: "login" });
+    targetSelectors.push({ shadow: `[placeholder*=${s} i]`, selector: "input[type=text i]", single: true, type: "login" });
+    targetSelectors.push({ shadow: `[title*=${s} i]`, selector: "input[type=text i]", single: true, type: "login" });
+    targetSelectors.push({ shadow: `[aria-label^=${s} i]`, selector: "input[type=text i]", single: true, type: "login" });
 }
 
 // bulk submit button selectors
