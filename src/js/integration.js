@@ -103,8 +103,8 @@
      * @since 1.0.0
      * @param {HTMLElement} el - The element to check.
      * @param {boolean} [related=false] - Whether to include selectors flagged `relatedOnly` in the candidate pool.
-     * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`), or null if not found.
-     * @throws {Error} If the element is not visible, has an unsupported input type, or matches a blacklist selector.
+     * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`).
+     * @throws {Error} If the element is not visible, has an unsupported input type, doesn't match a selector, or matches a blacklist selector.
      */
     async function getTargetInfo(el, related = false) {
         try {
@@ -149,7 +149,7 @@
                     if (finalTarget) return finalTarget;
                 }
             }
-            return null;
+            throw new Error("No matching selector");
         } catch (err) {
             console.info(el); // log the target element to assist with troubleshooting selector issues
             throw err;
