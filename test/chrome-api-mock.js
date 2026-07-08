@@ -62,10 +62,12 @@ export function createChromeMock(opts = {}) {
         function _disconnectBoth() {
             if (!aDisconnected) {
                 aDisconnected = true;
+                lastError = { message: "The message channel was closed." };
                 aOnDisconnect._fire();
             }
             if (!bDisconnected) {
                 bDisconnected = true;
+                lastError = { message: "The message channel was closed." };
                 bOnDisconnect._fire();
             }
         }
@@ -79,6 +81,10 @@ export function createChromeMock(opts = {}) {
             onMessage: aOnMessage,
             onDisconnect: aOnDisconnect,
             postMessage(msg) {
+                if (aDisconnected) {
+                    lastError = { message: "Attempting to use a disconnected port object" };
+                    throw new Error("Attempting to use a disconnected port object");
+                }
                 if (!bDisconnected) bOnMessage._fire(msg);
             },
             disconnect() {
@@ -95,6 +101,10 @@ export function createChromeMock(opts = {}) {
             onMessage: bOnMessage,
             onDisconnect: bOnDisconnect,
             postMessage(msg) {
+                if (bDisconnected) {
+                    lastError = { message: "Attempting to use a disconnected port object" };
+                    throw new Error("Attempting to use a disconnected port object");
+                }
                 if (!aDisconnected) aOnMessage._fire(msg);
             },
             disconnect() {
@@ -245,9 +255,13 @@ export function createChromeMock(opts = {}) {
             return nativePorts.get(hostName);
         },
 
-        /** Find a tab port receiver by tabId / frameId for manual wiring. */
+        /** Find the most recent tab port receiver by tabId / frameId for manual wiring.
+         *  Returns the newest match so reconnect scenarios observe the fresh port. */
         findTabPort(tabId, frameId = 0) {
-            return tabPorts.find((p) => p.tabId === tabId && p.frameId === frameId)?.receiver;
+            for (let i = tabPorts.length - 1; i >= 0; i--) {
+                if (tabPorts[i].tabId === tabId && tabPorts[i].frameId === frameId) return tabPorts[i].receiver;
+            }
+            return undefined;
         },
 
         /** Fire a contextual identity removal event. */
