@@ -45,14 +45,16 @@
     }
 
     /**
-     * Wrap the popup's tab port so a transient disconnect — a cold service worker,
-     * "Receiving end does not exist", or the cross-frame trigger relay tearing
-     * down — is recovered transparently, mirroring the content script's own
-     * `reconnectingPort`. Unlike the content-script wrapper this port is
-     * bidirectional, so every previously-registered `onMessage` listener is
-     * re-attached to each fresh port; without that, the security-relevant
-     * `origin` mismatch check, `status`/`error` reporting, and `close` handling
-     * would silently stop working after a single disconnect.
+     * Wrap the popup's tab port so a transient disconnect — the MV3 service
+     * worker terminating (idle timeout, extension reload), severing all
+     * existing ports — is recovered transparently, mirroring the content
+     * script's own `reconnectingPort`. Without reconnection, the next
+     * `postMessage()` throws "Attempting to use a disconnected port object".
+     * Unlike the content-script wrapper this port is bidirectional, so every
+     * previously-registered `onMessage` listener is re-attached to each fresh
+     * port; without that, the security-relevant `origin` mismatch check,
+     * `status`/`error` reporting, and `close` handling would silently stop
+     * working after a single disconnect.
      * @since 1.0.2
      * @param {() => chrome.runtime.Port} connect - Factory that opens a fresh port to the content script.
      * @param {chrome.runtime.Port} initialPort - The first port (already opened by `connectToTab`).
@@ -153,10 +155,10 @@
 
     /**
      * Post a message to the content script over `tabPort`. The underlying port
-     * lazily reconnects after a transient disconnect (cold service worker, tab
-     * navigation, or the cross-frame relay tearing down); if the extension
-     * context itself is invalidated (popup frame torn down) the message is
-     * silently dropped so the ResizeObserver and keydown handlers do not throw
+     * lazily reconnects after a transient disconnect (MV3 service worker
+     * termination — idle timeout, extension reload); if the extension context
+     * itself is invalidated (popup frame torn down) the message is silently
+     * dropped so the ResizeObserver and keydown handlers do not throw
      * "Extension context invalidated" / "Attempting to use a disconnected port
      * object" during teardown.
      * @since 1.0.2
