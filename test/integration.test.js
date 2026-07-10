@@ -199,7 +199,7 @@ describe("Integration script", { concurrency: false }, () => {
         assert.ok(portReceivers["integration"]);
     });
 
-    test("trigger port reconnects after disconnect and still delivers trigger-popup (issue #112)", async () => {
+    test("trigger port reconnects after disconnect and still delivers trigger-popup", async () => {
         clearBody();
         // Simulate the race where the MV3 service worker / cross-frame relay
         // tears down the trigger port before the user clicks (the
@@ -572,7 +572,7 @@ describe("Integration script", { concurrency: false }, () => {
         assert.strictEqual(input.value, "supe");
     });
 
-    test("transient port disconnect keeps binding so popup can reconnect (issue #114)", async () => {
+    test("transient port disconnect keeps binding so popup can reconnect", async () => {
         clearBody();
         const input = makeInput({ type: "text", name: "user" });
 
