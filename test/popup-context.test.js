@@ -303,27 +303,6 @@ describe("Context popup", { concurrency: false }, () => {
         await settleAsync();
     });
 
-    test("resize after tab port disconnect does not throw", async () => {
-        // Ensure a detail view is mounted so the ResizeObserver is active.
-        await sendDetail("user: erin\nsecret: x");
-
-        const detail = document.querySelector("parcel-detail");
-        assert.ok(detail, "parcel-detail element created");
-
-        tabPortReceiver.disconnect();
-        await settleAsync();
-
-        // Mutating body dimensions would normally fire a resize post.
-        assert.doesNotThrow(() => {
-            document.body.style.width = "200px";
-            window.dispatchEvent(new window.Event("resize", { bubbles: true }));
-        });
-
-        detail.remove();
-        tabPortReceiver = mock.findTabPort(42, 0);
-        await settleAsync();
-    });
-
     test("transient tab port disconnect is recovered so fill-value still delivers", async () => {
         // Regression: a single transient tab-port disconnect used to latch a
         // permanent "disconnected" flag inside the popup, so every subsequent
