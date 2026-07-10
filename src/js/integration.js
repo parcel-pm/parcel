@@ -606,7 +606,7 @@
      * @param {any} msg - The message to post.
      * @returns {void}
      */
-    function safePost(port, msg) {
+    function maybePost(port, msg) {
         try {
             port.postMessage(msg);
         } catch (_err) {
@@ -628,11 +628,11 @@
         if (port.name === "trigger") return; // handled in another listener
 
         if (!Object.prototype.hasOwnProperty.call(targetBindings, port.name) && port.name !== "broadcast") {
-            safePost(port, { action: "close" });
+            maybePost(port, { action: "close" });
             port.disconnect();
             return;
         }
-        const updateStatus = (status) => safePost(port, { action: "status", status });
+        const updateStatus = (status) => maybePost(port, { action: "status", status });
         let el = targetBindings[port.name];
         if (!el) {
             if (window === window.top && port.name === "broadcast") {
@@ -655,7 +655,7 @@
                     }
                 }
                 if (!el) {
-                    safePost(port, { action: "error", error: "Cannot find a suitable autofill target." });
+                    maybePost(port, { action: "error", error: "Cannot find a suitable autofill target." });
                     port.disconnect();
                     return;
                 }
@@ -664,7 +664,7 @@
             }
         }
         if (el._parcelToken !== port.name) {
-            safePost(port, { action: "error", error: "Invalid token." });
+            maybePost(port, { action: "error", error: "Invalid token." });
             port.disconnect();
             return;
         }
@@ -679,7 +679,7 @@
         try {
             await getTargetInfo(el);
         } catch (_err) {
-            safePost(port, { action: "error", error: "The selected autofill candidate was unsuitable." });
+            maybePost(port, { action: "error", error: "The selected autofill candidate was unsuitable." });
             port.disconnect();
             return;
         }
@@ -695,7 +695,7 @@
         };
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
-                safePost(port, { action: "origin", origin: window.location.origin });
+                maybePost(port, { action: "origin", origin: window.location.origin });
             } else if (msg?.action === "focus-target") {
                 el.focus();
             } else if (msg?.action === "focus-suspend") {
@@ -707,7 +707,7 @@
                 updateStatus("Filling value...");
                 await fillBoundField(null, null, null, msg.value);
                 cleanupInlineTarget(el, port);
-                safePost(port, { action: "close" });
+                maybePost(port, { action: "close" });
                 triggerPort.postMessage({ action: "close-popup" });
             } else if (msg?.action === "fill") {
                 // fill the target field, and related fields if configured
@@ -726,7 +726,7 @@
                         }
                     }
                     cleanupInlineTarget(el, port);
-                    safePost(port, { action: "close" });
+                    maybePost(port, { action: "close" });
                     triggerPort.postMessage({ action: "close-popup" });
 
                     // try to focus the submit button
@@ -751,7 +751,7 @@
                     }
                 } catch (err) {
                     console.warn(err);
-                    safePost(port, { action: "error", error: err.message });
+                    maybePost(port, { action: "error", error: err.message });
                 } finally {
                     delete el._parcelToken; // remove the token to prevent stale bindings in case of subsequent context-popup invocations
                 }
