@@ -574,7 +574,8 @@
         try {
             target._parcelPopupPort.postMessage({ action: "focus-popup" });
         } catch (_err) {
-            chrome.runtime.lastError; // consume any pending error from the dead port
+            const err = chrome.runtime.lastError;
+            if (err) console.debug("[integration] popup port postMessage failed:", err.message);
             cleanupInlineTarget(target, target._parcelPopupPort);
         }
     }
@@ -609,7 +610,8 @@
         try {
             port.postMessage(msg);
         } catch (_err) {
-            chrome.runtime.lastError; // consume any pending error from the dead port
+            const err = chrome.runtime.lastError;
+            if (err) console.debug("[integration] maybePost failed:", err.message);
         }
     }
 
