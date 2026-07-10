@@ -154,34 +154,6 @@
 
     const { tab, tabPort } = await connectToTab();
 
-    /**
-     * Post a message to the content script over `tabPort`. The underlying port
-     * lazily reconnects after a transient disconnect (MV3 service worker
-     * termination — idle timeout, extension reload); if the extension context
-     * itself is invalidated (popup frame torn down) the message is silently
-     * dropped so the ResizeObserver and keydown handlers do not throw
-     * "Extension context invalidated" / "Attempting to use a disconnected port
-     * object" during teardown.
-     * @since 1.0.2
-     * @param {any} msg - The message to post.
-     * @returns {boolean} `true` when the message was delivered, `false` if the port (or extension context) was torn down and could not be re-established.
-     */
-    function postToTab(msg) {
-        return tabPort.postMessage(msg);
-    }
-
-    /**
-     * Attach a message listener to `tabPort`. The listener is tracked by the
-     * reconnecting wrapper so it survives transient disconnects and is
-     * re-attached to each fresh port.
-     * @since 1.0.2
-     * @param {(msg: any) => void} fn - The listener to attach.
-     * @returns {void}
-     */
-    function onTabMessage(fn) {
-        tabPort.onMessage.addListener(fn);
-    }
-
     const port = chrome.runtime.connect({ name: "popup" });
     port.postMessage({ action: "auth", token, tab });
     const ul = document.querySelector("ul");
@@ -259,7 +231,7 @@
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    postToTab({ action: "fill-value", value: this.getValue() });
+                    tabPort.postMessage({ action: "fill-value", value: this.getValue() });
                 });
             }
         }
@@ -384,7 +356,7 @@
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    postToTab({ action: "fill-value", value: this.#root.querySelector(".value").textContent });
+                    tabPort.postMessage({ action: "fill-value", value: this.#root.querySelector(".value").textContent });
                 });
             }
         }
@@ -493,7 +465,7 @@
             await new Promise((resolve) => requestAnimationFrame(resolve));
             document.body.style.minHeight = this.scrollHeight + "px";
             document.body.style.minWidth = `min(500px, ${this.scrollWidth}px)`;
-            postToTab({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
+            tabPort.postMessage({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
         }
     }
     customElements.define("parcel-detail", ParcelDetail);
@@ -512,7 +484,7 @@
                 focusSelected();
             }
         });
-        onTabMessage((msg) => {
+        tabPort.onMessage.addListener((msg) => {
             if (msg?.action === "close") {
                 window.close();
             }
@@ -521,12 +493,12 @@
         document.body.classList.add("context-popup");
         // the iframe is off-limits to the page origin, so need to tell it when we change size
         new ResizeObserver(() => {
-            postToTab({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
+            tabPort.postMessage({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
         }).observe(document.body);
-        postToTab({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
+        tabPort.postMessage({ action: "resize", width: document.body.scrollWidth, height: document.body.scrollHeight });
         window.addEventListener("keydown", (ev) => {
             if (ev.key === "Escape") {
-                postToTab({ action: "close" });
+                tabPort.postMessage({ action: "close" });
             }
         });
 
@@ -589,7 +561,7 @@
             const i = parseInt(index, 10);
             if (!Number.isNaN(i) && i >= 1 && i <= lines.length) {
                 const line = lines[i - 1];
-                postToTab({ action: "fill-value", value: line.getValue() });
+                tabPort.postMessage({ action: "fill-value", value: line.getValue() });
             }
         }
     }
@@ -627,7 +599,7 @@
         } else if (ev.key === "ArrowUp" || (ev.key === "Tab" && ev.shiftKey)) {
             if (ev.key === "Tab" && ev.shiftKey && token !== "broadcast" && selected.id === "searchPattern") {
                 ev.preventDefault();
-                if (!postToTab({ action: "focus-target" })) window.close();
+                if (!tabPort.postMessage({ action: "focus-target" })) window.close();
                 return;
             }
             ev.preventDefault();
@@ -656,7 +628,7 @@
     });
 
     // listen for status & error messages returned from the content script
-    onTabMessage((msg) => {
+    tabPort.onMessage.addListener((msg) => {
         if (msg?.action === "focus-popup") {
             focusSelected();
         } else if (msg?.action === "status") {
@@ -681,13 +653,13 @@
             if (tab.url) {
                 const tabURL = new URL(tab.url);
                 if (msg.origin !== tabURL.origin) {
-                    postToTab({ action: "focus-suspend" });
+                    tabPort.postMessage({ action: "focus-suspend" });
                     alert(
                         `The field you are trying to fill is from a different origin (${msg.origin}) than the page you ` +
                             `are browsing (${tabURL.origin}). This may be a sign of a security issue. Do not ` +
                             `enter any sensitive information into this field unless you are sure it is safe to do so.`,
                     );
-                    postToTab({ action: "focus-resume" });
+                    tabPort.postMessage({ action: "focus-resume" });
                 }
             }
         }
@@ -824,7 +796,7 @@
             });
         } else if (msg.action === "plaintext") {
             if (msg.intent === "fill") {
-                const delivered = postToTab({ action: "fill", token, plaintext: msg.plaintext, config: await config });
+                const delivered = tabPort.postMessage({ action: "fill", token, plaintext: msg.plaintext, config: await config });
                 // Only record history when the fill was actually delivered to the content
                 // script; otherwise we would log a fill against a stale tab that never happened.
                 if (delivered && tab.url && (await config).saveHistory) {
@@ -904,5 +876,5 @@
 
     // tell the tab we're ready
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    postToTab({ action: "ready" });
+    tabPort.postMessage({ action: "ready" });
 })();
