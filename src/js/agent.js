@@ -339,22 +339,26 @@ export class Agent extends EventTarget {
                 try {
                     topPort.postMessage(message);
                 } catch (_err) {
-                    chrome.runtime.lastError;
+                    const err = chrome.runtime.lastError;
+                    if (err) console.debug("[trigger] relay→top postMessage failed:", err.message);
                 }
             });
             topPort.onMessage.addListener((message) => {
                 try {
                     port.postMessage(message);
                 } catch (_err) {
-                    chrome.runtime.lastError;
+                    const err = chrome.runtime.lastError;
+                    if (err) console.debug("[trigger] top→relay postMessage failed:", err.message);
                 }
             });
             port.onDisconnect.addListener(() => {
-                chrome.runtime.lastError; // consume the disconnect error
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[trigger] content-script port disconnected:", err.message);
                 topPort.disconnect();
             });
             topPort.onDisconnect.addListener(() => {
-                chrome.runtime.lastError; // consume the disconnect error (e.g. "Receiving end does not exist")
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[trigger] top-level port disconnected:", err.message);
                 port.disconnect();
             });
             return;
