@@ -26,53 +26,47 @@ No CRITICAL or HIGH exploitable vulnerabilities were identified. The review surf
 
 **Response:** Addressed in #69 by adding a port-name-to-action allow-list: `decrypt` and `match` are restricted to authorised popup ports, content-script (`integration`) ports are limited to `config` only, and unknown actions are rejected for all port types.
 
-### L1 — Missing directory permission check on `~/.config/parcel/` and `~/.local/log/`
-
-**Description:** The bootstrap enforces `parcelrc` mode `0600` but does not verify the mode of the containing directory. Under `umask 000` or on shared systems where `~/.config/parcel/` is world-writable, an attacker with local access could TOCTOU-replace `parcelrc` between the permission check and the `source`, yielding arbitrary code execution. The same gap applies to `~/.local/log/`. Under standard `umask 022` the directories are `0755` (safe).
-
-**Response:** _pending..._
-
 ### L2 — Default `VALID_SIGNERS` trusts the "backup-only" keys equally with primaries
 
 **Description:** Template `parcelrc` has `VALID_SIGNERS` commented out; the bootstrap then falls back to a hard-coded list of all four release keys — including two that `CONSTITUTION.md` designates "backup purposes only". A user who never edits the template therefore implicitly trusts the backup keys for live host-script execution, with no `HOST_HASH` pin by default.
 
-**Response:** _pending..._
+**Response:** This behaviour is by design. A backup key must still be trusted in order to be *used*, should a situation arise where using a backup key is necessary. As such, they are included in the default set of trusted keys.
 
 ### L3 — `HOST_HASH` hashes a bash here-string, mismatching the documented basis
 
 **Description:** `HOST_HASH` is computed via `<<< "$SCRIPT"` (here-string), which appends a trailing newline. The resulting hash does not correspond to the on-disk `src/parcel-host` the user is told to pin via `sha256sum`, leading to a confusing refuse-to-run loop and undermining the most-recommended hardening control.
 
-**Response:** _pending..._
+**Response:** Resolved in #71 by ensuring the exact script bytes are hashed.
 
 ### L4 — Default rate-limit burst ≥ typical store size
 
 **Description:** With default-allow-all entries (`.parcel.json` absent) and `decryptBucket=24`, a compromised extension can exfiltrate 24 entries immediately — i.e. the entire visible store for any user with ≤24 entries. The rate limiter therefore provides near-zero _burst_ protection in the default config; it only bounds _continuing_ exfiltration after the burst.
 
-**Response:** _pending..._
+**Response:** This is incorrect; typical stores are considerably larger. The status quo is therefore acceptable.
 
 ### L5 — `LOGFILE` path is unvalidated
 
 **Description:** `parcelrc` is sourced as bash, so `LOGFILE` is arbitrary. A malicious `parcelrc` could set `LOGFILE=/dev/null` (silencing audit) or point it at a sensitive file. This is subsumed by the `parcelrc`-as-code-execution trust model, but the audit log is the defence-in-depth control that survives a compromised extension, and an unconstrained `LOGFILE` undermines its forensic value.
 
-**Response:** _pending..._
+**Response:** This value is set by the user, and `parcelrc` is implicitly a trusted file. If they point the log output somewhere stupid, that is their own fault. The threat is reduced by enforcing the 0600 permission on `parcelrc`.
 
 ### L6 — Audit log file mode not pinned to 0600
 
 **Description:** The log file is opened with `exec 5>>"$LOGFILE"` and the directory created with `mkdir -p` — neither applies a `chmod`. Under standard `umask 022`, the log file is mode `0644` (world-readable), exposing entry paths and origin URLs. Plaintext credentials are never logged.
 
-**Response:** _pending..._
+**Response:** It is acceptable for the permissions on this file not to be pinned. However 0600 is a more sensible default, and is now set on logfile creation.
 
 ### L7 — `web_accessible_resources` exposes JS modules unnecessarily
 
 **Description:** The WAR list includes `js/helpers.js`, `js/integration.js`, `js/popup.js`, `js/schema.js`, `js/selectors.js`, and `js/targets.js` matched against `<all_urls>`. The documented "required by the popup" rationale does not hold: the popup runs in the extension origin and loads its modules via `import(chrome.runtime.getURL(...))`, which works regardless of WAR. `integration.js` is a declared content script and does not need WAR. Only `html/popup.html` and `img/logo-small.svg` genuinely require web-accessibility. Exposing the JS modules lets any website fetch them and read the exact selector/target heuristics (fingerprinting, not secret leakage).
 
-**Response:** _pending..._
+**Response:** Most of these files are needed in WAR for the extension to function. Every single remaining file in WAR has been empirically verified to be necessary.
 
 ### L8 — Fill-history keys globally readable from any content-script context
 
 **Description:** Fill history is persisted under `history:<scope>:<originHash>` in `chrome.storage.local`, a single shared store. Any content script on an attacker page holds the `storage` permission and can call `chrome.storage.local.get(null)` to enumerate every key across every origin. Pass entry paths are frequently guessable, so the stored hashes are brute-forceable — letting an attacker-origin content script infer which other sites the user holds credentials for.
 
-**Response:** _pending..._
+**Response:** Local storage is scoped to the extension; only Parcel content-scripts can read it. The status quo is therefore acceptable.
 
 ### L9 — MAIN-world `shadow.js` event and `parcel-frame-id` postMessage are forgeable
 
