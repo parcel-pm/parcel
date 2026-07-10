@@ -669,7 +669,8 @@
             return;
         }
         port.onDisconnect.addListener(() => {
-            chrome.runtime.lastError; // consume the disconnect error
+            const err = chrome.runtime.lastError;
+            if (err) console.debug("[integration] popup port disconnected:", err.message);
             // Intentionally retain the binding (token, input-close listener, targetBindings entry)
             // so a transiently disconnected popup can reconnect; only the dead port reference is
             // cleared. Trade-off: an element abandoned without re-click is never GC'd from
