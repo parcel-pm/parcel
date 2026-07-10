@@ -37,14 +37,11 @@
     /**
      * Create a runtime port that transparently reconnects after disconnection.
      *
-     * The MV3 service worker and the cross-frame "trigger" relay can tear a port
-     * down before the content script posts to it — most commonly when the
-     * top-level frame has not yet registered its `onConnect` listener by the time
-     * the background calls `chrome.tabs.connect()`, or when a cold service worker
-     * is woken asynchronously. Without reconnection, the next `postMessage()`
-     * throws "Attempting to use a disconnected port object". This wrapper lazily
-     * re-establishes the connection before each post so callers always operate on
-     * a live port.
+     * The MV3 service worker can terminate at any time (idle timeout, extension
+     * reload), severing all existing ports. Without reconnection, the next
+     * `postMessage()` throws "Attempting to use a disconnected port object".
+     * This wrapper lazily re-establishes the connection before each post so
+     * callers always operate on a live port.
      * @since 1.0.2
      * @param {string} name - The port name passed to `chrome.runtime.connect()`.
      * @returns {{ postMessage: (msg: any) => boolean, reconnect: () => void }} A port-like wrapper whose `postMessage` returns `true` when the message was delivered.
