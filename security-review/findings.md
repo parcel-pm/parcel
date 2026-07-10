@@ -72,31 +72,31 @@ No CRITICAL or HIGH exploitable vulnerabilities were identified. The review surf
 
 **Description:** `shadow.js` dispatches a `parcel-shadow-click` custom event from the MAIN world, and `integration.js` in the isolated world treats it as trusted. Because the MAIN and isolated worlds share the DOM, any page can forge the event and open the Parcel popup anchored to a chosen element. Separately, `window.top.postMessage({ action: "parcel-frame-id", frameId }, "*")` uses target `"*"` with no origin check on the receiver, so any embedding page can spoof a frame's `_parcelFrameId`. Impact is limited (the user must still pick an entry to decrypt; no plaintext disclosed).
 
-**Response:** _pending..._
+**Response:** The suggested fixes are nonsensical; there is no API which allows doing this from the isolated world. Additionally, any webpage can call `click()` on its own DOM elements (so forged events are a non-issue anyway, as the page can simply dispatch a real one). The target for `postMessage` has been narrowed in scope via `Location.ancestorOrigins`.
 
 ### L10 — `$SHA256` used unquoted in command position
 
 **Description:** `HASH=$($SHA256 <<< "$SCRIPT" | awk '{print $1}')` leaves `$SHA256` unquoted. `SHA256` is set from `command -v sha256sum || command -v sha256`, which is not attacker-controlled and standard system paths contain no spaces, so this is not exploitable today. If the binary lived in a path containing spaces, word splitting would break the command. Fail-closed (empty hash → `HOST_HASH` mismatch → refuse to run), so the failure mode is safe.
 
-**Response:** _pending..._
+**Response:** Fixed in #71.
 
 ### L11 — GPG status output leaked to the extension on signature failure
 
 **Description:** On signature-verification failure, the full GPG status output (`$OUT`) is included in the `parcel_error` message sent back to the extension. `$OUT` contains `VALIDSIG`/`BADSIG`/`NO_PUBKEY`/`IMPORT_OK` lines, key fingerprints, and trust state — internal GPG configuration details. Fingerprints are public and the extension is the party that submitted the signature, so the leak is low-impact but gratuitous.
 
-**Response:** _pending..._
+**Response:** Resolved in commit 0c9be39cdc6023f3c361b6621bea2e5984f46c20.
 
 ### L12 — `action_$ACTION` dispatch ungated by regex
 
 **Description:** `ACTION="$(jq -r .action <<< "$MESSAGE")"` is followed directly by `if [ "$(type -t "action_$ACTION")" = "function" ]` with no whitelist or regex on `ACTION`. This is not exploitable today because `type -t` returns empty for non-matching names and only safe `action_*` functions exist. A regex guard `[[ "$ACTION" =~ ^[a-z_]+$ ]]` would future-proof against an accidentally-introduced `action_debug_*` being exposed to extension control.
 
-**Response:** _pending..._
+**Response:** Added regex gate on action names in commit ffeae492ed1980232a8368bb4ba68083795447ea.
 
 ### L13 — `HOST_HASH` comparison is non-constant-time
 
 **Description:** `[ "$HASH" != "$HOST_HASH" ]` short-circuits on first mismatch. There is no remote attacker who can measure timing (the comparison is local, between a locally-computed hash and a locally-stored pin, over a stdin/stdout pipe with no byte-level timing feedback).
 
-**Response:** _pending..._
+**Response:** A constant-time comparison here is unnecessary; a timing attack on the hash is not a practical attack surface.
 
 ## [security-review-copilot-gpt_5.4-20260617-8023edb.md](reviews/security-review-copilot-gpt_5.4-20260617-8023edb.md)
 
