@@ -273,4 +273,68 @@ describe("Context popup", { concurrency: false }, () => {
 
         detail.remove();
     });
+
+    // -----------------------------------------------------------------------
+    // regression: port/context teardown must not surface uncaught errors
+    // -----------------------------------------------------------------------
+
+    test("digit keydown after tab port disconnect does not throw", async () => {
+        await sendDetail("user: dave\nsecret: pw");
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+
+        // Disconnect the tab port from the content-script side; the mock
+        // disconnects both ends, mirroring a tab navigation / popup teardown.
+        tabPortReceiver.disconnect();
+        await settleAsync();
+
+        // A digit keydown would normally post a fill-value message. With the
+        // port torn down this must not surface an uncaught error.
+        assert.doesNotThrow(() => {
+            window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "1", bubbles: true, cancelable: true }));
+        });
+
+        detail.remove();
+
+        // Re-establish a fresh tab port so subsequent tests can continue.
+        // Re-inject a config reply to re-arm the popup's tab port plumbing.
+        tabPortReceiver = mock.findTabPort(42, 0);
+        await settleAsync();
+    });
+
+    test("transient tab port disconnect is recovered so fill-value still delivers", async () => {
+        // Regression: a single transient tab-port disconnect used to latch a
+        // permanent "disconnected" flag inside the popup, so every subsequent
+        // postToTab() silently failed — the field was never filled and the
+        // popup never resized, even though decryption (which uses a separate
+        // background port) still worked. Reloading the page was the only fix.
+        await sendDetail("user: frank\nsecret: swordfish");
+
+        const detail = document.querySelector("parcel-detail");
+        assert.ok(detail, "parcel-detail element created");
+
+        document.activeElement?.blur?.();
+
+        // Simulate the content-script side tearing down the port (e.g. cold SW
+        // or "Receiving end does not exist"). The popup must lazily reconnect.
+        tabPortReceiver.disconnect();
+        await settleAsync();
+
+        // A digit keydown triggers postToTab, which lazily reconnects the tab
+        // port and delivers fill-value over the fresh port. The message is
+        // buffered on the new (listener-less) receiver until nextMessage attaches.
+        window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
+        await settleAsync();
+
+        assert.ok(!tabPortReceiver.disconnected, "tabPortReceiver was re-established after disconnect");
+
+        // The fill MUST be delivered — this is the user-visible symptom:
+        // "decrypts, but does not fill".
+        const msg = await nextMessage(tabPortReceiver, "fill-value", 3000);
+        assert.strictEqual(msg.action, "fill-value");
+        assert.strictEqual(msg.value, "swordfish");
+
+        detail.remove();
+    });
 });

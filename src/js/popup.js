@@ -17,49 +17,143 @@
     }
 
     /**
+     * Post a message, reconnecting once if the post throws. The `post` and
+     * `reconnect` closures capture the caller's port variable so the retry
+     * targets the freshly opened port.
+     * @since 1.0.2
+     * @param {() => void} post - Posts the message on the current port.
+     * @param {() => void} reconnect - Opens a fresh port; may throw if the extension context is invalidated.
+     * @returns {boolean} `true` when delivered, `false` if both the initial and retry attempts failed.
+     */
+    function postWithRetry(post, reconnect) {
+        try {
+            post();
+            return true;
+        } catch (_err) {
+            try {
+                reconnect();
+            } catch (_reconnectErr) {
+                return false;
+            }
+            try {
+                post();
+                return true;
+            } catch (_retryErr) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Wrap the popup's tab port so a transient disconnect — the MV3 service
+     * worker terminating (idle timeout, extension reload), severing all
+     * existing ports — is recovered transparently, mirroring the content
+     * script's own `reconnectingPort`. Without reconnection, the next
+     * `postMessage()` throws "Attempting to use a disconnected port object".
+     * Unlike the content-script wrapper this port is bidirectional, so every
+     * previously-registered `onMessage` listener is re-attached to each fresh
+     * port; without that, the security-relevant `origin` mismatch check,
+     * `status`/`error` reporting, and `close` handling would silently stop
+     * working after a single disconnect.
+     * @since 1.0.2
+     * @param {() => chrome.runtime.Port} connect - Factory that opens a fresh port to the content script.
+     * @param {chrome.runtime.Port} initialPort - The first port (already opened by `connectToTab`).
+     * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void } }} A port-like wrapper.
+     */
+    function reconnectingTabPort(connect, initialPort) {
+        let port = initialPort;
+        const listeners = new Set();
+        /**
+         * Bind disconnect + message-dispatch listeners to a raw port.
+         * @param {chrome.runtime.Port} p - The port to bind.
+         * @returns {void}
+         */
+        function attach(p) {
+            p.onDisconnect.addListener(() => {
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[popup] tab port disconnected:", err.message);
+                if (port === p) port = null;
+            });
+            p.onMessage.addListener((msg) => {
+                for (const fn of listeners) {
+                    try {
+                        fn(msg);
+                    } catch (_err) {
+                        // A single listener error must not block delivery to the others.
+                    }
+                }
+            });
+        }
+        attach(initialPort);
+        return {
+            postMessage(msg) {
+                if (!port) {
+                    try {
+                        port = connect();
+                        attach(port);
+                    } catch (_err) {
+                        // Extension context invalidated (popup frame torn down).
+                        return false;
+                    }
+                }
+                return postWithRetry(
+                    () => port.postMessage(msg),
+                    () => {
+                        port = connect();
+                        attach(port);
+                    },
+                );
+            },
+            onMessage: {
+                addListener(fn) {
+                    listeners.add(fn);
+                },
+            },
+        };
+    }
+
+    /**
      * Connect to the active tab content script, falling back to relay via the background service if necessary.
      * @since 1.0.0
-     * @returns {Promise<{tab: chrome.tabs.Tab, tabPort: chrome.runtime.Port}>}
+     * @returns {Promise<{tab: chrome.tabs.Tab, tabPort: object}>} `tabPort` is a reconnecting wrapper (see {@link reconnectingTabPort}).
      * @throws {Error} If the bridge to the active tab reports an error or disconnects unexpectedly.
      */
     async function connectToTab() {
         if (chrome.tabs?.getCurrent && chrome.tabs?.query && chrome.tabs?.connect) {
             const tab = (await chrome.tabs.getCurrent()) || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
             tab.contextualIdentity = tab?.cookieStoreId;
-            return { tab, tabPort: chrome.tabs.connect(tab.id, { name: token, frameId }) };
+            const connect = () => chrome.tabs.connect(tab.id, { name: token, frameId });
+            return { tab, tabPort: reconnectingTabPort(connect, connect()) };
         }
 
-        const tabPort = chrome.runtime.connect({ name: `popup-bridge:${token}:${frameId}` });
+        const connect = () => chrome.runtime.connect({ name: `popup-bridge:${token}:${frameId}` });
+        const initialPort = connect();
         const tab = await new Promise((resolve, reject) => {
             const onMessage = (msg) => {
                 if (msg?.action === "tab-context") {
-                    tabPort.onMessage.removeListener(onMessage);
-                    tabPort.onDisconnect.removeListener(onDisconnect);
+                    initialPort.onMessage.removeListener(onMessage);
+                    initialPort.onDisconnect.removeListener(onDisconnect);
                     resolve(msg.tab);
                 } else if (msg?.action === "error") {
-                    tabPort.onMessage.removeListener(onMessage);
-                    tabPort.onDisconnect.removeListener(onDisconnect);
+                    initialPort.onMessage.removeListener(onMessage);
+                    initialPort.onDisconnect.removeListener(onDisconnect);
                     reject(new Error(msg.error));
                 }
             };
             const onDisconnect = () => {
-                tabPort.onMessage.removeListener(onMessage);
-                tabPort.onDisconnect.removeListener(onDisconnect);
+                initialPort.onMessage.removeListener(onMessage);
+                initialPort.onDisconnect.removeListener(onDisconnect);
                 reject(new Error(chrome.runtime.lastError?.message || "Disconnected from the active tab."));
             };
-
-            tabPort.onMessage.addListener(onMessage);
-            tabPort.onDisconnect.addListener(onDisconnect);
+            initialPort.onMessage.addListener(onMessage);
+            initialPort.onDisconnect.addListener(onDisconnect);
         });
 
-        return { tab, tabPort };
+        return { tab, tabPort: reconnectingTabPort(connect, initialPort) };
     }
 
     const { tab, tabPort } = await connectToTab();
-    tabPort.onDisconnect.addListener(() => {
-        chrome.runtime.lastError; // suppress errors on pages where the content script is not injected
-        tabPort.disconnected = true;
-    });
+
     const port = chrome.runtime.connect({ name: "popup" });
     port.postMessage({ action: "auth", token, tab });
     const ul = document.querySelector("ul");
@@ -505,11 +599,7 @@
         } else if (ev.key === "ArrowUp" || (ev.key === "Tab" && ev.shiftKey)) {
             if (ev.key === "Tab" && ev.shiftKey && token !== "broadcast" && selected.id === "searchPattern") {
                 ev.preventDefault();
-                try {
-                    tabPort.postMessage({ action: "focus-target" });
-                } catch (_err) {
-                    window.close();
-                }
+                if (!tabPort.postMessage({ action: "focus-target" })) window.close();
                 return;
             }
             ev.preventDefault();
@@ -569,13 +659,7 @@
                             `are browsing (${tabURL.origin}). This may be a sign of a security issue. Do not ` +
                             `enter any sensitive information into this field unless you are sure it is safe to do so.`,
                     );
-                    if (!tabPort.disconnected) {
-                        try {
-                            tabPort.postMessage({ action: "focus-resume" });
-                        } catch (_err) {
-                            // port died during alert; content script cleanup will handle the suspended state
-                        }
-                    }
+                    tabPort.postMessage({ action: "focus-resume" });
                 }
             }
         }
@@ -711,9 +795,11 @@
                 if (!el._keep) el.remove();
             });
         } else if (msg.action === "plaintext") {
-            if (msg.intent === "fill" && !tabPort.disconnected) {
-                tabPort.postMessage({ action: "fill", token, plaintext: msg.plaintext, config: await config });
-                if (tab.url && (await config).saveHistory) {
+            if (msg.intent === "fill") {
+                const delivered = tabPort.postMessage({ action: "fill", token, plaintext: msg.plaintext, config: await config });
+                // Only record history when the fill was actually delivered to the content
+                // script; otherwise we would log a fill against a stale tab that never happened.
+                if (delivered && tab.url && (await config).saveHistory) {
                     const url = new URL(tab.url);
                     const hash = await sha256(url.origin);
                     const scope = await sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");

@@ -5,10 +5,78 @@
     const { Schema, SelectorSchema } = await import(chrome.runtime.getURL("/js/schema.js"));
     const targetSelectors = import(chrome.runtime.getURL("/js/selectors.js"));
     const targetBindings = {};
-    let authPort = chrome.runtime.connect({ name: "auth" });
+
+    /**
+     * Post a message, reconnecting once if the post throws. The `post` and
+     * `reconnect` closures capture the caller's port variable so the retry
+     * targets the freshly opened port.
+     * @since 1.0.2
+     * @param {() => void} post - Posts the message on the current port.
+     * @param {() => void} reconnect - Opens a fresh port; may throw if the extension context is invalidated.
+     * @returns {boolean} `true` when delivered, `false` if both the initial and retry attempts failed.
+     */
+    function postWithRetry(post, reconnect) {
+        try {
+            post();
+            return true;
+        } catch (_err) {
+            try {
+                reconnect();
+            } catch (_reconnectErr) {
+                return false;
+            }
+            try {
+                post();
+                return true;
+            } catch (_retryErr) {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Create a runtime port that transparently reconnects after disconnection.
+     *
+     * The MV3 service worker can terminate at any time (idle timeout, extension
+     * reload), severing all existing ports. Without reconnection, the next
+     * `postMessage()` throws "Attempting to use a disconnected port object".
+     * This wrapper lazily re-establishes the connection before each post so
+     * callers always operate on a live port.
+     * @since 1.0.2
+     * @param {string} name - The port name passed to `chrome.runtime.connect()`.
+     * @returns {{ postMessage: (msg: any) => boolean, reconnect: () => void }} A port-like wrapper whose `postMessage` returns `true` when the message was delivered.
+     */
+    function reconnectingPort(name) {
+        let port = null;
+        function open() {
+            const p = chrome.runtime.connect({ name });
+            p.onDisconnect.addListener(() => {
+                chrome.runtime.lastError; // consume the disconnect error
+                if (port === p) port = null;
+            });
+            return p;
+        }
+        port = open();
+        return {
+            postMessage(msg) {
+                if (!port) port = open();
+                return postWithRetry(
+                    () => port.postMessage(msg),
+                    () => {
+                        port = open();
+                    },
+                );
+            },
+            reconnect() {
+                port = open();
+            },
+        };
+    }
+
+    const authPort = reconnectingPort("auth");
     window.addEventListener("pageshow", (ev) => {
         // re-establish connection to the auth port on bfcache restore
-        if (ev.persisted) authPort = chrome.runtime.connect({ name: "auth" });
+        if (ev.persisted) authPort.reconnect();
     });
     let frameId = 0;
 
@@ -46,10 +114,10 @@
             }
         });
     });
-    let triggerPort = chrome.runtime.connect({ name: "trigger" });
+    const triggerPort = reconnectingPort("trigger");
     window.addEventListener("pageshow", (ev) => {
         // re-establish connection to the trigger port on bfcache restore
-        if (ev.persisted) triggerPort = chrome.runtime.connect({ name: "trigger" });
+        if (ev.persisted) triggerPort.reconnect();
     });
     window.addEventListener("message", (ev) => {
         if (ev.data?.action === "parcel-frame-id") {
@@ -103,8 +171,8 @@
      * @since 1.0.0
      * @param {HTMLElement} el - The element to check.
      * @param {boolean} [related=false] - Whether to include selectors flagged `relatedOnly` in the candidate pool.
-     * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`), or null if not found.
-     * @throws {Error} If the element is not visible, has an unsupported input type, or matches a blacklist selector.
+     * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`).
+     * @throws {Error} If the element is not visible, has an unsupported input type, doesn't match a selector, or matches a blacklist selector.
      */
     async function getTargetInfo(el, related = false) {
         try {
@@ -149,7 +217,7 @@
                     if (finalTarget) return finalTarget;
                 }
             }
-            return null;
+            throw new Error("No matching selector");
         } catch (err) {
             console.info(el); // log the target element to assist with troubleshooting selector issues
             throw err;
@@ -506,6 +574,8 @@
         try {
             target._parcelPopupPort.postMessage({ action: "focus-popup" });
         } catch (_err) {
+            const err = chrome.runtime.lastError;
+            if (err) console.debug("[integration] popup port postMessage failed:", err.message);
             cleanupInlineTarget(target, target._parcelPopupPort);
         }
     }
@@ -525,6 +595,27 @@
     }
 
     /**
+     * Post a message on a popup port, swallowing errors from a disconnected
+     * port and consuming `chrome.runtime.lastError`. The popup port can die
+     * between the popup sending a message and the content script responding —
+     * most commonly when the page enters back/forward cache during an async
+     * fill — so every response post must be safe against a dead port to avoid
+     * unhandled rejections and "Unchecked runtime.lastError" warnings.
+     * @since 1.0.2
+     * @param {chrome.runtime.Port} port - The port (may be disconnected).
+     * @param {any} msg - The message to post.
+     * @returns {void}
+     */
+    function maybePost(port, msg) {
+        try {
+            port.postMessage(msg);
+        } catch (_err) {
+            const err = chrome.runtime.lastError;
+            if (err) console.debug("[integration] maybePost failed:", err.message);
+        }
+    }
+
+    /**
      * Handle incoming connections from the popup, binding each connection to its target element
      * and routing subsequent messages (ready / fill-value / fill / resize / close).
      * @since 1.0.0
@@ -537,11 +628,11 @@
         if (port.name === "trigger") return; // handled in another listener
 
         if (!Object.prototype.hasOwnProperty.call(targetBindings, port.name) && port.name !== "broadcast") {
-            port.postMessage({ action: "close" });
+            maybePost(port, { action: "close" });
             port.disconnect();
             return;
         }
-        const updateStatus = (status) => port.postMessage({ action: "status", status });
+        const updateStatus = (status) => maybePost(port, { action: "status", status });
         let el = targetBindings[port.name];
         if (!el) {
             if (window === window.top && port.name === "broadcast") {
@@ -564,7 +655,7 @@
                     }
                 }
                 if (!el) {
-                    port.postMessage({ action: "error", error: "Cannot find a suitable autofill target." });
+                    maybePost(port, { action: "error", error: "Cannot find a suitable autofill target." });
                     port.disconnect();
                     return;
                 }
@@ -573,18 +664,23 @@
             }
         }
         if (el._parcelToken !== port.name) {
-            port.postMessage({ action: "error", error: "Invalid token." });
+            maybePost(port, { action: "error", error: "Invalid token." });
             port.disconnect();
             return;
         }
         port.onDisconnect.addListener(() => {
-            if (port.name !== "broadcast") cleanupInlineTarget(el, port);
-            delete targetBindings[port.name];
+            const err = chrome.runtime.lastError;
+            if (err) console.debug("[integration] popup port disconnected:", err.message);
+            // Intentionally retain the binding (token, input-close listener, targetBindings entry)
+            // so a transiently disconnected popup can reconnect; only the dead port reference is
+            // cleared. Trade-off: an element abandoned without re-click is never GC'd from
+            // targetBindings — a negligible one-entry leak since tokens are unique UUIDs.
+            if (port.name !== "broadcast" && el._parcelPopupPort === port) delete el._parcelPopupPort;
         });
         try {
             await getTargetInfo(el);
         } catch (_err) {
-            port.postMessage({ action: "error", error: "The selected autofill candidate was unsuitable." });
+            maybePost(port, { action: "error", error: "The selected autofill candidate was unsuitable." });
             port.disconnect();
             return;
         }
@@ -600,7 +696,7 @@
         };
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
-                port.postMessage({ action: "origin", origin: window.location.origin });
+                maybePost(port, { action: "origin", origin: window.location.origin });
             } else if (msg?.action === "focus-target") {
                 el.focus();
             } else if (msg?.action === "focus-suspend") {
@@ -612,7 +708,7 @@
                 updateStatus("Filling value...");
                 await fillBoundField(null, null, null, msg.value);
                 cleanupInlineTarget(el, port);
-                port.postMessage({ action: "close" });
+                maybePost(port, { action: "close" });
                 triggerPort.postMessage({ action: "close-popup" });
             } else if (msg?.action === "fill") {
                 // fill the target field, and related fields if configured
@@ -631,7 +727,7 @@
                         }
                     }
                     cleanupInlineTarget(el, port);
-                    port.postMessage({ action: "close" });
+                    maybePost(port, { action: "close" });
                     triggerPort.postMessage({ action: "close-popup" });
 
                     // try to focus the submit button
@@ -656,7 +752,7 @@
                     }
                 } catch (err) {
                     console.warn(err);
-                    port.postMessage({ action: "error", error: err.message });
+                    maybePost(port, { action: "error", error: err.message });
                 } finally {
                     delete el._parcelToken; // remove the token to prevent stale bindings in case of subsequent context-popup invocations
                 }

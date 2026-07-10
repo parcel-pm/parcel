@@ -335,10 +335,32 @@ export class Agent extends EventTarget {
             // be rendered in the top-level context and avoid issues with limited iframe viewport sizes.
             const tab = port.sender.tab;
             const topPort = chrome.tabs.connect(tab.id, { name: "trigger", frameId: 0 });
-            port.onMessage.addListener((message) => topPort.postMessage(message));
-            topPort.onMessage.addListener((message) => port.postMessage(message));
-            port.onDisconnect.addListener(() => topPort.disconnect());
-            topPort.onDisconnect.addListener(() => port.disconnect());
+            port.onMessage.addListener((message) => {
+                try {
+                    topPort.postMessage(message);
+                } catch (_err) {
+                    const err = chrome.runtime.lastError;
+                    if (err) console.debug("[trigger] relay→top postMessage failed:", err.message);
+                }
+            });
+            topPort.onMessage.addListener((message) => {
+                try {
+                    port.postMessage(message);
+                } catch (_err) {
+                    const err = chrome.runtime.lastError;
+                    if (err) console.debug("[trigger] top→relay postMessage failed:", err.message);
+                }
+            });
+            port.onDisconnect.addListener(() => {
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[trigger] content-script port disconnected:", err.message);
+                topPort.disconnect();
+            });
+            topPort.onDisconnect.addListener(() => {
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[trigger] top-level port disconnected:", err.message);
+                port.disconnect();
+            });
             return;
         }
 

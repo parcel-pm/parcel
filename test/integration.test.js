@@ -160,7 +160,9 @@ before(async () => {
     await import("../src/js/integration.js");
     await settleAsync(); // wait for dynamic imports & onConnect microtasks
 
-    if (portReceivers["integration"]) {
+    // The integration port may already be disconnected by the content script
+    // after it received its first config reply; only re-send if still live.
+    if (portReceivers["integration"] && !portReceivers["integration"].disconnected) {
         portReceivers["integration"].postMessage({ action: "config", config: makeValidConfig(), frameId: 0 });
     }
     await settleAsync();
@@ -195,6 +197,25 @@ describe("Integration script", { concurrency: false }, () => {
         assert.ok(portReceivers["auth"]);
         assert.ok(portReceivers["trigger"]);
         assert.ok(portReceivers["integration"]);
+    });
+
+    test("trigger port reconnects after disconnect and still delivers trigger-popup", async () => {
+        clearBody();
+        // Simulate the race where the MV3 service worker / cross-frame relay
+        // tears down the trigger port before the user clicks (the
+        // "Attempting to use a disconnected port object" / "Receiving end does
+        // not exist" errors reported on first load).
+        assert.ok(portCallers["trigger"], "trigger caller should exist from load");
+        portCallers["trigger"].disconnect();
+        await flushMicrotasks(); // let onDisconnect null the internal port
+
+        const input = makeInput({ type: "text", name: "username" });
+        await click(input);
+        // allow the reconnect microtask and the buffered message delivery to settle
+        await settleAsync();
+
+        assert.ok(input._parcelToken, "target should still receive a token");
+        assert.ok(document.querySelector(".parcel-popup"), "popup should be created after port reconnect");
     });
 
     // -----------------------------------------------------------------------
@@ -551,7 +572,7 @@ describe("Integration script", { concurrency: false }, () => {
         assert.strictEqual(input.value, "supe");
     });
 
-    test("port disconnect removes target binding", async () => {
+    test("transient port disconnect keeps binding so popup can reconnect", async () => {
         clearBody();
         const input = makeInput({ type: "text", name: "user" });
 
@@ -571,14 +592,22 @@ describe("Integration script", { concurrency: false }, () => {
         port1.disconnect();
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        // Second connection: binding is gone, so integration should emit close immediately.
+        // Second connection with the SAME token: the binding must still be
+        // alive so the popup can recover after a transient disconnect (bfcache,
+        // cold service worker, relay tear-down). Integration should re-accept
+        // the connection and respond to "ready" with "origin", not "close".
         const port2 = mock.chrome.runtime.connect({ name: token });
-        // Listen for any message (to tell whether close arrives or something else happens)
-        const anyMessagePromise = nextMessage(port2, null, 3000);
+        const originPromise2 = nextMessage(port2, "origin", 3000);
         await new Promise((resolve) => setTimeout(resolve, 0));
+        port2.postMessage({ action: "ready" });
+        const msg = await originPromise2;
+        assert.strictEqual(msg.action, "origin");
 
-        const msg = await anyMessagePromise;
-        assert.strictEqual(msg.action, "close");
+        // fill-value must still work after the reconnect — this is the
+        // user-visible symptom: "decrypts, but does not fill".
+        port2.postMessage({ action: "fill-value", value: "reconnected-secret" });
+        await nextMessage(port2, "close", 3000);
+        assert.strictEqual(input.value, "reconnected-secret");
     });
 
     test("fill respects fillRelated=false", async () => {
