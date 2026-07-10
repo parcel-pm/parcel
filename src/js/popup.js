@@ -70,7 +70,8 @@
          */
         function attach(p) {
             p.onDisconnect.addListener(() => {
-                chrome.runtime.lastError; // consume the disconnect error
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[popup] tab port disconnected:", err.message);
                 if (port === p) port = null;
             });
             p.onMessage.addListener((msg) => {
