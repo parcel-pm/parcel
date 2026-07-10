@@ -276,10 +276,9 @@ describe("Context popup", { concurrency: false }, () => {
 
     // -----------------------------------------------------------------------
     // regression: port/context teardown must not surface uncaught errors
-    // (issue #113 — popup.js:402 / popup.js:541)
     // -----------------------------------------------------------------------
 
-    test("digit keydown after tab port disconnect does not throw (issue #113)", async () => {
+    test("digit keydown after tab port disconnect does not throw", async () => {
         await sendDetail("user: dave\nsecret: pw");
 
         const detail = document.querySelector("parcel-detail");
@@ -304,7 +303,7 @@ describe("Context popup", { concurrency: false }, () => {
         await settleAsync();
     });
 
-    test("resize after tab port disconnect does not throw (issue #113)", async () => {
+    test("resize after tab port disconnect does not throw", async () => {
         // Ensure a detail view is mounted so the ResizeObserver is active.
         await sendDetail("user: erin\nsecret: x");
 
