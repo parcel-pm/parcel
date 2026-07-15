@@ -21,6 +21,7 @@ Parcel is designed with security as its highest priority: the extension **does n
 - **Zero network access** — No telemetry, no analytics, no update checks, no external services.
 - **Container/tab isolation** — Per-origin history isolation, with support for Firefox Multi-Account Containers.
 - **Read-only by design** — Parcel never creates, edits, or deletes password store files.
+- **TOTP / 2FA autofill** — Generate and fill RFC 6238 TOTP codes from a base32 secret or `otpauth://` URI stored in a pass entry.
 
 ---
 
@@ -139,6 +140,46 @@ Example:
 2. Search for the credential you want to fill.
 3. Click an entry to trigger **heuristic autofill** into the best-matching form field on the page.
 4. For more precise control, click directly on the field that you wish to fill, and Parcel will display an inline popup to allow you to select the desired credential.
+
+---
+
+## TOTP / 2FA support
+
+Parcel can generate time-based one-time passwords (TOTP, [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)) from a secret stored in a pass entry and fill them into the page's OTP input field — just like a regular password. Token generation uses the browser's built-in [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) (HMAC-SHA1); no third-party library is involved.
+
+### Storing a TOTP secret
+
+Parcel recognises TOTP secrets in two formats:
+
+**1. Raw base32 secret**
+
+Store the base32 secret on its own line prefixed with one of the recognised keywords (`totp:`, `otp:`, `otc:`, `code:`, `2fa:`, `authenticator:`, `two-factor:`, `two_factor:`):
+
+```
+myAmazingPassword
+login: user@example.com
+totp: JBSWY3DPEHPK3PXP
+```
+
+**2. `otpauth://` URI**
+
+Store a standard [otpauth](https://github.com/google/google-authenticator/wiki/Key-Uri-Format) URI. This is the format exported by most authenticator apps:
+
+```
+myAmazingPassword
+login: user@example.com
+totp: otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP&period=30&digits=6
+```
+
+When an `otpauth://` URI is detected, Parcel extracts the `secret`, `period`, and `digits` parameters to generate the token. The `secret` parameter is required; `period` defaults to `30` and `digits` defaults to `6`.
+
+### How it works
+
+| Step | What happens |
+|------|--------------|
+| **Field detection** | Built-in selectors match common TOTP input fields. |
+| **Secret extraction** | The `totp` target pattern reads the secret from the pass entry's plaintext. If the entry contains an `otpauth://` URI, the `totp-url` fallback target is used instead, which parses the URI for parameters. |
+| **Token generation** | `Helpers.generateTOTP()` computes the HMAC-SHA1-based TOTP using WebCrypto, returning the token along with timing metadata (`refreshAt`, `generatedAt`, `interval`). |
 
 ---
 
