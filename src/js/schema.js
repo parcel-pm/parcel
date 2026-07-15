@@ -27,7 +27,9 @@ export class Schema {
         if (type === "object" && Array.isArray(data)) type = "array";
         if (type !== schema.type) {
             if (schema.type === "integer" && type === "number" && Number.isInteger(data)) {
-                schema.type = "number"; // Other than ensuring it's an integer, the rest of the validation is done as a number.
+                // Integer is a subtype of number; the local `type` variable is already
+                // "number", so all remaining validation (value, minimum, maximum) proceeds
+                // correctly without mutating the shared schema singleton.
             } else {
                 throw new Error(`Invalid type for ${path}: expected ${schema.type}, got ${type}.`);
             }

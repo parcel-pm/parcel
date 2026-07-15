@@ -94,6 +94,26 @@ describe("Schema.validate", () => {
         Schema.validate({ type: "integer" }, 42);
     });
 
+    test("integer: does not mutate schema type on integer validation", () => {
+        const schema = { type: "integer", minimum: 0 };
+        Schema.validate(schema, 42);
+        assert.strictEqual(schema.type, "integer", "schema.type must not be mutated");
+    });
+
+    test("integer: still rejects floats after a prior integer validation (shared singleton)", () => {
+        // Use the same schema object twice to catch mutation regressions.
+        const schema = { type: "integer", minimum: 0 };
+        Schema.validate(schema, 42);
+        assert.throws(() => Schema.validate(schema, 3.14), /Invalid type.*expected integer.*got number/);
+    });
+
+    test("integer: number rules (minimum/maximum/value) are applied to integers", () => {
+        // Integers are a subset of numbers; minimum, maximum, and value must still be enforced.
+        assert.throws(() => Schema.validate({ type: "integer", minimum: 10 }, 5), /too low/);
+        assert.throws(() => Schema.validate({ type: "integer", maximum: 100 }, 200), /too high/);
+        assert.throws(() => Schema.validate({ type: "integer", value: 42 }, 7), /must be 42/);
+    });
+
     test("number: enforces minimum", () => {
         Schema.validate({ type: "number", minimum: 0 }, 0.5);
         assert.throws(() => Schema.validate({ type: "number", minimum: 10 }, 5), /Value for .* is too low/);
