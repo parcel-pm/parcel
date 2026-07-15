@@ -1,6 +1,8 @@
 # ![Parcel](https://github.com/user-attachments/assets/baadf80e-a3cf-4f5a-a408-b66712c24d64)
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE.md)
+[![Install on Mozilla Firefox](https://img.shields.io/badge/Install-Firefox-FF7139.svg?logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/)
+[![Install on Google Chrome](https://img.shields.io/badge/Install-Chrome-4285F4.svg?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/parcel/ciifpadakeohfnnneflckhojbldkkllp)
 
 Parcel is a browser extension that securely searches, displays, and automatically fills credentials from a [pass](https://www.passwordstore.org/)-style password store directly into web forms. It complements `pass`; it does not replace it.
 
@@ -58,9 +60,20 @@ If you wish to run the test suite, you will also need the following:
 
 ---
 
-## Installation from source
+## Installation
 
-Parcel would normally be installed directly from the Chrome or Mozilla addon webstores. However, if you would prefer to install your own local copy, please follow the steps below.
+The easiest way to install Parcel is directly from your browser's webstore:
+
+- **[Mozilla Firefox — Parcel](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/)** (recommended)
+- **[Google Chrome — Parcel](https://chromewebstore.google.com/detail/parcel/ciifpadakeohfnnneflckhojbldkkllp)** (recommended)
+
+After installing from the webstore, you will still need to set up the [native host](#install-the-native-host) and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
+
+> **Note:** If you install from the webstore you will receive automatic updates. If you prefer to run a local build from source, follow the steps below instead.
+
+### Installation from source
+
+If you would prefer to install your own local copy, please follow the steps below.
 
 If you do install directly from source, please be aware that you will not receive automatic updates, and Parcel cannot notify you of new releases. It is recommended that you subscribe to release notifications from this repository so that you can update manually as needed.
 
