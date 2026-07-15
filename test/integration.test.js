@@ -60,14 +60,13 @@ function makeValidConfig(overrides = {}) {
             {
                 name: "login",
                 pattern: "^(user|username|login|email):",
-                related: ["secret", "testrel"],
+                related: ["secret"],
                 onMissing: "null",
                 strip: true,
                 transform: [],
                 trim: true,
             },
             { name: "secret", pattern: "^(secret|password):", related: [], onMissing: "null", strip: true, transform: [], trim: true },
-            { name: "testrel", pattern: "^testrel:", related: [], onMissing: "null", strip: true, transform: [], trim: true },
             {
                 name: "cardexp-month",
                 pattern: "^((cc|card)[_-]?)?exp(iry)?[-_]?mon(th)?:",
@@ -78,7 +77,7 @@ function makeValidConfig(overrides = {}) {
                 trim: true,
             },
         ],
-        additionalSelectors: [{ selector: "input[name=test-never-field]", type: "testrel", relatedNever: true }],
+        additionalSelectors: [],
         showDelegateTooltips: false,
         ...overrides,
     };
@@ -417,11 +416,11 @@ describe("Integration script", { concurrency: false }, () => {
         clearBody();
         const form = document.createElement("form");
         const user = makeInput({ type: "text", name: "username" });
-        const pass = makeInput({ type: "password", name: "password" });
-        const never = makeInput({ type: "text", name: "test-never-field" });
+        const realPass = makeInput({ type: "password", name: "password" });
+        const textPass = makeInput({ type: "text", name: "password" });
         form.appendChild(user);
-        form.appendChild(pass);
-        form.appendChild(never);
+        form.appendChild(realPass);
+        form.appendChild(textPass);
         document.body.appendChild(form);
 
         const triggerReceiver = portReceivers["trigger"];
@@ -445,7 +444,7 @@ describe("Integration script", { concurrency: false }, () => {
                     {
                         name: "login",
                         pattern: "^(user|username|login|email):",
-                        related: ["secret", "testrel"],
+                        related: ["secret"],
                         onMissing: "null",
                         strip: true,
                         transform: [],
@@ -460,31 +459,30 @@ describe("Integration script", { concurrency: false }, () => {
                         transform: [],
                         trim: true,
                     },
-                    { name: "testrel", pattern: "^testrel:", related: [], onMissing: "null", strip: true, transform: [], trim: true },
                 ],
             }),
-            plaintext: "login: bob\nsecret: hunter2\ntestrel: testvalue",
+            plaintext: "login: bob\nsecret: hunter2",
         });
 
         await nextMessage(port, "close", 3000);
         assert.strictEqual(user.value, "bob");
-        assert.strictEqual(pass.value, "hunter2");
-        assert.strictEqual(never.value, "", "relatedNever field should not be filled as a related field");
+        assert.strictEqual(realPass.value, "hunter2");
+        assert.strictEqual(textPass.value, "", "text field with name=password should not be filled as a related field");
     });
 
     test("relatedNever field is still detected as a primary target", async () => {
         clearBody();
         const form = document.createElement("form");
-        const never = makeInput({ type: "text", name: "test-never-field" });
-        form.appendChild(never);
+        const textPass = makeInput({ type: "text", name: "password" });
+        form.appendChild(textPass);
         document.body.appendChild(form);
 
         const triggerReceiver = portReceivers["trigger"];
         const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
-        await click(never);
+        await click(textPass);
         await popupPromise;
 
-        const token = never._parcelToken;
+        const token = textPass._parcelToken;
         assert.ok(token, "relatedNever field should be detected as a primary target");
 
         const port = mock.chrome.runtime.connect({ name: token });
@@ -497,14 +495,22 @@ describe("Integration script", { concurrency: false }, () => {
             action: "fill",
             config: makeValidConfig({
                 targets: [
-                    { name: "testrel", pattern: "^testrel:", related: [], onMissing: "null", strip: true, transform: [], trim: true },
+                    {
+                        name: "secret",
+                        pattern: "^(secret|password):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
                 ],
             }),
-            plaintext: "testrel: testvalue",
+            plaintext: "secret: hunter2",
         });
 
         await nextMessage(port, "close", 3000);
-        assert.strictEqual(never.value, "testvalue");
+        assert.strictEqual(textPass.value, "hunter2");
     });
 
     test("fill message handles select element (month)", async () => {
