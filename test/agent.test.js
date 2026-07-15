@@ -241,8 +241,10 @@ describe("Agent", () => {
         popup2.postMessage({ action: "match", url: "https://example.com" });
         await settleAsync();
 
-        // Before releasing the list response, both searches have reached the
-        // debounced refresh — only one list call should have been dispatched.
+        // Before releasing the list response, only one list call should have
+        // been dispatched. This is guaranteed by the #callNative semaphore
+        // (which serialises native calls), not by the debounce — the debounce
+        // is verified by the final assertion below.
         assert.strictEqual(listCalls, 1, "action_list called only once before response");
 
         resolveList();
