@@ -197,6 +197,62 @@ describe("Agent", () => {
         assert.deepStrictEqual(pt.plaintext, { password: "hunter2" });
     });
 
+    test("concurrent searches debounce action_list calls", async () => {
+        // Replace the default handler with one that delays the list response
+        // so multiple match requests can arrive before the first returns.
+        uninstallNativeHandler(mock, handler);
+
+        let listCalls = 0;
+        let resolveList;
+        const listDelay = new Promise((r) => {
+            resolveList = r;
+        });
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") return { plaintext: { password: "hunter2" } };
+            if (msg.action === "list") {
+                listCalls++;
+                listDelay.then(() => {
+                    nativePort.receiver.postMessage({
+                        token: msg.token,
+                        data: [{ name: "example.com/admin", path: "example.com/admin" }],
+                    });
+                });
+                return undefined;
+            }
+        });
+
+        // Fire two concurrent match requests before the first list call returns.
+        const popup1 = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup1.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const match1Promise = nextMessage(popup1, "match");
+        popup1.postMessage({ action: "match", url: "https://example.com" });
+        await settleAsync();
+
+        const popup2 = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup2.postMessage({ action: "auth", token: "broadcast", tab: { id: 2 } });
+        const match2Promise = nextMessage(popup2, "match");
+        popup2.postMessage({ action: "match", url: "https://example.com" });
+        await settleAsync();
+
+        // Before releasing the list response, both searches have reached the
+        // debounced refresh — only one list call should have been dispatched.
+        assert.strictEqual(listCalls, 1, "action_list called only once before response");
+
+        resolveList();
+
+        const [match1, match2] = await Promise.all([match1Promise, match2Promise]);
+        assert.strictEqual(match1.entries.length, 1, "popup1 received entries");
+        assert.strictEqual(match2.entries.length, 1, "popup2 received entries");
+        assert.strictEqual(listCalls, 1, "action_list only called once despite concurrent searches");
+    });
+
     test("decrypt rejected from integration port", async () => {
         const integration = mock.chrome.runtime.connect({ name: "integration" });
         await settleAsync();

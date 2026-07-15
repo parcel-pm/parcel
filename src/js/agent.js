@@ -24,6 +24,7 @@ export class Agent extends EventTarget {
     #currentNativeCall = null;
     #authorisedTokens = new Set();
     #publicSuffixList = null;
+    #refreshingEntries = null;
 
     /**
      * Construct a new Agent instance.
@@ -300,8 +301,31 @@ export class Agent extends EventTarget {
                 needRefresh = false;
             } else needRefresh = true;
         }
-        if (needRefresh) this.#setEntries(await this.#callNative("list"));
+        if (needRefresh) await this.#refreshEntries();
         return this.#entries;
+    }
+
+    /**
+     * Refresh the entry list from the native host, debouncing concurrent calls.
+     *
+     * If a refresh is already in flight, callers await the same promise instead
+     * of dispatching a second `action_list` call. This prevents redundant native
+     * host invocations (and the resulting timeout cascades) when multiple search
+     * requests arrive before the first entry list has been loaded.
+     * @since 1.0.2
+     * @returns {Promise<void>}
+     * @throws {Error} If the native host `list` call rejects.
+     */
+    async #refreshEntries() {
+        if (this.#refreshingEntries) return this.#refreshingEntries;
+        this.#refreshingEntries = (async () => {
+            try {
+                this.#setEntries(await this.#callNative("list"));
+            } finally {
+                this.#refreshingEntries = null;
+            }
+        })();
+        return this.#refreshingEntries;
     }
 
     /**
@@ -435,7 +459,7 @@ export class Agent extends EventTarget {
                     if (newConfig?.modified > this.#config.modified) {
                         this.#setConfig(newConfig);
                         updateStatus("Refreshing entry list...");
-                        this.#setEntries(await this.#callNative("list"));
+                        await this.#refreshEntries();
                     }
                     clearStatus();
                     const response = { action: "config", config: this.#config };
