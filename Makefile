@@ -8,7 +8,7 @@ ESLINT := $(PWD)/node_modules/.bin/eslint
 # which the required dev dependencies can still be resolved, unless security considerations require
 # bumping it forward. The purpose of this cutoff is to reduce the likelihood of supply-chain attacks
 # against a developer machine. If this is changed, the lockfile should also be updated to match.
-DEPS_INSTALL_CUTOFF := '2026-06-10'
+DEPS_INSTALL_CUTOFF := 2026-06-10
 
 .PHONY: all
 all: extension chrome firefox
@@ -19,7 +19,7 @@ extension:
 
 .PHONY: install-deps
 install-deps:
-	npm install --ignore-scripts --before $(DEPS_INSTALL_CUTOFF)
+	npm install --ignore-scripts --before '$(DEPS_INSTALL_CUTOFF)'
 
 .PHONY: prettier
 prettier:
