@@ -178,7 +178,7 @@
      * Get the target info for an element.
      * @since 1.0.0
      * @param {HTMLElement} el - The element to check.
-     * @param {boolean} [related=false] - Whether to include selectors flagged `relatedOnly` in the candidate pool.
+     * @param {boolean} [related=false] - Whether to include selectors flagged `relatedOnly` (and exclude those flagged `relatedNever`) in the candidate pool.
      * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`).
      * @throws {Error} If the element is not visible, has an unsupported input type, doesn't match a selector, or matches a blacklist selector.
      */
@@ -190,7 +190,7 @@
             if (el.hasAttribute("type") && !["text", "email", "tel", "password"].includes(el.type))
                 throw new Error(`Invalid input type: ${el.type}`);
             let finalTarget = null;
-            for (const target of (await validTargets).filter((t) => (related ? true : !t.relatedOnly))) {
+            for (const target of (await validTargets).filter((t) => (related ? !t.relatedNever : !t.relatedOnly))) {
                 if (el.matches(target.selector) && !el.readOnly && !el.disabled) {
                     finalTarget = target;
 
@@ -214,7 +214,7 @@
                     // if the selector requires isShadowSingle, but the element is not in a single-field shadow DOM, skip it
                     if (target.single && !finalTarget.isShadowSingle) continue;
 
-                    for (const target of (await invalidTargets).filter((t) => (related ? true : !t.relatedOnly))) {
+                    for (const target of (await invalidTargets).filter((t) => (related ? !t.relatedNever : !t.relatedOnly))) {
                         if (el.matches(target.selector)) {
                             el.setAttribute("parcel-blacklist", target.selector);
                             finalTarget = null;
@@ -253,7 +253,7 @@
         }
         if (!group) return [];
         const relatedFields = [];
-        for (const target of (await validTargets).filter((t) => targetInfo.related.includes(t.type))) {
+        for (const target of (await validTargets).filter((t) => targetInfo.related.includes(t.type) && !t.relatedNever)) {
             for (const field of Helpers.shadowSelectorAll(target.selector, group, target.shadow || null)) {
                 if (relatedFields.includes(field) || field === el) continue;
                 let isInvalid = false;

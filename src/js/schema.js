@@ -147,6 +147,7 @@ export const SelectorSchema = {
         type: "object",
         properties: {
             host: { type: "array", items: { type: "string" } },
+            relatedNever: { type: "boolean", required: true, default: false },
             relatedOnly: { type: "boolean", required: true, default: false },
             selector: { type: "string", required: true, minLength: 1 },
             shadow: { type: "string", minLength: 1 },

@@ -319,4 +319,21 @@ describe("Defined schemas", () => {
     test("ConfigSchema is a valid schema", () => {
         assert.doesNotThrow(() => Schema.validate(MetaSchema, ConfigSchema));
     });
+
+    test("SelectorSchema: accepts relatedNever boolean and defaults to false", () => {
+        const data = [{ selector: "input[name=test]", type: "login" }];
+        Schema.validate(SelectorSchema, data);
+        assert.strictEqual(data[0].relatedNever, false);
+    });
+
+    test("SelectorSchema: accepts relatedNever true", () => {
+        assert.doesNotThrow(() => Schema.validate(SelectorSchema, [{ selector: "input[name=test]", type: "login", relatedNever: true }]));
+    });
+
+    test("SelectorSchema: rejects non-boolean relatedNever", () => {
+        assert.throws(
+            () => Schema.validate(SelectorSchema, [{ selector: "input[name=test]", type: "login", relatedNever: "yes" }]),
+            /expected boolean.*got string/,
+        );
+    });
 });

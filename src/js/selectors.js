@@ -2,7 +2,7 @@
 
 /**
  * Default CSS selector rules used to identify fill targets.
- * @type {Array<{selector: string, type: string, host?: string[], relatedOnly?: boolean}>}
+ * @type {Array<{selector: string, type: string, host?: string[], relatedOnly?: boolean, relatedNever?: boolean}>}
  * @since 1.0.0
  */
 export const targetSelectors = [
