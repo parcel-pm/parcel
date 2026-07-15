@@ -422,6 +422,11 @@ export class Agent extends EventTarget {
                     throw new Error(`Action "${message?.action}" is not permitted for port "${port.name}"`);
                 }
 
+                // Surface a stored init error (e.g. a parcelrc permission failure that
+                // occurs during host bootstrap, before the popup is open) so the user
+                // sees the real cause rather than a generic disconnect message. The error
+                // is retained as state because the failure can happen at any time.
+                if (this.#initError) throw this.#initError;
                 if (!this.#connectedNative) throw new Error("Not connected to native host");
                 updateStatus("Waiting for native host startup...");
                 await this.#waitUntilReady();

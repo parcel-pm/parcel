@@ -388,4 +388,33 @@ describe("Agent initialisation failures", () => {
         const ev = await once(scopedAgent, "initFailed");
         assert.ok(ev.detail?.includes("Invalid configuration"), "initFailed fired with config error");
     });
+
+    test("broadcast init error propagates to popup after disconnect", async () => {
+        // Simulate the native host failing during bootstrap (e.g. parcelrc with
+        // incorrect permissions): a broadcast error is sent and the host exits
+        // before the bootstrap event is dispatched.
+        const nativePort = scopedMock.getNativePort("com.github.erayd.parcel");
+        const failedPromise = once(scopedAgent, "initFailed");
+        nativePort.receiver.postMessage({
+            token: "broadcast",
+            error: "parcelrc file must have permissions 0600",
+        });
+        nativePort.receiver.disconnect();
+        const ev = await failedPromise;
+        assert.ok(ev.detail?.includes("parcelrc"), "initFailed fired with parcelrc error");
+
+        // The popup may be opened only after the failure occurred, so the error
+        // must be retained as state and surfaced to a subsequently-connected popup
+        // rather than the generic "Not connected to native host" message.
+        const popup = scopedMock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const errPromise = nextMessage(popup, "error");
+        popup.postMessage({ action: "match", url: "https://example.com" });
+        const err = await errPromise;
+        assert.ok(
+            err.error?.includes("parcelrc file must have permissions 0600"),
+            "popup receives the parcelrc error, not a generic disconnect message",
+        );
+    });
 });
