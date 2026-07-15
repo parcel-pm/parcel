@@ -8,7 +8,7 @@
 | Build the Chrome bundle | `make chrome` | Rebuilds `src/dist/` and syncs it into `chrome/`. |
 | Build the Firefox bundle | `make firefox` | Rebuilds `src/dist/`, syncs it into `firefox/`, rewrites the manifest for Firefox, and switches module content scripts to the `.es6.js` shim. |
 | Format source | `make prettier` | Formats `test/*.{js,json}` and then runs `make -C src prettier`, which writes all `src/**/*.{js,json,less,css,html,xhtml}`. |
-| Install dev dependencies | `make install-deps` | Runs `npm install --ignore-scripts --before 2026-06-10` to fetch Prettier and JSDom. Use this instead of a bare `npm install` so the additional security arguments are respected. |
+| Install dev dependencies | `make install-deps` | Runs `npm install --ignore-scripts --before 2026-06-10` to fetch dev-time dependencies. Use this instead of a bare `npm install` so the additional security arguments are respected. |
 | Clean generated artifacts | `make clean` | Removes `src/dist/`, `chrome/`, `firefox/`, and top-level `dist/`. |
 | Run all tests | `make test` | Runs the full test suite with `node --test` across all `test/*.test.js` files (browser mock, helpers, native host, plaintext, schema, selectors, targets). |
 | Run individual test groups | `make test-native`, `make test-browser-mock`, `make test-modules`, `make test-application`, `make test-syntax` | Native-host integration tests; Chrome-API mock tests; shared-module unit tests; application tests; syntax tests respectively. |
