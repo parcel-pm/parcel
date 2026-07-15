@@ -111,6 +111,8 @@ See your browser's native-messaging documentation for manifest location details:
 - [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
 - [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
 
+Example host manifests for both browsers are provided in the `example/` directory (`com.github.erayd.parcel.chrome.json` and `com.github.erayd.parcel.firefox.json`). Copy the relevant one to your browser's native-messaging directory, adjust the `path` to point at your installed `parcel-host` binary, and rename it to `com.github.erayd.parcel.json`.
+
 The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
 
 ### Configure entry visibility

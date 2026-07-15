@@ -1,0 +1,7 @@
+{
+    "name": "com.github.erayd.parcel",
+    "description": "Native host component for the Parcel extension",
+    "path": "/usr/local/bin/parcel-host",
+    "type": "stdio",
+    "allowed_extensions": ["parcel@erayd.net"]
+}
