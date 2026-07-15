@@ -23,7 +23,7 @@ jobs:
           node-version: '26'
 
       - name: Install dependencies
-        run: make install-deps
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Run tests
         run: make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"
