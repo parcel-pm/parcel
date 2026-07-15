@@ -56,7 +56,7 @@ ENV PWD=/parcel
 # before the repo is mounted in.
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --no-audit --no-fund
+    npm ci --no-audit --no-fund --ignore-scripts --before 2026-06-10
 
 # The repository is NOT copied into the image. Instead, bind-mount the repo
 # directory into /parcel at run time so the container always sees the current
