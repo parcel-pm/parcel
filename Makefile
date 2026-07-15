@@ -6,7 +6,7 @@ ESLINT := $(PWD)/node_modules/.bin/eslint
 
 # Cutoff date for dev-time dependencies. This should be maintained at the oldest date available for
 # which the required dev dependencies can still be resolved, unless security considerations require
-# bumping it forward. The purpose of this cutoff is to reduce the likelihood of# supply-chain attacks
+# bumping it forward. The purpose of this cutoff is to reduce the likelihood of supply-chain attacks
 # against a developer machine. If this is changed, the Dockerfile should also be updated to match.
 DEPS_INSTALL_CUTOFF := '2026-06-10'
 
