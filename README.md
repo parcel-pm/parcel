@@ -39,7 +39,7 @@ Parcel is split into two halves:
 If you wish to run the test suite, you will also need the following:
 
 - **Node.js**
-- **JSDom** and **Prettier** (`npm install`)
+- **JSDom** and **Prettier** (`make install-deps`)
 
 ### Key components
 

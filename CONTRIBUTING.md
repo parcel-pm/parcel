@@ -9,8 +9,8 @@ Please ensure that you are familiar with the [project constitution][1]. In order
 ### Prerequisites
 
 - **Node.js** (for running tests)
-  - **Prettier** (`npm install` or use your package manager)
-  - **JSDom** (`npm install` or use your package manager)
+  - **Prettier** (`make install-deps` or use your package manager)
+  - **JSDom** (`make install-deps` or use your package manager)
 - **jq** >= 1.5
 - **gpg** >= 2.2.20
 - A valid GPG key for signing commits

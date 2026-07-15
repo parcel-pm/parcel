@@ -11,6 +11,10 @@ all: extension chrome firefox
 extension:
 	$(MAKE) VERSION=$(VERSION) -C ./src
 
+.PHONY: install-deps
+install-deps:
+	npm install --ignore-scripts --before 2026-06-10
+
 .PHONY: prettier
 prettier:
 	$(PRETTIER) --write 'test/*.{js,json}'
