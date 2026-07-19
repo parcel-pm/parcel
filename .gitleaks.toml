@@ -1,7 +1,12 @@
 # gitleaks configuration for Parcel.
-# Extends gitleaks' built-in ruleset; the allowlist below excludes vendored
+# `[extend] useDefault = true` loads gitleaks' built-in default rules; without
+# it, a custom config replaces the defaults entirely (which would silently
+# disable all secret detection). The allowlist below then excludes vendored
 # upstream content that we do not own and do not want to scan.
 title = "Parcel gitleaks config"
+
+[extend]
+useDefault = true
 
 [allowlist]
 description = "Ignore vendored/submodule content and generated build outputs"

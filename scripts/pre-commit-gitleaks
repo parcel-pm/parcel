@@ -75,8 +75,10 @@ if [[ -z "$gitleaks_bin" ]]; then
 fi
 
 # --- run gitleaks against staged changes ------------------------------------
-# `protect --staged` scans only the diff being committed. --redact keeps any
-# matched secret out of the terminal output. A non-zero exit blocks the commit.
+# `protect --staged` is deprecated in recent gitleaks v8 releases but still
+# functional; `--redact` keeps matched secrets out of the terminal output.
+# `--staged` scopes the scan to the diff being committed. A non-zero exit
+# blocks the commit.
 exec "$gitleaks_bin" protect \
     --config "$config" \
     --source "$repo_root" \
