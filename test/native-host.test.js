@@ -631,6 +631,38 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("action_configure works when .parcel.json is missing (no hang)", async () => {
+        const env = createTestEnv();
+        // Remove .parcel.json so the host must operate without a config file
+        rmSync(join(env.passdir, ".parcel.json"));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "configure" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.passdir, env.passdir);
+            assert.ok(Array.isArray(msg.data?.rules), `Expected default rules array, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data?.rules.length, 1);
+            assert.strictEqual(msg.data?.rules[0]?.pattern, ".");
+            assert.strictEqual(msg.data?.defaultRules, true);
+            // modified must be >= 1 to pass schema validation (minimum: 1)
+            assert.ok(msg.data?.modified >= 1, `Expected modified >= 1, got: ${msg.data?.modified}`);
+
+            // action_list should also work and return all entries
+            send({ action: "list" });
+            const listMsg = await read();
+            assert.ok(Array.isArray(listMsg.data), `Expected array, got: ${JSON.stringify(listMsg.data)}`);
+            assert.ok(listMsg.data.length > 0, "Expected at least one entry with default rules");
+
+            // A second configure should return the same modified value (stable, no loop)
+            send({ action: "configure" });
+            const msg2 = await read();
+            assert.strictEqual(msg2.data?.modified, msg.data?.modified, "modified should be stable across calls");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_list returns filtered entries sorted by name", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");

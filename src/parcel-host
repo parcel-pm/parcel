@@ -31,7 +31,8 @@ DECRYPT_BUCKET_SIZE_DEFAULT=24 # default also set in schema.js
 DECRYPT_BUCKET_RATE_DEFAULT=0.006667 # default also set in schema.js
 PARCELFILE="$PASSWORD_STORE_DIR/.parcel.json"
 CONFIG="{}"
-CONFIG_MODIFIED=0
+CONFIG_MODIFIED=-1
+REPORT_MODIFIED=0
 
 function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1"
@@ -57,17 +58,32 @@ function load_config() {
         CONFIG_MODIFIED="$(get_mtime "$PARCELFILE")"
     else
         CONFIG="{}"
-        CONFIG_MODIFIED="$(date +%s)"
+        CONFIG_MODIFIED=0
+    fi
+    # Ensure the JSON modified field is always strictly increasing so the
+    # extension's `>` comparison detects every change (file modification,
+    # deletion, and re-creation with an older mtime). When the file's mtime
+    # is not greater than the last value we sent, increment by one instead.
+    if [ "$CONFIG_MODIFIED" -le "$REPORT_MODIFIED" ]; then
+        REPORT_MODIFIED=$((REPORT_MODIFIED + 1))
+    else
+        REPORT_MODIFIED="$CONFIG_MODIFIED"
     fi
     local REALPASSDIR="$(readlink -f "$PASSWORD_STORE_DIR")"
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$CONFIG_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}], defaultRules: true} end)' <<< "$CONFIG")"; then
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}], defaultRules: true} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
 }
 
 # ensure that the config is up to date
 function update_config() {
-    if [[ ! -f "$PARCELFILE" || -f "$PARCELFILE" && "$CONFIG_MODIFIED" -ne "$(get_mtime "$PARCELFILE")" ]]; then
+    local CURRENT_MODIFIED
+    if [ -f "$PARCELFILE" ]; then
+        CURRENT_MODIFIED="$(get_mtime "$PARCELFILE")"
+    else
+        CURRENT_MODIFIED=0
+    fi
+    if [ "$CONFIG_MODIFIED" -ne "$CURRENT_MODIFIED" ]; then
         load_config
         action_list >/dev/null
     fi
