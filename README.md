@@ -249,7 +249,7 @@ Browsers installed via **Snap** (Ubuntu's default packaging for Firefox and Chro
 
 The solutions below use container escape mechanisms (`flatpak-spawn` for Flatpak, the xdg-desktop-portal WebExtensions portal for Firefox Snap) that cause `parcel-host` to run **on the host system** — not inside the sandbox. This means all of Parcel's existing security protections (GPG signature verification, whitelist enforcement, rate limiting, audit logging) apply unchanged.
 
-### Firefox Snap (Ubuntu 22.04+, Firefox 119+)
+### Firefox Snap (Ubuntu 22.04+, Firefox 121+)
 
 The Firefox Snap now supports native messaging via the [xdg-desktop-portal](https://flatpak.github.io/xdg-desktop-portal/) WebExtensions portal. When the browser needs to launch a native host, the portal starts it on the host system, giving `parcel-host` full access to `gpg` and your password store.
 
@@ -307,7 +307,7 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
    flatpak override --user --talk-name=org.freedesktop.Flatpak $APP_ID
    ```
 
-   You can also do this graphically using [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) — enable the **D-Bus session bus** toggle and add `org.freedesktop.Flatpak` to the talk names.
+   You can also do this graphically using [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) — add `org.freedesktop.Flatpak` to the **Session Bus Talk Names** list (there is no need to enable the D-Bus session bus socket itself).
 
 5. Create the native messaging manifest in the browser's config directory. The location depends on the browser:
 
@@ -323,7 +323,7 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
        "$MANIFEST_DIR/com.github.erayd.parcel.json"
    ```
 
-6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. Remove the `allowed_origins` or `allowed_extensions` key as appropriate for your browser (Chrome-based browsers use `allowed_origins`; Firefox uses `allowed_extensions`).
+6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. The manifest includes both `allowed_origins` (used by Chrome-based browsers) and `allowed_extensions` (used by Firefox); each browser ignores the key it does not use, so both can be left in place.
 
 7. Restart the browser and install the Parcel extension.
 
