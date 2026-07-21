@@ -120,6 +120,8 @@ Example host manifests for both browsers are provided in the `example/` director
 
 The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
 
+> **Note:** If your browser is installed via **Snap** or **Flatpak**, the standard setup above will not work because the browser runs in a sandbox. See [Using Parcel with snap & flatpak browsers](#using-parcel-with-snap--flatpak-browsers) for container-specific instructions.
+
 ### Configure entry visibility
 
 Create a `.parcel.json` file at the root of your password store (`~/.password-store/.parcel.json`) to control which entries Parcel can see. If this file is absent, all entries are visible.
@@ -241,7 +243,102 @@ Example `.parcel.json`:
 
 ---
 
-## TOTP / 2FA
+## Using Parcel with snap & flatpak browsers
+
+Browsers installed via **Snap** (Ubuntu's default packaging for Firefox and Chromium) or **Flatpak** run in isolated containers. This means the browser cannot directly see or execute the native host binary, your `~/.password-store` directory, or `gpg` on the host system.
+
+The solutions below use container escape mechanisms (`flatpak-spawn` for Flatpak, the xdg-desktop-portal WebExtensions portal for Firefox Snap) that cause `parcel-host` to run **on the host system** — not inside the sandbox. This means all of Parcel's existing security protections (GPG signature verification, whitelist enforcement, rate limiting, audit logging) apply unchanged.
+
+### Firefox Snap (Ubuntu 22.04+, Firefox 119+)
+
+The Firefox Snap now supports native messaging via the [xdg-desktop-portal](https://flatpak.github.io/xdg-desktop-portal/) WebExtensions portal. When the browser needs to launch a native host, the portal starts it on the host system, giving `parcel-host` full access to `gpg` and your password store.
+
+**Setup steps:**
+
+1. Install `parcel-host` on the host system as per the [standard instructions](#install-the-native-host) (e.g. copy it to `/usr/local/bin/`).
+
+2. Create the native messaging manifest in the standard Firefox location:
+
+   ```bash
+   mkdir -p ~/.mozilla/native-messaging-hosts
+   cp example/com.github.erayd.parcel.firefox.json \
+       ~/.mozilla/native-messaging-hosts/com.github.erayd.parcel.json
+   ```
+
+3. Edit the manifest and adjust the `path` field to point to your installed `parcel-host` binary (e.g. `/usr/local/bin/parcel-host`).
+
+4. Grant the Firefox Snap permission to call the native host:
+
+   ```bash
+   flatpak permission-set webextensions com.github.erayd.parcel snap.firefox yes
+   ```
+
+5. Restart Firefox and install the Parcel extension from the [Firefox Add-ons store](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/).
+
+### Flatpak browsers (Firefox, ungoogled-chromium, Brave, etc.)
+
+Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the host system. An example wrapper script is provided in `example/parcel-flatpak-wrapper.sh`.
+
+**Setup steps:**
+
+1. Install `parcel-host` on the host system as per the [standard instructions](#install-the-native-host).
+
+2. Create a directory inside the Flatpak browser's visible config:
+
+   ```bash
+   # Example for Firefox Flatpak — replace the app ID for other browsers
+   APP_ID="org.mozilla.firefox"
+   mkdir -p ~/.var/app/$APP_ID/.config/parcel
+   ```
+
+3. Copy the wrapper script into this directory and make it executable:
+
+   ```bash
+   cp example/parcel-flatpak-wrapper.sh \
+       ~/.var/app/$APP_ID/.config/parcel/parcel-flatpak-wrapper.sh
+   chmod +x ~/.var/app/$APP_ID/.config/parcel/parcel-flatpak-wrapper.sh
+   ```
+
+   If `parcel-host` is not in the default `PATH` on your host, edit the wrapper and set `PARCEL_HOST_PATH` to the full path (e.g. `/usr/local/bin/parcel-host`).
+
+4. Grant the Flatpak browser permission to talk to the host via `flatpak-spawn`:
+
+   ```bash
+   flatpak override --user --talk-name=org.freedesktop.Flatpak $APP_ID
+   ```
+
+   You can also do this graphically using [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) — enable the **D-Bus session bus** toggle and add `org.freedesktop.Flatpak` to the talk names.
+
+5. Create the native messaging manifest in the browser's config directory. The location depends on the browser:
+
+   ```bash
+   # Firefox Flatpak:
+   MANIFEST_DIR=~/.var/app/$APP_ID/.mozilla/native-messaging-hosts
+
+   # Chromium-based Flatpak (ungoogled-chromium, Brave, etc.):
+   # MANIFEST_DIR=~/.var/app/$APP_ID/config/chromium/NativeMessagingHosts
+
+   mkdir -p "$MANIFEST_DIR"
+   cp example/com.github.erayd.parcel.flatpak.json \
+       "$MANIFEST_DIR/com.github.erayd.parcel.json"
+   ```
+
+6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. Remove the `allowed_origins` or `allowed_extensions` key as appropriate for your browser (Chrome-based browsers use `allowed_origins`; Firefox uses `allowed_extensions`).
+
+7. Restart the browser and install the Parcel extension.
+
+### Chromium Snap
+
+The Chromium Snap does **not** support native messaging — it does not implement the xdg-desktop-portal WebExtensions portal, and there is no mechanism for the browser to launch the host binary on the system outside the sandbox.
+
+Until Snap upstream adds native messaging support for Chromium, the recommended alternatives are:
+
+- **Use the Flatpak version** of Chromium or another Chromium-based browser (see [Flatpak browsers](#flatpak-browsers-firefox-ungoogled-chromium-brave-etc) above).
+- **Use a `.deb`-installed browser** instead of the Snap (e.g. `apt install google-chrome-stable` or switch to a PPA).
+
+---
+
+## TOTP / 2FA support
 
 Parcel can generate time-based one-time passwords (TOTP, [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)) from a secret stored in a pass entry and fill them into the page's OTP input field — just like a regular password. Token generation uses the browser's built-in [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) (HMAC-SHA1); no third-party library is involved.
 
