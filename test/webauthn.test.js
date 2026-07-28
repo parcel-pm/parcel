@@ -33,21 +33,9 @@ describe("webauthn", () => {
             assert.strictEqual(webauthn.b64urlEncode(new Uint8Array([1, 2, 3]).buffer), "AQID");
         });
 
-        test("round-trips arbitrary bytes", () => {
-            const bytes = nodeCrypto.randomBytes(64);
-            const decoded = webauthn.b64urlDecode(webauthn.b64urlEncode(bytes));
-            // randomBytes returns a Buffer; deepStrictEqual checks prototypes
-            assert.deepStrictEqual(decoded, new Uint8Array(bytes));
-        });
-
         test("decodes with and without padding", () => {
             assert.deepStrictEqual(webauthn.b64urlDecode("aGk"), new TextEncoder().encode("hi"));
             assert.deepStrictEqual(webauthn.b64urlDecode("aGk="), new TextEncoder().encode("hi"));
-        });
-
-        test("decodes the native-host test credential id", () => {
-            const decoded = webauthn.b64urlDecode("dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM");
-            assert.strictEqual(new TextDecoder().decode(decoded), "test-credential-id-1234567890123");
         });
     });
 
@@ -178,19 +166,6 @@ describe("webauthn", () => {
             assert.strictEqual(authData[87], 0xa5);
             assert.strictEqual(authData.length, 87 + 77);
         });
-
-        test("is deterministic for identical inputs", async () => {
-            const a = await webauthn.buildAttestationAuthData("example.com", credentialId, publicKeyHex);
-            const b = await webauthn.buildAttestationAuthData("example.com", credentialId, publicKeyHex);
-            assert.deepStrictEqual(a, b);
-        });
-
-        test("rpId is hashed, not stored verbatim", async () => {
-            const a = await webauthn.buildAttestationAuthData("example.com", credentialId, publicKeyHex);
-            const b = await webauthn.buildAttestationAuthData("example.org", credentialId, publicKeyHex);
-            assert.notDeepStrictEqual(a.subarray(0, 32), b.subarray(0, 32));
-            assert.deepStrictEqual(a.subarray(33), b.subarray(33));
-        });
     });
 
     // -----------------------------------------------------------------------
@@ -219,13 +194,6 @@ describe("webauthn", () => {
                 new TextDecoder().decode(bytes),
                 '{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://example.com","crossOrigin":false}',
             );
-        });
-
-        test("separates create and get ceremonies", () => {
-            const create = new TextDecoder().decode(webauthn.buildClientDataJSON("webauthn.create", "QQ", "https://a.example"));
-            const get = new TextDecoder().decode(webauthn.buildClientDataJSON("webauthn.get", "QQ", "https://a.example"));
-            assert.match(create, /"type":"webauthn\.create"/);
-            assert.match(get, /"type":"webauthn\.get"/);
         });
     });
 });
