@@ -252,6 +252,22 @@ describe("Integration script", { concurrency: false }, () => {
         await promise;
     });
 
+    test("button without type attribute triggers untargeted-click", async () => {
+        clearBody();
+        // A <button> without an explicit type attribute defaults to
+        // type="submit" per the HTML spec, but hasAttribute("type") is
+        // false. The type guard in getTargetInfo must still reject it so
+        // the popup does not appear when clicking a submit button.
+        const button = document.createElement("button");
+        button.setAttribute("name", "login");
+        button.textContent = "Log In";
+        document.body.appendChild(button);
+        const triggerReceiver = portReceivers["trigger"];
+        const promise = nextMessage(triggerReceiver, "untargeted-click", 3000);
+        await click(button);
+        await promise;
+    });
+
     test("simple username field is detected as login type", async () => {
         clearBody();
         const input = makeInput({ type: "email", name: "user" });
