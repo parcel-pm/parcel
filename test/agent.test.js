@@ -363,6 +363,7 @@ describe("Agent", () => {
      * `shared/fido/` entries are rule-classed as passkeys (outside the default
      * `passkeys/` prefix); `passkeys/example.com/alice` is deliberately left
      * unclassed to exercise class-only candidacy; `test/bob` is a login entry.
+     * `github.com` carries `useBrowserPasskeys` to exercise defer-to-browser.
      * @returns {Promise<void>}
      */
     async function configurePasskeyStore() {
@@ -372,6 +373,7 @@ describe("Agent", () => {
             rules: [
                 { pattern: "^test/", class: "login" },
                 { pattern: "^shared/fido/", class: "passkey" },
+                { pattern: "^github\\.com$", useBrowserPasskeys: true },
             ],
         };
         uninstallNativeHandler(mock, handler);
@@ -479,6 +481,42 @@ describe("Agent", () => {
         });
         const msg = await errorPromise;
         assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
+    });
+
+    test("sites with useBrowserPasskeys rules defer WebAuthn ceremonies to the browser", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const fallbackPromise = nextMessage(passkey, "passkey-fallback");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "candidates",
+            origin: "https://github.com",
+            rpId: "github.com",
+        });
+        await fallbackPromise; // no candidates, no popup - straight to the platform handler
+    });
+
+    test("useBrowserPasskeys on an ignore rule does not defer", async () => {
+        // empty entry store; only the ignored-defer rule matters
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure")
+                return {
+                    ...makeValidConfig(),
+                    modified: 1,
+                    rules: [{ pattern: "^ignored\\.com$", ignore: true, useBrowserPasskeys: true }],
+                };
+            if (msg.action === "list") return [];
+            if (msg.action === "changes_since") return { changes: false };
+        });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://ignored.com", rpId: "ignored.com" });
+        const msg = await candidatesPromise; // defer did not fire; candidates posted (empty list)
+        assert.deepStrictEqual(msg.candidates, []);
     });
 });
 

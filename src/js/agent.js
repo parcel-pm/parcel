@@ -487,6 +487,18 @@ export class Agent extends EventTarget {
                     // passkey ceremony: list candidates, sign an assertion, or create a credential
                     if (!this.#config.passkeys) throw new Error("Passkey support is disabled.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
+                    // sites whose rules carry useBrowserPasskeys defer every WebAuthn ceremony
+                    // to the platform/browser handler without prompting. Rules patterns are
+                    // entry-name regexes, so matching here is against the rpId: only rules
+                    // intentionally written for a site's rpId take effect
+                    if (
+                        this.#config.rules?.some(
+                            (rule) => !rule.ignore && rule.useBrowserPasskeys && new RegExp(rule.pattern, "u").test(rpId),
+                        )
+                    ) {
+                        port.postMessage({ action: "passkey-fallback" });
+                        return;
+                    }
                     if (message.phase === "candidates") {
                         updateStatus("Searching for passkey entries...");
                         // offers are classification-driven: any rule-classed passkey entry is

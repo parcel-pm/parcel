@@ -184,7 +184,9 @@ HOST_HASH="b7b76abadd3f13e6bcf554c39547d44ae19a299c8fc2e73ae8cbccd9a34d9b40"
 `.parcel.json` is a JSON file read by the main host script (`src/parcel-host`). It controls which password entries are visible to Parcel, how they are displayed, and several extension-level behaviours. The file is reloaded automatically when it changes.
 
 **Location:** `$PASSWORD_STORE_DIR/.parcel.json`
-If absent, the host treats it as `{}` and injects a default `rules` array of `[{ "pattern": "." }]` (i.e. all entries visible).
+If absent, the host treats it as `{}` and injects default rules of
+`[{ "pattern": "^passkeys/", "class": "passkey" }, { "pattern": "." }]` (passkey entries under
+the default `passkeyDir` are classed as passkeys; everything else is visible as logins).
 
 #### Rules
 
@@ -198,6 +200,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
+| `useBrowserPasskeys` | boolean | `false` | On a matching rule (whose pattern must match the *site's rpId*, not an entry name), always use the platform/browser passkey handler for that site without showing Parcel's consent popup. Ignored rules with this flag never trigger the deferral. |
 
 #### Other options
 
