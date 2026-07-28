@@ -271,6 +271,7 @@ body.passkey-popup {
         color: var(--color-text);
         font-family: "Noto Sans Mono", monospace;
         font-size: 0.75em;
+        margin: 8px 0;
         resize: none;
         width: 100%;
     }
