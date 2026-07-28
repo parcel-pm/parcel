@@ -283,7 +283,6 @@ body.passkey-popup {
     .passkey-buttons {
         display: flex;
         flex-wrap: wrap;
-        flex-wrap: wrap;
         gap: 6px;
         button {
             background-color: var(--color-modal-item-bg);

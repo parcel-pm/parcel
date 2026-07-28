@@ -1683,6 +1683,10 @@ describe("Integration script", { concurrency: false }, () => {
                 const trigger = await popupPromise;
                 const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
                 await settleAsync();
+                const container = document.querySelector(".parcel-popup.mode-passkey");
+                assert.ok(container, "passkey popup should render in a mode-passkey container");
+                assert.strictEqual(container.style.position, "fixed", "passkey container should be a fullscreen scrim");
+                assert.ok(container.style.backgroundColor, "passkey scrim should dim the page");
                 const contextPromise = nextMessage(popup, "passkey-context", 3000);
                 popup.postMessage({ action: "ready" });
                 await contextPromise;
