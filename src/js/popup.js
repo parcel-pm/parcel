@@ -712,6 +712,22 @@
     }
 
     /**
+     * Build the self-contained shell snippet that saves an armored passkey entry to disk.
+     * Paths are single-quote-escaped and the heredoc delimiter is quoted so the blob
+     * cannot be mangled by shell expansion.
+     *
+     * @since 1.0.4
+     * @param {string} file - Absolute path of the entry file to write.
+     * @param {string} content - Armored, already-encrypted entry content.
+     * @returns {string} The shell command.
+     */
+    function buildPasskeySaveCommand(file, content) {
+        const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+        const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
+        return `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${content}\nEOF\n`;
+    }
+
+    /**
      * Initialise the passkey consent ceremony interface: replace the fill view with the
      * ceremony view, render the ceremony context when it arrives from the content script,
      * and wire the consent/cancel/fallback actions back over the tab port. Creation is
@@ -731,18 +747,10 @@
         const elCreate = document.getElementById("passkey-create");
         const elFallback = document.getElementById("passkey-fallback");
         const elCopy = document.getElementById("passkey-copy");
-        const elPath = document.getElementById("passkey-path");
-        const elCopyCommand = document.getElementById("passkey-copy-command");
-        elCopyCommand.addEventListener("click", async () => {
-            const elBlob = document.getElementById("passkey-blob");
-            const file = elPath.textContent.trim();
-            if (!elBlob.value || !file) return;
-            // self-contained shell snippet: quoted heredoc so no expansion can touch the blob
-            const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
-            const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
-            const command = `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${elBlob.value}\nEOF\n`;
-            if (!(await copyText(command))) elBlob.select(); // copy failed - expose the blob for manual copying
-        });
+        // the raw armored entry and its target path, kept separately from the textarea
+        // (which shows the full shell command) so downloads stay pristine
+        let passkeySaveFile = "";
+        let passkeySaveContent = "";
 
         document.body.classList.add("passkey-popup");
         elRoot.classList.remove("hidden");
@@ -775,12 +783,10 @@
             }
         });
         document.getElementById("passkey-download").addEventListener("click", () => {
-            const elBlob = document.getElementById("passkey-blob");
-            const content = elBlob.value;
-            if (!content) return;
+            if (!passkeySaveContent) return;
             // the blob is already encrypted ciphertext; an anchor download needs no extra permission
-            const filename = elPath.textContent.split("/").pop() || "passkey.gpg";
-            const url = URL.createObjectURL(new Blob([content + "\n"], { type: "application/pgp-encrypted" }));
+            const filename = passkeySaveFile.split("/").pop() || "passkey.gpg";
+            const url = URL.createObjectURL(new Blob([passkeySaveContent + "\n"], { type: "application/pgp-encrypted" }));
             const link = document.createElement("a");
             link.href = url;
             link.download = filename;
@@ -838,8 +844,9 @@
                 // the entry out-of-band and confirm before the ceremony completes
                 elCreate.classList.add("hidden");
                 elFallback.classList.add("hidden");
-                elPath.textContent = msg.file || msg.path;
-                document.getElementById("passkey-blob").value = msg.armored;
+                passkeySaveFile = msg.file || msg.path;
+                passkeySaveContent = msg.armored || "";
+                document.getElementById("passkey-blob").value = buildPasskeySaveCommand(passkeySaveFile, passkeySaveContent);
                 document.querySelector("#status").textContent = "Save the new passkey entry to continue";
                 elSave.classList.remove("hidden");
                 document.getElementById("passkey-ack").focus();

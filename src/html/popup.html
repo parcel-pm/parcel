@@ -165,25 +165,12 @@
             <ul id="passkey-entries"></ul>
             <div id="passkey-save" class="hidden">
                 <p>
-                    Parcel created a new passkey, but cannot store it for you. Save the entry below to your password store, then confirm
-                    here.
+                    Parcel created a new passkey, but cannot store it for you. Run the command below in a terminal &mdash; or download the
+                    file and move it to the path in the command &mdash; then confirm here.
                 </p>
-                <p class="passkey-command">
-                    cat &gt; <code id="passkey-path"></code>
-                    <button
-                        id="passkey-copy-command"
-                        class="copy"
-                        type="button"
-                        aria-label="Copy save command"
-                        title="Copy save command"
-                    ></button>
-                </p>
-                <p class="passkey-hint">
-                    Paste the blob below into the file &mdash; it is already encrypted &mdash; or download it and move it to that path.
-                </p>
-                <textarea id="passkey-blob" rows="10" readonly></textarea>
+                <textarea id="passkey-blob" rows="12" readonly></textarea>
                 <div class="passkey-buttons">
-                    <button id="passkey-copy" type="button">Copy</button>
+                    <button id="passkey-copy" type="button">Copy command</button>
                     <button id="passkey-download" type="button">Download .gpg file</button>
                     <button id="passkey-ack" type="button">Done</button>
                 </div>
