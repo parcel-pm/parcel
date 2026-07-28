@@ -1595,7 +1595,11 @@ describe("action_passkey", () => {
         const env = createPasskeyEnv();
         writeFileSync(
             join(env.passdir, ".parcel.json"),
-            JSON.stringify({ rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }], decryptBucket: 1, decryptRate: 0.0000001 }),
+            JSON.stringify({
+                rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }],
+                decryptBucket: 1,
+                decryptRate: 0.0000001,
+            }),
         );
         const { proc, read, send } = await installMainScript(env);
         try {
