@@ -340,6 +340,29 @@ describe("Defined schemas", () => {
         assert.doesNotThrow(() => Schema.validate(MetaSchema, ConfigSchema));
     });
 
+    test("ConfigSchema: passkeyDir defaults to 'passkeys'", () => {
+        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }] };
+        Schema.validate(ConfigSchema, config);
+        assert.strictEqual(config.passkeyDir, "passkeys");
+    });
+
+    test("ConfigSchema: passkeyDir permits unicode, spaces, dots and traversal", () => {
+        for (const passkeyDir of ["我的密钥", "My Keys", "../elsewhere", ".hidden", "a//b", "/abs", "a.b/c"]) {
+            const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir };
+            assert.doesNotThrow(() => Schema.validate(ConfigSchema, config), `expected ${passkeyDir} to be accepted`);
+        }
+    });
+
+    test("ConfigSchema: rejects control characters and glob metacharacters in passkeyDir", () => {
+        for (const passkeyDir of ["bad\ndir", "bad\tdir", "bad*dir", "bad?dir", "bad[dir", "bad\\dir"]) {
+            assert.throws(
+                () => Schema.validate(ConfigSchema, { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir }),
+                /passkeyDir/,
+                `expected ${JSON.stringify(passkeyDir)} to be rejected`,
+            );
+        }
+    });
+
     test("SelectorSchema: accepts relatedNever boolean and defaults to false", () => {
         const data = [{ selector: "input[name=test]", type: "login" }];
         Schema.validate(SelectorSchema, data);

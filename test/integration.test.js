@@ -48,6 +48,7 @@ function makeValidConfig(overrides = {}) {
     return {
         modified: 1,
         passdir: "/home/test/.password-store",
+        passkeyDir: "passkeys",
         rules: [{ pattern: "^test/.*$", class: "login", color: "ff0000", ignore: false }],
         cacheTTL: 10,
         decryptTimeout: 60,

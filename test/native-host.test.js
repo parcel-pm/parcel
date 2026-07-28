@@ -1741,6 +1741,117 @@ describe("action_passkey", () => {
         }
     });
 
+    test("create honors a custom passkeyDir from config", async () => {
+        const env = createPasskeyEnv();
+        writeFileSync(
+            join(env.passdir, ".parcel.json"),
+            JSON.stringify({ passkeyDir: "keys", rules: [{ pattern: "^keys/", class: "passkey" }, { pattern: "." }] }),
+        );
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+            send({
+                action: "passkey",
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                userHandle: "dXNlci1oYW5kbGUtNQ",
+                userName: "erin@example.com",
+                userDisplayName: "Erin",
+                path: "keys/example.com/erin.gpg",
+            });
+            const msg = await read();
+            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data.op, "create");
+            assert.strictEqual(msg.data.path, "keys/example.com/erin.gpg");
+            assert.strictEqual(msg.data.file, join(env.passdir, "keys", "example.com", "erin.gpg"));
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("create with a custom passkeyDir rejects the default prefix", async () => {
+        const env = createPasskeyEnv();
+        writeFileSync(
+            join(env.passdir, ".parcel.json"),
+            JSON.stringify({ passkeyDir: "keys", rules: [{ pattern: "^keys/", class: "passkey" }, { pattern: "." }] }),
+        );
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({
+                action: "passkey",
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                userHandle: "dXNlcg",
+                userName: "mallory",
+                userDisplayName: "Mallory",
+                path: "passkeys/example.com/mallory.gpg",
+            });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Invalid suggested path"), `Expected path error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("create honors a passkeyDir containing spaces and unicode", async () => {
+        const env = createPasskeyEnv();
+        writeFileSync(
+            join(env.passdir, ".parcel.json"),
+            JSON.stringify({ passkeyDir: "我的密钥 dir", rules: [{ pattern: "^我的密钥 dir/", class: "passkey" }, { pattern: "." }] }),
+        );
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+            send({
+                action: "passkey",
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                userHandle: "dXNlci1oYW5kbGUtNg",
+                userName: "fang@example.com",
+                userDisplayName: "Fang",
+                path: "我的密钥 dir/example.com/fang.gpg",
+            });
+            const msg = await read();
+            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data.op, "create");
+            assert.strictEqual(msg.data.path, "我的密钥 dir/example.com/fang.gpg");
+            assert.strictEqual(msg.data.file, join(env.passdir, "我的密钥 dir", "example.com", "fang.gpg"));
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("create rejects an invalid passkeyDir in config", async () => {
+        const env = createPasskeyEnv();
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ passkeyDir: "keys*", rules: [{ pattern: "." }] }));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({
+                action: "passkey",
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                userHandle: "dXNlcg",
+                userName: "mallory",
+                userDisplayName: "Mallory",
+                path: "keys*/example.com/mallory.gpg",
+            });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Invalid passkeyDir in config"), `Expected config error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("create rejects an invalid userHandle", async () => {
         const env = createPasskeyEnv();
         const { proc, read, send } = await installMainScript(env);
@@ -1757,6 +1868,27 @@ describe("action_passkey", () => {
             });
             const msg = await read();
             assert.ok(msg.error?.includes("Invalid user handle"), `Expected handle error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("create rejects a request missing an rpId", async () => {
+        const env = createPasskeyEnv();
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({
+                action: "passkey",
+                op: "create",
+                origin: "https://example.com",
+                userHandle: "dXNlcg",
+                userName: "mallory",
+                userDisplayName: "Mallory",
+                path: "passkeys/null/mallory.gpg",
+            });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Invalid relying party id"), `Expected rpId error, got: ${JSON.stringify(msg)}`);
         } finally {
             proc.kill();
             env.cleanup();

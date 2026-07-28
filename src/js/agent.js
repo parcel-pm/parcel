@@ -283,14 +283,14 @@ export class Agent extends EventTarget {
 
     /**
      * Determine whether an entry is eligible for password fill.
-     * Passkey entries (name prefix `passkeys/`, or a rule classified `passkey`) are used by the
-     * WebAuthn ceremony flow only and must never appear in fill results.
+     * Passkey entries (under the configured `passkeyDir`, or a rule classified `passkey`) are used
+     * by the WebAuthn ceremony flow only and must never appear in fill results.
      * @since 1.0.4
      * @param {object} entry - The pass entry.
      * @returns {boolean} `true` if the entry may be offered for form fill.
      */
     #isFillEntry(entry) {
-        return !entry.name.startsWith("passkeys/") && entry.rule?.class !== "passkey";
+        return !entry.name.startsWith(`${this.#config.passkeyDir}/`) && entry.rule?.class !== "passkey";
     }
 
     /**
@@ -489,14 +489,14 @@ export class Agent extends EventTarget {
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
                     if (message.phase === "candidates") {
                         updateStatus("Searching for passkey entries...");
-                        const prefix = `passkeys/${rpId}/`;
+                        const prefix = `${this.#config.passkeyDir}/${rpId}/`;
                         const candidates = (await this.#getEntries())
                             .filter((entry) => entry.name.startsWith(prefix))
                             .map((entry) => ({ name: entry.name, path: entry.path }));
                         clearStatus();
                         port.postMessage({ action: "passkey-candidates", rpId, candidates });
                     } else if (message.phase === "assert") {
-                        const pathPrefix = `${this.#config.passdir}/passkeys/${rpId}/`;
+                        const pathPrefix = `${this.#config.passdir}/${this.#config.passkeyDir}/${rpId}/`;
                         if (!message.path?.startsWith(pathPrefix) || message.path.includes("..")) {
                             throw new Error(`Invalid passkey entry path: ${message.path}`);
                         }

@@ -811,7 +811,7 @@
          * @param {object} context - Ceremony context `{op, rpId, origin, candidates, user}`.
          * @returns {void}
          */
-        function renderPasskeyContext(context) {
+        async function renderPasskeyContext(context) {
             elActions.classList.remove("hidden");
             elOrigin.textContent = `Requested by ${context.origin}`;
             if (context.op === "create") {
@@ -824,7 +824,7 @@
             } else {
                 elTitle.textContent = `Sign in to ${context.rpId} with a passkey?`;
                 elCreate.classList.add("hidden");
-                const prefix = `passkeys/${context.rpId}/`;
+                const prefix = `${(await config).passkeyDir}/${context.rpId}/`;
                 for (const candidate of context.candidates) {
                     const button = document.createElement("button");
                     button.type = "button";

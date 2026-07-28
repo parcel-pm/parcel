@@ -893,6 +893,7 @@
                 rpId: validRpId,
                 options: req.options,
                 candidates,
+                passkeyDir: (await config).passkeyDir,
                 minted: null,
             };
             authPort.postMessage(token);
@@ -1001,7 +1002,7 @@
                         userHandle: binding.options.user?.id,
                         userName: binding.options.user?.name,
                         userDisplayName: binding.options.user?.displayName,
-                        path: `passkeys/${binding.rpId}/${slugifyPasskeyName(binding.options.user?.name)}.gpg`,
+                        path: `${binding.passkeyDir}/${binding.rpId}/${slugifyPasskeyName(binding.options.user?.name)}.gpg`,
                     });
                     binding.createClientData = clientDataBytes;
                     binding.minted = result;

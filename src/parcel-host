@@ -448,7 +448,7 @@ function audit_passkey() {
 function action_passkey() {
     update_config
     local OP="$(jq -r '.op' <<< "$1")"
-    local RP_ID="$(jq -r '.rpId' <<< "$1")"
+    local RP_ID="$(jq -r '.rpId // empty' <<< "$1")"
     local ORIGIN="$(jq -r '.origin' <<< "$1")"
 
     if ! command -v openssl &>/dev/null; then
@@ -606,13 +606,31 @@ function passkey_op_create() {
     local USER_NAME="$(jq -r '.userName' <<< "$1")"
     local USER_DISPLAY="$(jq -r '.userDisplayName' <<< "$1")"
     local SUGGESTED="$(jq -r '.path' <<< "$1")"
+    local PASSKEY_DIR="$(jq -r '.passkeyDir // "passkeys"' <<< "$CONFIG")"
 
     if [[ ! "$USER_HANDLE" =~ ^[A-Za-z0-9_-]{1,86}$ ]]; then
         parcel_error "Invalid user handle"
         return 0
     fi
-    # the suggested path is advice only - parcel never writes entry files itself
-    if [[ "$SUGGESTED" != "passkeys/$RP_ID/"* ]] || [[ "$SUGGESTED" == *..* ]]; then
+    # the passkey directory anchor is user-controlled; control characters would
+    # break the single-line audit format, and glob metacharacters must never
+    # appear where path prefixes are compared so the checks below stay literal
+    # at every current and future call site
+    if [[ -z "$PASSKEY_DIR" || "$PASSKEY_DIR" =~ [[:cntrl:]] || "$PASSKEY_DIR" =~ [\*\?\[\\] ]]; then
+        audit_passkey "Denied (invalid passkeyDir)" "$ORIGIN" ""
+        parcel_error "Invalid passkeyDir in config: $PASSKEY_DIR"
+        return 0
+    fi
+    # the suggested path is advice only - parcel never writes entry files itself;
+    # the anchor itself may point anywhere the user configured, but the
+    # page-influenced tail ($RP_ID/<basename>) must not traverse past it; $RP_ID
+    # was already restricted to hostname syntax by action_passkey
+    if [[ "$SUGGESTED" != "$PASSKEY_DIR/$RP_ID/"* ]]; then
+        parcel_error "Invalid suggested path: $SUGGESTED"
+        return 0
+    fi
+    local TAIL="${SUGGESTED#"$PASSKEY_DIR/"}"
+    if [[ "$TAIL" == *..* ]]; then
         parcel_error "Invalid suggested path: $SUGGESTED"
         return 0
     fi

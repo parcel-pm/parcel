@@ -214,6 +214,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
 | `passkeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
+| `passkeyDir` | string | `passkeys` | Store-relative directory under which passkey entries live (`<passkeyDir>/<rpId>/<account>.gpg`). Control characters and the glob metacharacters `* ? [ \` are not permitted; spaces, unicode and dot segments are allowed. External storage is supported via symlinks (subject to the links policy): point `passkeyDir` at the symlink's in-store location. A `passkeyDir` containing literal `..` segments names entries the store scan can never list, so such passkeys can be created but not used for assertions. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
@@ -294,7 +295,7 @@ User verification is reported to the site as satisfied: consent is given interac
 
 ### Passkey entry format
 
-Passkeys live under `passkeys/<rpId>/<account>.gpg` in your password store:
+Passkeys live under `<passkeyDir>/<rpId>/<account>.gpg` in your password store (`passkeys/<rpId>/<account>.gpg` with the default `passkeyDir` configuration):
 
 ```
 parcel-passkey v1

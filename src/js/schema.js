@@ -212,6 +212,13 @@ export const ConfigSchema = {
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },
         modified: { type: "integer", required: true, minimum: 1 },
         passdir: { type: "string", required: true },
+        passkeyDir: {
+            type: "string",
+            required: true,
+            minLength: 1,
+            pattern: "^[^\\x00-\\x1f\\x7f*?[\\\\]+$",
+            default: "passkeys",
+        },
         passkeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
