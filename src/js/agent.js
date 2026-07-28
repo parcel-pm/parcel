@@ -747,7 +747,9 @@ export class Agent extends EventTarget {
      * The effective rpId defaults to the origin hostname, must be equal to it or a
      * suffix-boundary ancestor of it, and must not itself be a public suffix (so a
      * credential can never be scoped to a domain the caller does not control).
-     * Localhost origins skip the public-suffix check to support local development.
+     * The rpId is normalised to lowercase because domain names are case-insensitive
+     * and `URL.hostname` already returns lowercase. Localhost origins skip the
+     * public-suffix check to support local development.
      *
      * @since 1.0.4
      * @param {string} origin - The calling page origin (e.g. "https://app.example.com").
@@ -762,7 +764,7 @@ export class Agent extends EventTarget {
         if (url.protocol !== "https:" && !isLocalhost) {
             throw new Error(`Passkey ceremonies require a secure context: ${origin}`);
         }
-        const effectiveRpId = rpId || host;
+        const effectiveRpId = (rpId || host).toLowerCase();
         if (effectiveRpId !== host && !host.endsWith(`.${effectiveRpId}`)) {
             throw new Error(`RP ID "${effectiveRpId}" is not a registrable suffix of "${host}"`);
         }

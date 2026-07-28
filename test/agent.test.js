@@ -460,7 +460,7 @@ describe("Agent", () => {
         assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
     });
 
-    test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
+    test("passkey assertion normalises a mixed-case rpId", async () => {
         await configurePasskeyStore();
         const passkey = mock.chrome.runtime.connect({ name: "passkey" });
         await settleAsync();
@@ -470,7 +470,7 @@ describe("Agent", () => {
             phase: "assert",
             path: "/home/test/.password-store/shared/fido/alice.gpg",
             origin: "https://login.example.com",
-            rpId: "example.com",
+            rpId: "Example.com",
             clientDataJSON: "Y2xpZW50",
             allowCredentials: [],
         });
