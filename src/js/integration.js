@@ -94,7 +94,7 @@
             if (msg?.action === "trigger-popup") {
                 triggerPopup(msg.token, msg.frameId, msg.position, msg.origin, msg.mode);
             } else if (msg?.action === "close-popup") {
-                document.querySelectorAll(".parcel-popup").forEach((popup) => popup.remove());
+                document.querySelectorAll(".parcel-popup").forEach((popup) => removePopup(popup));
             } else if (msg?.action === "resize-popup") {
                 const popup = document.querySelector(".parcel-popup");
                 if (popup) popup._resizeFn(msg.width, msg.height);
@@ -111,7 +111,7 @@
 
                     const popupRect = popup.getBoundingClientRect();
                     if (!(msg.x >= popupRect.left && msg.x <= popupRect.right && msg.y >= popupRect.top && msg.y <= popupRect.bottom))
-                        popup.remove();
+                        removePopup(popup);
                 }
             }
         });
@@ -377,6 +377,25 @@
     }
 
     /**
+     * Remove a popup element from the page. Passkey ceremony scrims fade out over 350ms
+     * before removal; all other popups are removed immediately.
+     *
+     * @since 1.0.4
+     * @param {HTMLElement} popup - The `.parcel-popup` element to remove.
+     * @returns {void}
+     */
+    function removePopup(popup) {
+        if (!popup.classList.contains("mode-passkey") || popup.classList.contains("parcel-ceremony-closing")) {
+            popup.remove();
+            return;
+        }
+        popup.classList.add("parcel-ceremony-closing");
+        const cleanup = () => popup.remove();
+        popup.addEventListener("animationend", cleanup, { once: true });
+        setTimeout(cleanup, 450); // fail-safe if animationend never fires
+    }
+
+    /**
      * Trigger a popup for the given element, anchoring it to the element's position.
      * When `position.centered` is true (passkey ceremonies), the popup is centred in the
      * viewport instead of being anchored to an element.
@@ -391,7 +410,7 @@
     async function triggerPopup(token, frameId, position, _origin = null, mode = null) {
         // remove old popups
         for (const popup of [...Helpers.shadowSelectorAll(".parcel-popup")]) {
-            popup.remove();
+            removePopup(popup);
             if (popup._parcelToken === token) return; // Don't reopen the popup if we just clicked its target field to close it
         }
 
@@ -485,6 +504,15 @@
                         : ""
                 }
             }
+        }
+        ${
+            mode === "passkey"
+                ? // scrim fades in on creation, out when removal is requested via removePopup()
+                  `:host { animation: parcel-ceremony-fade-in 350ms ease-out both; }
+                   :host(.parcel-ceremony-closing) { animation: parcel-ceremony-fade-out 350ms ease-in both; }
+                   @keyframes parcel-ceremony-fade-in { from { opacity: 0; } to { opacity: 1; } }
+                   @keyframes parcel-ceremony-fade-out { from { opacity: 1; } to { opacity: 0; } }`
+                : ""
         }`;
         root.appendChild(style);
 
