@@ -318,10 +318,7 @@ body.passkey-popup {
         font-weight: bold;
         margin: -8px -8px 0;
         padding: 6px 8px;
-    }
-    #passkey-conflict-origin {
-        color: var(--color-text-muted);
-        font-size: 0.85em;
+        /* origins can be unbroken text; never let one blow out the header */
         word-break: break-all;
     }
     .passkey-buttons {

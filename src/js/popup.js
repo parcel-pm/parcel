@@ -873,8 +873,8 @@
         elRoot.classList.remove("hidden");
 
         tabPort.onMessage.addListener((msg) => {
-            if (msg?.action === "passkey-conflict-context") {
-                document.getElementById("passkey-conflict-origin").textContent = `Notice for ${msg.context?.origin || "this site"}`;
+            if (msg?.action === "passkey-conflict-context" && msg.context?.origin) {
+                document.getElementById("passkey-conflict-origin").textContent = msg.context.origin;
             }
         });
         document.getElementById("passkey-conflict-dismiss").addEventListener("click", () => {
