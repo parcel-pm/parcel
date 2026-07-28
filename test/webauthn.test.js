@@ -166,8 +166,11 @@ describe("webauthn", () => {
             assert.strictEqual(authData[32], 0x5d);
             // sign count zero
             assert.deepStrictEqual(authData.subarray(33, 37), new Uint8Array(4));
-            // AAGUID zero
-            assert.deepStrictEqual(authData.subarray(37, 53), new Uint8Array(16));
+            // AAGUID 5ca471bb-a56d-46ad-a496-67e70e9ed9fb
+            assert.deepStrictEqual(
+                authData.subarray(37, 53),
+                new Uint8Array([0x5c, 0xa4, 0x71, 0xbb, 0xa5, 0x6d, 0x46, 0xad, 0xa4, 0x96, 0x67, 0xe7, 0x0e, 0x9e, 0xd9, 0xfb]),
+            );
             // credential id length + id
             assert.deepStrictEqual(authData.subarray(53, 55), new Uint8Array([0, 32]));
             assert.deepStrictEqual(authData.subarray(55, 87), credentialId);

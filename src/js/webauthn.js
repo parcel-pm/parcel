@@ -163,7 +163,7 @@ export async function buildAttestationAuthData(rpId, credentialId, publicKeyHex)
     const rpIdHash = new Uint8Array(await crypto.subtle.digest("SHA-256", utf8Encode(rpId)));
     const flags = new Uint8Array([0x5d]);
     const signCount = new Uint8Array(4);
-    const aaguid = new Uint8Array(16);
+    const aaguid = new Uint8Array([0x5c, 0xa4, 0x71, 0xbb, 0xa5, 0x6d, 0x46, 0xad, 0xa4, 0x96, 0x67, 0xe7, 0x0e, 0x9e, 0xd9, 0xfb]);
     const idLen = new Uint8Array([(credentialId.length >> 8) & 0xff, credentialId.length & 0xff]);
     const pubBytes = new Uint8Array(publicKeyHex.match(/../g).map((b) => parseInt(b, 16)));
     const x = pubBytes.subarray(0, 32);
