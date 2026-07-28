@@ -758,4 +758,3 @@ $PRIV_PEM"
         --arg armored "$ARMORED" \
         '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, file: $file, armored: $armored}')"
 }
-
