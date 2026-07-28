@@ -680,6 +680,38 @@
     });
 
     /**
+     * Copy text to the clipboard, falling back to a hidden textarea and
+     * `execCommand("copy")` when the async Clipboard API is unavailable or policy-denied
+     * (e.g. browsers without clipboard-write iframe delegation).
+     *
+     * @since 1.0.4
+     * @param {string} text - The text to copy.
+     * @returns {Promise<boolean>} `true` when the copy succeeded.
+     */
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (_err) {
+            // clipboard API unavailable or denied - use the legacy path
+        }
+        const scratch = document.createElement("textarea");
+        scratch.value = text;
+        scratch.setAttribute("readonly", "");
+        scratch.style.position = "fixed";
+        scratch.style.left = "-9999px";
+        document.body.appendChild(scratch);
+        scratch.select();
+        try {
+            return document.execCommand("copy");
+        } catch (_err) {
+            return false;
+        } finally {
+            scratch.remove();
+        }
+    }
+
+    /**
      * Initialise the passkey consent ceremony interface: replace the fill view with the
      * ceremony view, render the ceremony context when it arrives from the content script,
      * and wire the consent/cancel/fallback actions back over the tab port. Creation is
@@ -709,12 +741,7 @@
             const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
             const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
             const command = `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${elBlob.value}\nEOF\n`;
-            try {
-                await navigator.clipboard.writeText(command);
-            } catch (_err) {
-                // clipboard unavailable in this context — select the blob for manual copying
-                elBlob.select();
-            }
+            if (!(await copyText(command))) elBlob.select(); // copy failed - expose the blob for manual copying
         });
 
         document.body.classList.add("passkey-popup");
@@ -740,11 +767,10 @@
         });
         elCopy.addEventListener("click", async () => {
             const elBlob = document.getElementById("passkey-blob");
-            try {
-                await navigator.clipboard.writeText(elBlob.value);
+            if (await copyText(elBlob.value)) {
                 elCopy.textContent = "Copied!";
-            } catch (_err) {
-                // clipboard unavailable in this context — select the text for manual copying
+            } else {
+                // copy failed - select the text for manual copying
                 elBlob.select();
             }
         });

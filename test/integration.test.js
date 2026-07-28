@@ -310,6 +310,10 @@ describe("Integration script", { concurrency: false }, () => {
         const iframe = popup.shadowRoot.querySelector("iframe");
         assert.ok(iframe, "shadow root should contain iframe");
         assert.ok(iframe.src.includes("popup.html"), "iframe src should point to popup.html");
+        assert.ok(
+            (iframe.getAttribute("allow") || "").includes("clipboard-write"),
+            "iframe should delegate clipboard-write so popup copy buttons work",
+        );
     });
 
     test("resize-popup message adjusts popup dimensions", async () => {

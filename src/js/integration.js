@@ -463,8 +463,10 @@
         }`;
         root.appendChild(style);
 
-        // attach iframe
+        // attach iframe (delegate clipboard-write so the popup's copy buttons work in this
+        // extension-origin frame; without it the async Clipboard API is policy-denied)
         const frame = document.createElement("iframe");
+        frame.setAttribute("allow", "clipboard-write");
         frame.src = chrome.runtime.getURL(
             `/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${encodeURIComponent(mode)}` : ""}`,
         );
