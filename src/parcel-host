@@ -669,7 +669,10 @@ function passkey_op_create() {
         STORE_ROOT="${STORE_ROOT%/}"
     done
 
-    # locate the applicable .gpg-id by walking up from the suggested directory (mimics pass)
+    # locate the applicable .gpg-id by walking up from the suggested directory (mimics pass);
+    # the walk is textual (dirname chops the path string - symlinks resolve only in the -f
+    # test), so every chain from "$STORE_ROOT/<anything>" passes through exactly $STORE_ROOT
+    # before terminating and the root .gpg-id is always consulted as the final fallback
     local SUGGESTED_FULL="$STORE_ROOT/$SUGGESTED"
     local DIR="$(dirname "$SUGGESTED_FULL")"
     local GPG_ID=""
