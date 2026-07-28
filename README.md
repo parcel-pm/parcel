@@ -343,6 +343,17 @@ Only after the entry exists will the site accept assertions from that credential
 - **Counter**: the signature counter is always zero (multi-device-style credential; clone-detection is not available).
 - Sites that require hardware-bound attestation or Ed25519 will need to fall back to a platform authenticator.
 
+### Passkey conflicts with other password managers
+
+Passkey-capable password managers (1Password, Bitwarden, etc.) all intercept the same two functions — `navigator.credentials.create()` and `.get()` — and only one extension can own them per page. Parcel's policy is *first come, first served, and never a fight*:
+
+- If Parcel's interceptor installs first, it installs its shim as **non-configurable** properties, so a later-loading extension (or hostile page script) cannot silently replace it. Parcel then owns passkey ceremonies for that page.
+- If another extension got there first — whether it locked the API or merely wrapped it — Parcel **backs off entirely**: it does not poll, does not re-define, and does not try to work around the other extension's lock. A warning is logged to the page console.
+
+When Parcel backs off **and you have Parcel passkeys stored for that site**, an in-page notice appears once per site explaining the conflict, with the option to dismiss it permanently for that site. Sites configured with a `browser-passkey` rule, or when passkeys are disabled (`"passkeys": false`), are never alerted on — an explicit choice is not a conflict.
+
+To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"passkeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question.
+
 Set `"passkeys": false` in `.parcel.json` to disable passkey support entirely.
 
 ---

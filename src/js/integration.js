@@ -379,17 +379,20 @@
     /** Duration of the passkey ceremony scrim fade, in milliseconds. */
     const CEREMONY_FADE_MS = 350;
 
+    /** Popup modes rendered as a centred card over a fullscreen scrim that fades in and out. */
+    const SCRIM_MODES = new Set(["passkey", "passkey-conflict"]);
+
     /**
-     * Remove a popup element from the page. Passkey ceremony scrims fade out first (via the
-     * Web Animations API, as stylesheet keyframe animations on the shadow host do not run
-     * reliably); all other popups are removed immediately.
+     * Remove a popup element from the page. Scrim popups (passkey ceremonies and conflict
+     * notices) fade out first (via the Web Animations API, as stylesheet keyframe animations
+     * on the shadow host do not run reliably); all other popups are removed immediately.
      *
      * @since 1.0.4
      * @param {HTMLElement} popup - The `.parcel-popup` element to remove.
      * @returns {void}
      */
     function removePopup(popup) {
-        if (!popup.classList.contains("mode-passkey") || popup._closing) {
+        if (!popup._scrimMode || popup._closing) {
             popup.remove();
             return;
         }
@@ -481,7 +484,9 @@
         popup.style.minWidth = "200px";
         popup.style.boxSizing = "content-box";
 
-        if (mode === "passkey") {
+        const scrimMode = SCRIM_MODES.has(mode);
+        popup._scrimMode = scrimMode;
+        if (scrimMode) {
             // fullscreen scrim: the ceremony card (iframe) is grid-centred over a dimmed,
             // inert page for visual separation; fill popups deliberately skip this
             popup.style.position = "fixed";
@@ -510,7 +515,7 @@
                 border: none;
                 overflow: hidden;
                 ${
-                    mode === "passkey"
+                    scrimMode
                         ? // the card look lives on the iframe in scrim mode, as the host is the scrim
                           `border: 1px solid black;
                            border-radius: 6px;
@@ -529,7 +534,7 @@
             `/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${encodeURIComponent(mode)}` : ""}`,
         );
         root.appendChild(frame);
-        if (mode === "passkey") {
+        if (scrimMode) {
             // provisional card size until the popup reports its real size via resize-popup
             frame.style.width = "320px";
             frame.style.height = "320px";
@@ -537,7 +542,7 @@
 
         // add hook to adjust size & position
         popup._resizeFn = async (width = 0, height = 0) => {
-            if (mode === "passkey") {
+            if (scrimMode) {
                 // only the card is sized; the scrim stays viewport-filling and self-centres it
                 if (width) frame.style.width = `${width}px`;
                 if (height) frame.style.height = `${height}px`;
@@ -560,7 +565,7 @@
 
         document.body.appendChild(popup);
         popup._resizeFn();
-        if (mode === "passkey" && typeof popup.animate === "function") {
+        if (scrimMode && typeof popup.animate === "function") {
             // fade the scrim in (WAAPI, matching the fade-out in removePopup)
             popup.animate([{ opacity: 0 }, { opacity: 1 }], { duration: CEREMONY_FADE_MS, easing: "ease-out" });
         }
@@ -763,6 +768,7 @@
             };
             port.onMessage.addListener((response) => {
                 if (response?.action === "error") settle(reject, new Error(response.error));
+                else if (response?.action === "passkey-fallback") settle(resolve, { fallback: true });
                 else if (response?.action === "passkey-candidates")
                     settle(resolve, { rpId: response.rpId, candidates: response.candidates });
                 else if (response?.action === "passkey-result") settle(resolve, { result: response.result });
@@ -853,7 +859,13 @@
             }
             const origin = window.location.origin;
             const rpId = req.op === "get" ? req.options.rpId : req.options.rp?.id;
-            const { rpId: validRpId, candidates } = await passkeyRequest({ action: "passkey", phase: "candidates", origin, rpId });
+            const reply = await passkeyRequest({ action: "passkey", phase: "candidates", origin, rpId });
+            if (reply.fallback) {
+                // the site opted into browser passkeys via a browser-passkey rule
+                respond({ type: "fallback" });
+                return;
+            }
+            const { rpId: validRpId, candidates } = reply;
 
             if (req.op === "get" && candidates.length === 0) {
                 // nothing stored for this relying party — silently hand the call back to the browser
@@ -925,6 +937,126 @@
     }
 
     /**
+     * Handle a conflict report from the MAIN-world interceptor: another extension controls
+     * this page's WebAuthn API, so Parcel cannot serve passkeys here. When the user actually
+     * holds Parcel passkeys for this origin (and has not dismissed the notice), surface a
+     * modal so the conflict is visible instead of silently degrading. Sites the user has
+     * deliberately configured for browser passkeys, or where Parcel passkeys are disabled,
+     * are not alerted on — an explicit choice is not a conflict.
+     * @since 1.0.4
+     * @param {string} detailJSON - The JSON-serialised event detail (`{reason}`).
+     * @returns {Promise<void>}
+     */
+    let passkeyConflictShown = false;
+    async function handlePasskeyConflict(detailJSON) {
+        let msg;
+        try {
+            msg = JSON.parse(detailJSON);
+        } catch (_err) {
+            return; // not a Parcel event, or malformed
+        }
+        if (!msg || (msg.reason !== "locked" && msg.reason !== "wrapped")) return;
+        // one notice per frame lifetime is plenty, whatever happens later; the flag is
+        // only consumed when a modal is actually about to be shown
+        if (passkeyConflictShown) return;
+        // only the top frame may raise UI
+        if (window !== window.top) return;
+        try {
+            if (window.top.location.origin !== window.location.origin) return;
+        } catch (_err) {
+            return;
+        }
+        const cfg = await config;
+        if (cfg.passkeys === false) return;
+        const hostname = window.location.hostname;
+        const defersToBrowser = cfg.rules?.some((rule) => {
+            if (rule.ignore || rule.class !== "browser-passkey") return false;
+            try {
+                return new RegExp(rule.pattern, "u").test(hostname);
+            } catch (_err) {
+                return false; // an invalid pattern cannot opt a site into anything
+            }
+        });
+        if (defersToBrowser) return;
+        const origin = window.location.origin;
+        const stored = await chrome.storage.local.get("passkeyConflictDismissed");
+        if (stored?.passkeyConflictDismissed?.[origin]) return;
+        // only alert where the user holds Parcel passkeys for the site (rule-classed
+        // passkey entries naming this origin's rpId); the host runs the same matching
+        let candidates;
+        try {
+            ({ candidates } = await passkeyRequest({ action: "passkey", phase: "candidates", origin }));
+        } catch (_err) {
+            return; // background unavailable (or passkeys disabled); nothing to alert about
+        }
+        if (!Array.isArray(candidates) || candidates.length === 0) return;
+        let token;
+        try {
+            token = crypto.randomUUID();
+        } catch (_err) {
+            token = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        }
+        passkeyBindings[token] = { conflict: true, reason: msg.reason, origin };
+        passkeyConflictShown = true;
+        triggerPort.postMessage({ action: "trigger-popup", frameId, token, position: { centered: true }, mode: "passkey-conflict" });
+    }
+
+    /**
+     * Drive the passkey conflict notice over a bridged popup port: supply the conflict
+     * context, persist a per-origin dismissal, and close the modal when asked.
+     * @since 1.0.4
+     * @param {chrome.runtime.Port} port - The bridged popup connection.
+     * @param {object} binding - The conflict state stored in `passkeyBindings` (`{conflict, reason, origin}`).
+     * @param {string} token - The binding's key in `passkeyBindings`.
+     * @returns {void}
+     */
+    function handlePasskeyConflictPort(port, binding, token) {
+        let settled = false;
+        const close = () => {
+            if (settled) return;
+            settled = true;
+            delete passkeyBindings[token];
+            try {
+                port.disconnect();
+            } catch (_err) {
+                chrome.runtime.lastError; // consume the disconnect error
+            }
+            triggerPort.postMessage({ action: "close-popup" });
+        };
+        port.onDisconnect.addListener(() => {
+            chrome.runtime.lastError; // consume the disconnect error
+            if (Object.prototype.hasOwnProperty.call(passkeyBindings, token)) close();
+        });
+        port.onMessage.addListener(async (msg) => {
+            try {
+                if (msg?.action === "ready") {
+                    maybePost(port, { action: "origin", origin: binding.origin });
+                    maybePost(port, {
+                        action: "passkey-conflict-context",
+                        context: { origin: binding.origin, reason: binding.reason },
+                    });
+                } else if (msg?.action === "passkey-conflict-dismiss") {
+                    const stored = await chrome.storage.local.get("passkeyConflictDismissed");
+                    const dismissed =
+                        stored?.passkeyConflictDismissed && typeof stored.passkeyConflictDismissed === "object"
+                            ? stored.passkeyConflictDismissed
+                            : {};
+                    dismissed[binding.origin] = true;
+                    await chrome.storage.local.set({ passkeyConflictDismissed: dismissed });
+                    close();
+                } else if (msg?.action === "close") {
+                    close();
+                } else if (msg?.action === "resize") {
+                    triggerPort.postMessage({ action: "resize-popup", height: msg.height, width: msg.width });
+                }
+            } catch (err) {
+                console.warn("[integration] passkey conflict notice failed:", err);
+                close();
+            }
+        });
+    }
+
+    /**
      * Drive a passkey consent ceremony over a bridged popup port: supply the ceremony context,
      * relay assert/create operations to the background worker, and settle the MAIN-world promise.
      * @since 1.0.4
@@ -933,6 +1065,7 @@
      * @param {string} token - The binding's key in `passkeyBindings`.
      */
     function handlePasskeyPort(port, binding, token) {
+        if (binding.conflict) return handlePasskeyConflictPort(port, binding, token);
         const respond = (payload) => passkeyRespond(binding.requestId, payload);
         let settled = false;
         // settle the ceremony: answer the MAIN world, drop the binding, and close the popup
@@ -1058,6 +1191,7 @@
     // is disabled, as the passkey ceremony popup is the only consent UI for WebAuthn calls
     document.addEventListener("parcel-webauthn-request", (ev) => handlePasskeyRequest(ev.detail));
     document.addEventListener("parcel-webauthn-abort", (ev) => handlePasskeyAbort(ev.detail));
+    document.addEventListener("parcel-webauthn-conflict", (ev) => handlePasskeyConflict(ev.detail));
 
     /**
      * Handle incoming connections from the popup, binding each connection to its target element

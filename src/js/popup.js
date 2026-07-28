@@ -585,7 +585,7 @@
     });
 
     window.addEventListener("keydown", (ev) => {
-        if (mode === "passkey") return; // the passkey ceremony view uses native button/tab navigation
+        if (mode === "passkey" || mode === "passkey-conflict") return; // these views use native button/tab navigation
         let selected = document.querySelector(".selected");
         if (ev.key === "ArrowDown" || (ev.key === "Tab" && !ev.shiftKey)) {
             ev.preventDefault();
@@ -857,6 +857,46 @@
         });
     }
 
+    /**
+     * Initialise the passkey conflict notice: shown instead of the fill view when another
+     * extension controls the page's WebAuthn API while the user holds Parcel passkeys for
+     * the site. Offers a per-origin dismissal (persisted by the content script), a link to
+     * the documentation, and a plain close.
+     * @since 1.0.4
+     * @returns {void}
+     */
+    function initPasskeyConflict() {
+        const elRoot = document.getElementById("passkey-conflict");
+        const disableActions = () => elRoot.querySelectorAll("button").forEach((button) => (button.disabled = true));
+
+        document.body.classList.add("passkey-popup");
+        elRoot.classList.remove("hidden");
+
+        tabPort.onMessage.addListener((msg) => {
+            if (msg?.action === "passkey-conflict-context") {
+                document.getElementById("passkey-conflict-origin").textContent = `Notice for ${msg.context?.origin || "this site"}`;
+            }
+        });
+        document.getElementById("passkey-conflict-dismiss").addEventListener("click", () => {
+            disableActions();
+            tabPort.postMessage({ action: "passkey-conflict-dismiss" });
+        });
+        document.getElementById("passkey-conflict-docs").addEventListener("click", () => {
+            window.open(
+                "https://github.com/parcel-pm/parcel#passkey-conflicts-with-other-password-managers",
+                "_blank",
+                "noopener,noreferrer",
+            );
+        });
+        elRoot.querySelectorAll(".passkey-conflict-close").forEach((button) =>
+            button.addEventListener("click", () => {
+                disableActions();
+                tabPort.postMessage({ action: "close" });
+            }),
+        );
+        document.getElementById("passkey-conflict-dismiss").focus();
+    }
+
     // listen for messages from the native host
     port.onMessage.addListener(async (msg) => {
         if (msg.action === "status") {
@@ -1020,6 +1060,8 @@
 
     if (mode === "passkey") {
         initPasskeyPopup();
+    } else if (mode === "passkey-conflict") {
+        initPasskeyConflict();
     } else {
         const search = document.getElementById("searchPattern");
 
@@ -1049,7 +1091,11 @@
     // UI updates when the anti-phishing mode is toggled
     if (token === "broadcast") focusSelected();
     document.getElementById("live-region").textContent =
-        mode === "passkey" ? "Parcel passkey consent opened. Press Tab to interact." : "Parcel popup opened. Press Tab to interact.";
+        mode === "passkey"
+            ? "Parcel passkey consent opened. Press Tab to interact."
+            : mode === "passkey-conflict"
+              ? "Parcel passkey conflict notice opened. Press Tab to interact."
+              : "Parcel popup opened. Press Tab to interact.";
 
     // show the default-rules warning
     config.then((config) => {

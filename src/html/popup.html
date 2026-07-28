@@ -182,6 +182,20 @@
                 <button class="passkey-cancel" type="button">Cancel</button>
             </div>
         </div>
+        <div id="passkey-conflict" class="hidden">
+            <p id="passkey-conflict-title">Parcel passkeys are unavailable on this site</p>
+            <p id="passkey-conflict-origin"></p>
+            <p id="passkey-conflict-body">
+                Another browser extension is handling passkey (WebAuthn) ceremonies here, so Parcel cannot offer the passkeys it has stored
+                for this site. To prefer Parcel, disable passkey support in the other extension; to prefer the other extension, there is
+                nothing more to do &mdash; it is already in control.
+            </p>
+            <div class="passkey-buttons">
+                <button id="passkey-conflict-dismiss" type="button">Don&rsquo;t show again for this site</button>
+                <button id="passkey-conflict-docs" type="button">Learn more</button>
+                <button class="passkey-conflict-close" type="button">Close</button>
+            </div>
+        </div>
         <p id="status">Status bar</p>
         <div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
     </body>

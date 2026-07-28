@@ -18,12 +18,16 @@
     if (!("credentials" in navigator) || typeof PublicKeyCredential === "undefined") {
         return;
     }
-    if (navigator.credentials.__parcelWrapped) {
-        return; // already installed (e.g. duplicate injection)
+    if (navigator.credentials.__parcelWrapped || navigator.credentials.__parcelConflict) {
+        return; // already resolved one way or the other (e.g. duplicate injection)
     }
 
-    const nativeCreate = navigator.credentials.create.bind(navigator.credentials);
-    const nativeGet = navigator.credentials.get.bind(navigator.credentials);
+    // raw references are kept so a failed installation can be rolled back
+    // exactly; the bound copies are the call targets used by the wrappers.
+    const rawCreate = navigator.credentials.create;
+    const rawGet = navigator.credentials.get;
+    const nativeCreate = rawCreate.bind(navigator.credentials);
+    const nativeGet = rawGet.bind(navigator.credentials);
     const pending = new Map();
     let requestCounter = 0;
 
@@ -370,7 +374,87 @@
         }
     });
 
+    /**
+     * Whether a function is the browser's builtin rather than a JavaScript shim
+     * installed by another extension or page script.
+     *
+     * @param {Function} fn - function to test
+     * @returns {boolean} true if fn appears to be native code
+     */
+    function isNativeFn(fn) {
+        return typeof fn === "function" && /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(fn));
+    }
+
+    /**
+     * Report that passkey interception is unavailable in this frame because
+     * another extension controls the WebAuthn API: warn (for developers) and
+     * notify the isolated integration script (which decides whether to surface
+     * the conflict to the user).
+     *
+     * @param {string} reason - "locked" (API made non-configurable) or "wrapped" (foreign shim present)
+     */
+    function reportConflict(reason) {
+        console.warn(
+            "Parcel passkeys: " +
+                (reason === "locked"
+                    ? "navigator.credentials is locked by another extension"
+                    : "navigator.credentials has already been wrapped by another extension") +
+                ", so passkey interception is disabled in this frame. To prefer Parcel, disable passkeys in the " +
+                "conflicting extension; to prefer the other provider, set passkeys to false or a browser-passkey " +
+                "rule in Parcel's configuration.",
+        );
+        try {
+            // marker makes duplicate injections a no-op even here
+            Object.defineProperty(navigator.credentials, "__parcelConflict", { value: reason });
+        } catch {
+            // a fully locked-down credentials container; reporting still happened
+        }
+        document.dispatchEvent(new CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: reason }) }));
+    }
+
+    // Installation. Parcel claims the WebAuthn API only while it is still native,
+    // installing the shim as non-configurable accessor properties so a later
+    // injector (another extension's content script, or hostile page script)
+    // cannot replace it: plain assignment is silently discarded by the no-op
+    // setter and redefinition throws. If another extension got there first,
+    // Parcel stays out of the way entirely - it never polls, never retries
+    // re-definition, and never works around a foreign lock.
+    //
+    // The lock guards the methods only; page script can still shadow the
+    // `navigator.credentials` container itself. That grants the page nothing:
+    // its ceremonies simply proceed without Parcel, and every ceremony Parcel
+    // does serve remains gated by the isolated-world consent popup.
+    const createDesc = Object.getOwnPropertyDescriptor(navigator.credentials, "create") || {};
+    const getDesc = Object.getOwnPropertyDescriptor(navigator.credentials, "get") || {};
+    if (createDesc.configurable === false || getDesc.configurable === false) {
+        reportConflict("locked");
+        return;
+    }
+    if (!isNativeFn(rawCreate) || !isNativeFn(rawGet)) {
+        reportConflict("wrapped");
+        return;
+    }
+    let installed = false;
+    try {
+        Object.defineProperty(navigator.credentials, "create", {
+            configurable: false,
+            enumerable: true,
+            get: () => create,
+            set: () => {},
+        });
+        Object.defineProperty(navigator.credentials, "get", {
+            configurable: false,
+            enumerable: true,
+            get: () => get,
+            set: () => {},
+        });
+        installed = navigator.credentials.create === create && navigator.credentials.get === get;
+    } catch {
+        installed = false; // a foreign locker won without tripping the pre-flight descriptor check
+    }
+    if (!installed) {
+        reportConflict("locked");
+        return;
+    }
     Object.defineProperty(navigator.credentials, "__parcelWrapped", { value: true });
-    navigator.credentials.create = create;
-    navigator.credentials.get = get;
 })();

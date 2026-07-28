@@ -1406,6 +1406,75 @@ describe("Integration script", { concurrency: false }, () => {
             }
         });
 
+        // NOTE: these conflict tests must run in declaration order - the
+        // once-per-frame notice flag in integration.js is deliberately sticky,
+        // so the silent path must be exercised before the modal path.
+        test("conflict without stored passkeys stays silent", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "localhost", candidates: [] });
+            });
+            try {
+                const triggerReceiver = portReceivers["trigger"];
+                const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 250);
+                document.dispatchEvent(
+                    new window.CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: "wrapped" }) }),
+                );
+                await settleAsync();
+                await assert.rejects(popupPromise, /Timeout waiting for message/);
+                assert.ok(!document.querySelector(".parcel-popup"), "no modal without stored passkeys");
+            } finally {
+                teardown();
+            }
+        });
+
+        test("conflict with stored passkeys opens the notice, persists dismissal, and never re-shows", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates")
+                    port.postMessage({
+                        action: "passkey-candidates",
+                        rpId: "localhost",
+                        candidates: [{ name: "passkeys/localhost/alice", path: "/abs/passkeys/localhost/alice.gpg" }],
+                    });
+            });
+            try {
+                const triggerReceiver = portReceivers["trigger"];
+                const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+                document.dispatchEvent(
+                    new window.CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: "locked" }) }),
+                );
+                const trigger = await popupPromise;
+                await settleAsync();
+                assert.strictEqual(trigger.mode, "passkey-conflict");
+                assert.ok(document.querySelector(".parcel-popup"), "conflict modal should be on the page");
+
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-conflict-context", 3000);
+                popup.postMessage({ action: "ready" });
+                const context = await contextPromise;
+                assert.strictEqual(context.context.origin, "http://localhost");
+                assert.strictEqual(context.context.reason, "locked");
+
+                const closePromise = nextMessage(triggerReceiver, "close-popup", 3000);
+                popup.postMessage({ action: "passkey-conflict-dismiss" });
+                await closePromise;
+                await settleAsync();
+                const stored = await mock.chrome.storage.local.get("passkeyConflictDismissed");
+                assert.strictEqual(stored?.passkeyConflictDismissed?.["http://localhost"], true, "dismissal must be persisted per origin");
+
+                // a later conflict in this frame must not raise the modal again
+                document.dispatchEvent(
+                    new window.CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: "locked" }) }),
+                );
+                await settleAsync();
+                await assert.rejects(nextMessage(triggerReceiver, "trigger-popup", 250), /Timeout waiting for message/);
+            } finally {
+                teardown();
+            }
+        });
+
         test("get ceremony shows candidates, signs via the host, and returns an assertion", async () => {
             clearBody();
             let assertPhase = null;
