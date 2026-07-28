@@ -187,7 +187,7 @@
             if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
                 throw new Error("Target element is not visible.");
             }
-            if (el.hasAttribute("type") && !["text", "email", "tel", "password"].includes(el.type))
+            if (el.tagName === "BUTTON" || (el.hasAttribute("type") && !["text", "email", "tel", "password"].includes(el.type)))
                 throw new Error(`Invalid input type: ${el.type}`);
             let finalTarget = null;
             for (const target of (await validTargets).filter((t) => (related ? !t.relatedNever : !t.relatedOnly))) {
