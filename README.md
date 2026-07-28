@@ -325,7 +325,7 @@ cat > ~/.password-store/passkeys/example.com/alice.gpg
 # paste the armored blob shown in the popup, then Ctrl-D
 ```
 
-Or click **Download .gpg file** in the popup and move the downloaded file into place, e.g. `mv ~/Downloads/alice.gpg ~/.password-store/passkeys/example.com/alice.gpg`. Either way, use the exact file path shown next to `cat >` in the popup.
+The **Copy** button next to the command copies a self-contained `mkdir -p` + heredoc snippet that creates the file in one paste. Alternatively, click **Download .gpg file** in the popup and move the downloaded file into place, e.g. `mv ~/Downloads/alice.gpg ~/.password-store/passkeys/example.com/alice.gpg`. Either way, use the exact file path shown next to `cat >` in the popup.
 
 Only after the entry exists will the site accept assertions from that credential. If you decline partway through (or never save the entry), discard the ceremony on the site and nothing persists.
 

@@ -700,6 +700,22 @@
         const elFallback = document.getElementById("passkey-fallback");
         const elCopy = document.getElementById("passkey-copy");
         const elPath = document.getElementById("passkey-path");
+        const elCopyCommand = document.getElementById("passkey-copy-command");
+        elCopyCommand.addEventListener("click", async () => {
+            const elBlob = document.getElementById("passkey-blob");
+            const file = elPath.textContent.trim();
+            if (!elBlob.value || !file) return;
+            // self-contained shell snippet: quoted heredoc so no expansion can touch the blob
+            const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+            const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
+            const command = `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${elBlob.value}\nEOF\n`;
+            try {
+                await navigator.clipboard.writeText(command);
+            } catch (_err) {
+                // clipboard unavailable in this context — select the blob for manual copying
+                elBlob.select();
+            }
+        });
 
         document.body.classList.add("passkey-popup");
         elRoot.classList.remove("hidden");

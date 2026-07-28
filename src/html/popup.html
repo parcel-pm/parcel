@@ -168,7 +168,16 @@
                     Parcel created a new passkey, but cannot store it for you. Save the entry below to your password store, then confirm
                     here.
                 </p>
-                <p class="passkey-command">cat &gt; <code id="passkey-path"></code></p>
+                <p class="passkey-command">
+                    cat &gt; <code id="passkey-path"></code>
+                    <button
+                        id="passkey-copy-command"
+                        class="copy"
+                        type="button"
+                        aria-label="Copy save command"
+                        title="Copy save command"
+                    ></button>
+                </p>
                 <p class="passkey-hint">
                     Paste the blob below into the file &mdash; it is already encrypted &mdash; or download it and move it to that path.
                 </p>
