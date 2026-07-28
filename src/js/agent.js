@@ -489,15 +489,20 @@ export class Agent extends EventTarget {
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
                     if (message.phase === "candidates") {
                         updateStatus("Searching for passkey entries...");
-                        const prefix = `${this.#config.passkeyDir}/${rpId}/`;
+                        // offers are classification-driven: any rule-classed passkey entry is
+                        // offerable wherever it lives; rpId binding is enforced host-side
+                        // against the entry contents at assert time
                         const candidates = (await this.#getEntries())
-                            .filter((entry) => entry.name.startsWith(prefix))
+                            .filter((entry) => entry.rule?.class === "passkey")
                             .map((entry) => ({ name: entry.name, path: entry.path }));
                         clearStatus();
                         port.postMessage({ action: "passkey-candidates", rpId, candidates });
                     } else if (message.phase === "assert") {
-                        const pathPrefix = `${this.#config.passdir}/${this.#config.passkeyDir}/${rpId}/`;
-                        if (!message.path?.startsWith(pathPrefix) || message.path.includes("..")) {
+                        // only rule-classed passkey entries may sign assertions; passkeyDir
+                        // membership alone is not sufficient. The native host independently
+                        // enforces class membership and rpId binding, so this is a UX guard
+                        const passkey = this.#entries?.find((e) => e.path === message.path);
+                        if (passkey?.rule?.class !== "passkey") {
                             throw new Error(`Invalid passkey entry path: ${message.path}`);
                         }
                         updateStatus("Signing passkey assertion...");

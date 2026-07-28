@@ -71,7 +71,10 @@ function load_config() {
         REPORT_MODIFIED="$CONFIG_MODIFIED"
     fi
     local REALPASSDIR="$(readlink -f "$PASSWORD_STORE_DIR")"
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}], defaultRules: true} end)' <<< "$CONFIG")"; then
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" '
+        def reescape: reduce (explode[]) as $c (""; if ([36,40,41,42,43,46,47,63,91,92,93,94,123,124,125] | index($c)) != null then . + "\\" + ([$c] | implode) else . + ([$c] | implode) end);
+        def defrules: [{pattern: ("^" + ((."passkeyDir" // "passkeys") | reescape) + "/"), class: "passkey"}, {pattern: "."}];
+        . + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules: defrules, defaultRules: true} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
 }
@@ -427,6 +430,17 @@ function action_decrypt() {
         parcel_error "Failed to decrypt $FILE_PATH"
         return 0
     fi
+    # entries in passkey format must never be returned as plaintext under any
+    # classification - the content marker is the authoritative backstop for the
+    # rule-based check above. Prefix-match the marker so that future format
+    # versions are refused by this host version too
+    case "$(head -n 1 <<< "$OUT")" in
+        "#!parcel-passkey "*)
+            audit_decrypt "$FILE_PATH" "Denied (passkey content)" "$INTENT" "$ORIGIN"
+            parcel_error "Access Denied: Passkey entries may not be decrypted: $FILE_PATH"
+            return 0
+            ;;
+    esac
     audit_decrypt "$FILE_PATH" "Success" "$INTENT" "$ORIGIN"
     parcel_send "$(jq -n --arg path "$FILE_PATH" --arg plaintext "$OUT" '{path: $path, plaintext: $plaintext}')"
 }
@@ -531,9 +545,9 @@ function passkey_op_get() {
     ENTRY="${ENTRY//$'\r'/}"
 
     local FIRST_LINE="${ENTRY%%$'\n'*}"
-    if [ "$FIRST_LINE" != "parcel-passkey v1" ]; then
-        audit_decrypt "$FILE_PATH" "Denied (not a passkey entry)" "passkey" "$ORIGIN"
-        parcel_error "Not a passkey entry: $FILE_PATH"
+    if [ "$FIRST_LINE" != "#!parcel-passkey v1" ]; then
+        audit_decrypt "$FILE_PATH" "Denied (missing or unsupported passkey header)" "passkey" "$ORIGIN"
+        parcel_error "Malformed passkey entry (missing or unsupported #!parcel-passkey header): $FILE_PATH"
         return 0
     fi
     local ENTRY_RPID="$(printf '%s\n' "$ENTRY" | sed -n 's/^rpId: //p' | head -n1)"
@@ -717,7 +731,7 @@ function passkey_op_create() {
     fi
 
     local ENTRY="\
-parcel-passkey v1
+#!parcel-passkey v1
 rpId: $RP_ID
 credentialId: $CRED_ID
 algorithm: ES256

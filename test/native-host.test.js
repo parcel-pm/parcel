@@ -642,8 +642,7 @@ VALID_SIGNERS="${env.knownSigner}"
             const msg = await read();
             assert.strictEqual(msg.data?.passdir, env.passdir);
             assert.ok(Array.isArray(msg.data?.rules), `Expected default rules array, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data?.rules.length, 1);
-            assert.strictEqual(msg.data?.rules[0]?.pattern, ".");
+            assert.deepStrictEqual(msg.data?.rules, [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }]);
             assert.strictEqual(msg.data?.defaultRules, true);
             // modified must be >= 1 to pass schema validation (minimum: 1)
             assert.ok(msg.data?.modified >= 1, `Expected modified >= 1, got: ${msg.data?.modified}`);
@@ -1369,7 +1368,7 @@ wkU83LtZtne/WzJHamMqdjQYq0LDBSRqwuF6t1BsUdj5+nJ/qzVmEY3UNQ==
 -----END PUBLIC KEY-----`;
 
 /**
- * Build a passkey entry in the `parcel-passkey v1` host format.
+ * Build a passkey entry in the `#!parcel-passkey v1` host format.
  */
 function makePasskeyEntry(overrides = {}) {
     const fields = {
@@ -1382,7 +1381,7 @@ function makePasskeyEntry(overrides = {}) {
         ...overrides,
     };
     return [
-        "parcel-passkey v1",
+        "#!parcel-passkey v1",
         `rpId: ${fields.rpId}`,
         `credentialId: ${fields.credentialId}`,
         `algorithm: ${fields.algorithm}`,
@@ -1649,7 +1648,7 @@ describe("action_passkey", () => {
             // fake armor wraps the entry; the plaintext must contain the entry + coordinates + private key
             assert.ok(msg.data.armored.startsWith("-----BEGIN PGP MESSAGE-----"), "armored output missing armor header");
             assert.ok(msg.data.armored.includes("-----END PGP MESSAGE-----"), "armored output missing armor footer");
-            assert.ok(msg.data.armored.includes("parcel-passkey v1"), "armored output missing entry header");
+            assert.ok(msg.data.armored.includes("#!parcel-passkey v1"), "armored output missing entry header");
             assert.ok(msg.data.armored.includes(`publicKey: ${msg.data.publicKey}`), "armored output missing public key");
             assert.ok(msg.data.armored.includes("-----BEGIN PRIVATE KEY-----"), "armored output missing private key");
 
@@ -1971,6 +1970,61 @@ describe("action_passkey", () => {
             send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
             const msg = await read();
             assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("default rules classify entries under passkeyDir as passkeys", async () => {
+        const env = createPasskeyEnv();
+        // no "rules" key - the host must synthesize a passkey-class rule for the passkey dir
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ passkeys: true }));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+            const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
+            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_decrypt refuses passkey-format plaintext even without a passkey-class rule", async () => {
+        const env = createPasskeyEnv();
+        // every entry is login-classed: neither the rule gate nor default-rule synthesis applies
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "." }] }));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+            // alice.gpg is login-classed here, but its decrypted content carries the
+            // parcel-passkey marker - the content check must still deny the decrypt
+            const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
+            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
+            // a hypothetical future format version must be refused by this host version too
+            writeFileSync(keyPath, "#!parcel-passkey v2\nfuture-format-content\n");
+            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+            const future = await read();
+            assert.ok(
+                future.error?.includes("Passkey entries may not be decrypted"),
+                `Expected decrypt denial, got: ${JSON.stringify(future)}`,
+            );
+            // and removing the marker de-registers the passkey: it decrypts as plain login content
+            writeFileSync(keyPath, "alice-password");
+            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+            const dereg = await read();
+            assert.strictEqual(dereg.data?.plaintext, "alice-password");
+            // a regular login entry in the same store must still decrypt normally
+            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "fill", origin: "https://example.com" });
+            const ok = await read();
+            assert.strictEqual(ok.data?.plaintext, "encrypted-a");
         } finally {
             proc.kill();
             env.cleanup();

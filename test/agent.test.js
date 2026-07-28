@@ -356,6 +356,130 @@ describe("Agent", () => {
         const after = mock.getNativePort("com.github.erayd.parcel");
         assert.strictEqual(after, before, "no spurious reconnect when already connected");
     });
+
+    /**
+     * Push a passkey-aware config and entry list into the agent.
+     *
+     * `shared/fido/` entries are rule-classed as passkeys (outside the default
+     * `passkeys/` prefix); `passkeys/example.com/alice` is deliberately left
+     * unclassed to exercise class-only candidacy; `test/bob` is a login entry.
+     * @returns {Promise<void>}
+     */
+    async function configurePasskeyStore() {
+        const passkeyConfig = {
+            ...makeValidConfig(),
+            modified: 2,
+            rules: [
+                { pattern: "^test/", class: "login" },
+                { pattern: "^shared/fido/", class: "passkey" },
+            ],
+        };
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return passkeyConfig;
+            if (msg.action === "list")
+                return [
+                    { name: "passkeys/example.com/alice", path: "/home/test/.password-store/passkeys/example.com/alice.gpg" },
+                    { name: "shared/fido/alice", path: "/home/test/.password-store/shared/fido/alice.gpg" },
+                    { name: "shared/fido/carol", path: "/home/test/.password-store/shared/fido/carol.gpg" },
+                    { name: "test/bob", path: "/home/test/.password-store/test/bob.gpg" },
+                ];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "passkey") return { op: "get", credentialId: "Y3JlZA" };
+        });
+        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        await settleAsync();
+        const configPromise = nextMessage(integration, "config");
+        integration.postMessage({ action: "config", config: passkeyConfig });
+        await configPromise;
+    }
+
+    test("passkey candidates are exactly the rule-classed entries", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://login.example.com", rpId: "example.com" });
+        const msg = await candidatesPromise;
+        // the unclassed passkeys/ entry and the login entry are not offered
+        assert.deepStrictEqual(msg.candidates, [
+            { name: "shared/fido/alice", path: "/home/test/.password-store/shared/fido/alice.gpg" },
+            { name: "shared/fido/carol", path: "/home/test/.password-store/shared/fido/carol.gpg" },
+        ]);
+    });
+
+    test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const resultPromise = nextMessage(passkey, "passkey-result");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/shared/fido/alice.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await resultPromise;
+        assert.strictEqual(msg.result.op, "get");
+    });
+
+    test("passkey assertion is rejected for an unclassed entry inside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const errorPromise = nextMessage(passkey, "error");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/passkeys/example.com/alice.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await errorPromise;
+        assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
+    });
+
+    test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const resultPromise = nextMessage(passkey, "passkey-result");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/shared/fido/alice.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await resultPromise;
+        assert.strictEqual(msg.result.op, "get");
+    });
+
+    test("passkey assertion is rejected for a login-classed entry outside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const errorPromise = nextMessage(passkey, "error");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/test/bob.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await errorPromise;
+        assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
+    });
 });
 
 describe("Agent initialisation failures", () => {

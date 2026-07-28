@@ -194,7 +194,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 |----------|------|---------|-------------|
 | `pattern` | string (regex) | *required* | Regex matched against the entry name (relative to the store root, without `.gpg`). |
 | `ignore` | boolean | `false` | If `true`, entries matching this rule are excluded. |
-| `class` | string | `"login"` | Classification of the entry: `"login"` (a fillable credential entry) or `"passkey"` (a WebAuthn credential; excluded from password filling). |
+| `class` | string | `"login"` | Classification of the entry: `"login"` (a fillable credential entry) or `"passkey"` (a WebAuthn credential; excluded from password filling, and the only entries offered for WebAuthn ceremonies). Stores without configured rules get a default rule classing the `passkeyDir` subtree as `passkey`. |
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
@@ -214,7 +214,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
 | `passkeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
-| `passkeyDir` | string | `passkeys` | Store-relative directory under which passkey entries live (`<passkeyDir>/<rpId>/<account>.gpg`). Control characters and the glob metacharacters `* ? [ \` are not permitted; spaces, unicode and dot segments are allowed. External storage is supported via symlinks (subject to the links policy): point `passkeyDir` at the symlink's in-store location. A `passkeyDir` containing literal `..` segments names entries the store scan can never list, so such passkeys can be created but not used for assertions. |
+| `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (`<passkeyDir>/<rpId>/<account>.gpg`), and the subtree classed as `passkey` by the default rules. Control characters and the glob metacharacters `* ? [ \` are not permitted; spaces, unicode and dot segments are allowed. External storage is supported via symlinks (subject to the links policy): point `passkeyDir` at the symlink's in-store location. A `passkeyDir` containing literal `..` segments names entries the store scan can never list, so such passkeys can be created but not used for assertions. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
@@ -298,7 +298,7 @@ User verification is reported to the site as satisfied: consent is given interac
 Passkeys live under `<passkeyDir>/<rpId>/<account>.gpg` in your password store (`passkeys/<rpId>/<account>.gpg` with the default `passkeyDir` configuration):
 
 ```
-parcel-passkey v1
+#!parcel-passkey v1
 rpId: example.com
 credentialId: <base64url>
 algorithm: ES256
@@ -312,11 +312,11 @@ privateKey:
 -----END PRIVATE KEY-----
 ```
 
-The host validates the `parcel-passkey v1` marker, the `rpId` (which must match the requesting site's relying-party ID), and any `allowCredentials` restriction sent by the site before signing.
+The host validates the `#!parcel-passkey v1` marker, the `rpId` (which must match the requesting site's relying-party ID), and any `allowCredentials` restriction sent by the site before signing.
 
 ### Registering a new passkey
 
-When a site asks to create a passkey, Parcel generates a fresh ES256 keypair on the host, encrypts a complete `parcel-passkey v1` entry to the recipients of the applicable `.gpg-id` file (walking up from the suggested directory, exactly like `pass` does), and displays the armored result in the popup along with the suggested entry path.
+When a site asks to create a passkey, Parcel generates a fresh ES256 keypair on the host, encrypts a complete `#!parcel-passkey v1` entry to the recipients of the applicable `.gpg-id` file (walking up from the suggested directory, exactly like `pass` does), and displays the armored result in the popup along with the suggested entry path.
 
 Parcel **never writes to your password store** — you save the entry yourself, out-of-band. The popup shows a complete, self-contained shell command (`mkdir -p` plus a quoted heredoc) which you can review, copy and run verbatim:
 
