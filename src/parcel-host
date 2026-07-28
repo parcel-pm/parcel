@@ -690,6 +690,7 @@ $PRIV_PEM"
         --arg publicKey "$PUB_HEX" \
         --arg spki "$SPKI_B64" \
         --arg path "$SUGGESTED" \
+        --arg file "$SUGGESTED_FULL" \
         --arg armored "$ARMORED" \
-        '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, armored: $armored}')"
+        '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, file: $file, armored: $armored}')"
 }

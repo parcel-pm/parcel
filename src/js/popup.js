@@ -699,6 +699,7 @@
         const elCreate = document.getElementById("passkey-create");
         const elFallback = document.getElementById("passkey-fallback");
         const elCopy = document.getElementById("passkey-copy");
+        const elPath = document.getElementById("passkey-path");
 
         document.body.classList.add("passkey-popup");
         elRoot.classList.remove("hidden");
@@ -730,6 +731,21 @@
                 // clipboard unavailable in this context — select the text for manual copying
                 elBlob.select();
             }
+        });
+        document.getElementById("passkey-download").addEventListener("click", () => {
+            const elBlob = document.getElementById("passkey-blob");
+            const content = elBlob.value;
+            if (!content) return;
+            // the blob is already encrypted ciphertext; an anchor download needs no extra permission
+            const filename = elPath.textContent.split("/").pop() || "passkey.gpg";
+            const url = URL.createObjectURL(new Blob([content + "\n"], { type: "application/pgp-encrypted" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
         });
         document.getElementById("passkey-ack").addEventListener("click", () => {
             disableActions();
@@ -780,7 +796,7 @@
                 // the entry out-of-band and confirm before the ceremony completes
                 elCreate.classList.add("hidden");
                 elFallback.classList.add("hidden");
-                document.getElementById("passkey-path").textContent = msg.path;
+                elPath.textContent = msg.file || msg.path;
                 document.getElementById("passkey-blob").value = msg.armored;
                 document.querySelector("#status").textContent = "Save the new passkey entry to continue";
                 elSave.classList.remove("hidden");

@@ -168,10 +168,14 @@
                     Parcel created a new passkey, but cannot store it for you. Save the entry below to your password store, then confirm
                     here.
                 </p>
-                <p class="passkey-command">pass insert <code id="passkey-path"></code></p>
+                <p class="passkey-command">cat &gt; <code id="passkey-path"></code></p>
+                <p class="passkey-hint">
+                    Paste the blob below into the file &mdash; it is already encrypted &mdash; or download it and move it to that path.
+                </p>
                 <textarea id="passkey-blob" rows="10" readonly></textarea>
                 <div class="passkey-buttons">
                     <button id="passkey-copy" type="button">Copy</button>
+                    <button id="passkey-download" type="button">Download .gpg file</button>
                     <button id="passkey-ack" type="button">Done</button>
                 </div>
             </div>

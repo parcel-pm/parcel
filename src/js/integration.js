@@ -753,9 +753,12 @@
         } catch (_err) {
             return false; // cross-origin iframe
         }
-        const feature = op === "get" ? "publickey-credentials-get" : "publickey-credentials";
         const policy = document.permissionsPolicy;
-        return !policy || typeof policy.allowsFeature !== "function" || policy.allowsFeature(feature);
+        if (!policy || typeof policy.allowsFeature !== "function") return true;
+        // unknown feature names evaluate to false, so create must consult both the modern
+        // split name and the legacy combined name (pre-split browsers only know the latter)
+        if (op === "get") return policy.allowsFeature("publickey-credentials-get");
+        return policy.allowsFeature("publickey-credentials-create") || policy.allowsFeature("publickey-credentials");
     }
 
     async function handlePasskeyRequest(detailJSON) {
@@ -928,7 +931,7 @@
                     binding.createClientData = clientDataBytes;
                     binding.minted = result;
                     // present the encrypted entry for out-of-band saving; the ceremony completes only on ack
-                    maybePost(port, { action: "passkey-created", path: result.path, armored: result.armored });
+                    maybePost(port, { action: "passkey-created", path: result.path, file: result.file, armored: result.armored });
                 } else if (msg?.action === "passkey-create-ack") {
                     if (!binding.minted) throw new Error("No credential has been created.");
                     const authData = await webauthn.buildAttestationAuthData(

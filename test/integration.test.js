@@ -1659,5 +1659,49 @@ describe("Integration script", { concurrency: false }, () => {
                 teardown();
             }
         });
+
+        /**
+         * Assert that a create ceremony reaches the consent popup under the given permissions
+         * policy, then cancel it via the popup so the ceremony settles cleanly.
+         * @param {string} requestId - Unique request identifier for this ceremony.
+         * @param {(name: string) => boolean} allowsFeature - Mocked PermissionsPolicy.allowsFeature.
+         * @returns {Promise<void>}
+         */
+        async function assertCreateReachesPopup(requestId, allowsFeature) {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+            });
+            Object.defineProperty(document, "permissionsPolicy", { value: { allowsFeature }, configurable: true });
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({ requestId, op: "create", options: CREATE_OPTIONS() });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "ready" });
+                await contextPromise;
+                popup.postMessage({ action: "passkey-cancel" });
+                const response = await replyPromise;
+                assert.strictEqual(response.name, "NotAllowedError");
+            } finally {
+                delete document.permissionsPolicy;
+                teardown();
+            }
+        }
+
+        test("create honours the split publickey-credentials-create permission name", async () => {
+            // current engines only know the split names; unknown names evaluate to false
+            await assertCreateReachesPopup(
+                "pw-policy-split",
+                (name) => name === "publickey-credentials-create" || name === "publickey-credentials-get",
+            );
+        });
+
+        test("create falls back to the legacy publickey-credentials permission name", async () => {
+            // pre-split engines only know the combined name
+            await assertCreateReachesPopup("pw-policy-legacy", (name) => name === "publickey-credentials");
+        });
     });
 });

@@ -317,12 +317,15 @@ The host validates the `parcel-passkey v1` marker, the `rpId` (which must match 
 
 When a site asks to create a passkey, Parcel generates a fresh ES256 keypair on the host, encrypts a complete `parcel-passkey v1` entry to the recipients of the applicable `.gpg-id` file (walking up from the suggested directory, exactly like `pass` does), and displays the armored result in the popup along with the suggested entry path.
 
-Parcel **never writes to your password store** — you save the entry yourself, out-of-band:
+Parcel **never writes to your password store** — you save the entry yourself, out-of-band. The blob shown in the popup is already encrypted to your store's `.gpg-id` recipients, so save it **verbatim** as the `.gpg` file (do *not* re-encrypt it with `pass insert`):
 
 ```bash
-pass insert --multiline passkeys/example.com/alice
+mkdir -p ~/.password-store/passkeys/example.com   # if the directory does not yet exist
+cat > ~/.password-store/passkeys/example.com/alice.gpg
 # paste the armored blob shown in the popup, then Ctrl-D
 ```
+
+Or click **Download .gpg file** in the popup and move the downloaded file into place, e.g. `mv ~/Downloads/alice.gpg ~/.password-store/passkeys/example.com/alice.gpg`. Either way, use the exact file path shown next to `cat >` in the popup.
 
 Only after the entry exists will the site accept assertions from that credential. If you decline partway through (or never save the entry), discard the ceremony on the site and nothing persists.
 

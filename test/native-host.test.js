@@ -1627,6 +1627,7 @@ describe("action_passkey", () => {
             assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
             assert.strictEqual(msg.data.op, "create");
             assert.strictEqual(msg.data.path, "passkeys/example.com/bob.gpg");
+            assert.strictEqual(msg.data.file, join(env.passdir, "passkeys", "example.com", "bob.gpg"));
             assert.match(msg.data.credentialId, /^[A-Za-z0-9_-]{43}$/);
             assert.match(msg.data.publicKey, /^[0-9a-f]{128}$/);
 
