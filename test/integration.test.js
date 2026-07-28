@@ -1440,7 +1440,9 @@ describe("Integration script", { concurrency: false }, () => {
             });
             try {
                 const triggerReceiver = portReceivers["trigger"];
+                const authReceiver = portReceivers["auth"];
                 const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+                const authPromise = nextMessage(authReceiver, null, 3000);
                 document.dispatchEvent(
                     new window.CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: "locked" }) }),
                 );
@@ -1448,6 +1450,9 @@ describe("Integration script", { concurrency: false }, () => {
                 await settleAsync();
                 assert.strictEqual(trigger.mode, "passkey-conflict");
                 assert.ok(document.querySelector(".parcel-popup"), "conflict modal should be on the page");
+                // the token is announced on the auth port so the popup iframe's background
+                // connection is authorised (otherwise the panel renders "Unauthorised port")
+                assert.strictEqual(await authPromise, trigger.token);
 
                 const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
                 await settleAsync();

@@ -998,6 +998,8 @@
         }
         passkeyBindings[token] = { conflict: true, reason: msg.reason, origin };
         passkeyConflictShown = true;
+        // announce the popup token before the iframe connects, like a ceremony binding does
+        authPort.postMessage(token);
         triggerPort.postMessage({ action: "trigger-popup", frameId, token, position: { centered: true }, mode: "passkey-conflict" });
     }
 

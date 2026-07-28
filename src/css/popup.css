@@ -312,7 +312,12 @@ body.passkey-popup {
         margin: 0;
     }
     #passkey-conflict-title {
+        /* header bar: same treatment as the error banner (p.error), bleeding to the card edges */
+        background-color: var(--color-bg-error);
+        color: var(--color-text-error);
         font-weight: bold;
+        margin: -8px -8px 0;
+        padding: 6px 8px;
     }
     #passkey-conflict-origin {
         color: var(--color-text-muted);
