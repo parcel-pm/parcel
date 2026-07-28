@@ -89,7 +89,7 @@ test-browser-mock:
 
 .PHONY: test-modules
 test-modules:
-	node --test $(TEST_FLAGS) test/helpers.test.js test/plaintext.test.js test/schema.test.js test/selectors.test.js test/targets.test.js test/shadow.test.js
+	node --test $(TEST_FLAGS) test/helpers.test.js test/plaintext.test.js test/schema.test.js test/selectors.test.js test/targets.test.js test/shadow.test.js test/webauthn.test.js
 
 .PHONY: test-application
 test-application:
@@ -112,6 +112,7 @@ test: test-syntax
 		test/selectors.test.js \
 		test/targets.test.js \
 		test/shadow.test.js \
+		test/webauthn.test.js \
 		test/agent.test.js \
 		test/integration.test.js \
 		test/popup.test.js \

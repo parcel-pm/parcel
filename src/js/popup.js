@@ -5,6 +5,7 @@
     const Plaintext = (await import(chrome.runtime.getURL("/js/plaintext.js"))).Plaintext;
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const frameId = parseInt(new URLSearchParams(window.location.search).get("frameId"), 10) || 0;
+    const mode = new URLSearchParams(window.location.search).get("mode");
     if (token === "broadcast" && window !== window.top) {
         const msg =
             "Parcel may not be independently embedded in a frame. If you are seeing this message, it means that a website " +
@@ -584,6 +585,7 @@
     });
 
     window.addEventListener("keydown", (ev) => {
+        if (mode === "passkey") return; // the passkey ceremony view uses native button/tab navigation
         let selected = document.querySelector(".selected");
         if (ev.key === "ArrowDown" || (ev.key === "Tab" && !ev.shiftKey)) {
             ev.preventDefault();
@@ -676,6 +678,116 @@
         port.onMessage.addListener(configListener);
         port.postMessage({ action: "config" });
     });
+
+    /**
+     * Initialise the passkey consent ceremony interface: replace the fill view with the
+     * ceremony view, render the ceremony context when it arrives from the content script,
+     * and wire the consent/cancel/fallback actions back over the tab port. Creation is
+     * only offered for "create" operations — answering a "get" call with an
+     * attestation-shaped credential would break the relying party, so new credentials
+     * cannot be registered from an assertion ceremony.
+     * @since 1.0.4
+     * @returns {void}
+     */
+    function initPasskeyPopup() {
+        const elRoot = document.getElementById("passkey");
+        const elTitle = document.getElementById("passkey-title");
+        const elOrigin = document.getElementById("passkey-origin");
+        const elUser = document.getElementById("passkey-user");
+        const elEntries = document.getElementById("passkey-entries");
+        const elSave = document.getElementById("passkey-save");
+        const elCreate = document.getElementById("passkey-create");
+        const elFallback = document.getElementById("passkey-fallback");
+        const elCopy = document.getElementById("passkey-copy");
+
+        document.body.classList.add("passkey-popup");
+        elRoot.classList.remove("hidden");
+
+        // prevent further input while the content script settles the ceremony; the
+        // iframe is closed once it has
+        const disableActions = () => elRoot.querySelectorAll("button").forEach((button) => (button.disabled = true));
+
+        document.getElementById("passkey-cancel").addEventListener("click", () => {
+            disableActions();
+            tabPort.postMessage({ action: "passkey-cancel" });
+        });
+        elFallback.addEventListener("click", () => {
+            disableActions();
+            tabPort.postMessage({ action: "passkey-fallback" });
+        });
+        elCreate.addEventListener("click", () => {
+            // the ceremony continues with the save view, so only the decision buttons are retired
+            elCreate.disabled = true;
+            elFallback.disabled = true;
+            tabPort.postMessage({ action: "passkey-create" });
+        });
+        elCopy.addEventListener("click", async () => {
+            const elBlob = document.getElementById("passkey-blob");
+            try {
+                await navigator.clipboard.writeText(elBlob.value);
+                elCopy.textContent = "Copied!";
+            } catch (_err) {
+                // clipboard unavailable in this context — select the text for manual copying
+                elBlob.select();
+            }
+        });
+        document.getElementById("passkey-ack").addEventListener("click", () => {
+            disableActions();
+            tabPort.postMessage({ action: "passkey-create-ack" });
+        });
+
+        /**
+         * Render the ceremony context received from the content script: heading, requesting
+         * origin, the candidate account list (assertion) or account details (creation), and
+         * the actions appropriate to the operation.
+         * @since 1.0.4
+         * @param {object} context - Ceremony context `{op, rpId, origin, candidates, user}`.
+         * @returns {void}
+         */
+        function renderPasskeyContext(context) {
+            elOrigin.textContent = `Requested by ${context.origin}`;
+            if (context.op === "create") {
+                elTitle.textContent = `Create a passkey for ${context.rpId}?`;
+                elUser.textContent = context.user?.displayName
+                    ? `Account: ${context.user.displayName} (${context.user.name})`
+                    : `Account: ${context.user?.name || "unnamed account"}`;
+                elUser.classList.remove("hidden");
+                elCreate.focus();
+            } else {
+                elTitle.textContent = `Sign in to ${context.rpId} with a passkey?`;
+                elCreate.classList.add("hidden");
+                const prefix = `passkeys/${context.rpId}/`;
+                for (const candidate of context.candidates) {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.textContent = candidate.name.startsWith(prefix) ? candidate.name.slice(prefix.length) : candidate.name;
+                    // candidate consent signs an assertion for this entry
+                    button.addEventListener("click", () => {
+                        disableActions();
+                        tabPort.postMessage({ action: "passkey-assert", path: candidate.path });
+                    });
+                    elEntries.appendChild(document.createElement("li")).appendChild(button);
+                }
+                elEntries.querySelector("button")?.focus();
+            }
+        }
+
+        tabPort.onMessage.addListener((msg) => {
+            if (msg?.action === "passkey-context") {
+                renderPasskeyContext(msg.context);
+            } else if (msg?.action === "passkey-created") {
+                // the credential has been minted but is not yet stored; the user must save
+                // the entry out-of-band and confirm before the ceremony completes
+                elCreate.classList.add("hidden");
+                elFallback.classList.add("hidden");
+                document.getElementById("passkey-path").textContent = msg.path;
+                document.getElementById("passkey-blob").value = msg.armored;
+                document.querySelector("#status").textContent = "Save the new passkey entry to continue";
+                elSave.classList.remove("hidden");
+                document.getElementById("passkey-ack").focus();
+            }
+        });
+    }
 
     // listen for messages from the native host
     port.onMessage.addListener(async (msg) => {
@@ -838,32 +950,38 @@
         }
     });
 
-    const search = document.getElementById("searchPattern");
+    if (mode === "passkey") {
+        initPasskeyPopup();
+    } else {
+        const search = document.getElementById("searchPattern");
 
-    // re-run the search when the search input changes
-    search.addEventListener("input", () => {
+        // re-run the search when the search input changes
+        search.addEventListener("input", () => {
+            update();
+            document.querySelector(".selected").classList.remove("selected");
+            search.classList.add("selected");
+        });
+
+        // re-run the search
+        function update() {
+            port.postMessage({ action: "match", url: tab.url || "unknown-url://", search: search.value, limit, history });
+        }
+
+        // initial search
         update();
-        document.querySelector(".selected").classList.remove("selected");
-        search.classList.add("selected");
-    });
 
-    // re-run the search
-    function update() {
-        port.postMessage({ action: "match", url: tab.url || "unknown-url://", search: search.value, limit, history });
+        document.getElementById("searchPattern").addEventListener("keydown", (ev) => {
+            if (ev.key === "Backspace" && search.value.length === 0) {
+                limit = false;
+                document.getElementById("origin").classList.add("hidden");
+            }
+        });
     }
-
-    // initial search
-    update();
 
     // UI updates when the anti-phishing mode is toggled
     if (token === "broadcast") focusSelected();
-    document.getElementById("live-region").textContent = "Parcel popup opened. Press Tab to interact.";
-    document.getElementById("searchPattern").addEventListener("keydown", (ev) => {
-        if (ev.key === "Backspace" && search.value.length === 0) {
-            limit = false;
-            document.getElementById("origin").classList.add("hidden");
-        }
-    });
+    document.getElementById("live-region").textContent =
+        mode === "passkey" ? "Parcel passkey consent opened. Press Tab to interact." : "Parcel popup opened. Press Tab to interact.";
 
     // show the default-rules warning
     config.then((config) => {

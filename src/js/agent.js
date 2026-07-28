@@ -282,6 +282,18 @@ export class Agent extends EventTarget {
     }
 
     /**
+     * Determine whether an entry is eligible for password fill.
+     * Passkey entries (name prefix `passkeys/`, or a rule classified `passkey`) are used by the
+     * WebAuthn ceremony flow only and must never appear in fill results.
+     * @since 1.0.4
+     * @param {object} entry - The pass entry.
+     * @returns {boolean} `true` if the entry may be offered for form fill.
+     */
+    #isFillEntry(entry) {
+        return !entry.name.startsWith("passkeys/") && entry.rule?.class !== "passkey";
+    }
+
+    /**
      * Get the list of available pass entries.
      * @since 1.0.0
      * @param {number} [cacheTTL] - Override the configured cache TTL in seconds. Defaults to `this.#config.cacheTTL`.
@@ -400,6 +412,7 @@ export class Agent extends EventTarget {
         const PORT_ACTIONS = {
             popup: ["auth", "config", "decrypt", "match", "sha256"],
             integration: ["config"],
+            passkey: ["passkey"],
         };
         const allowedActions = PORT_ACTIONS[port.name] || [];
 
@@ -470,6 +483,60 @@ export class Agent extends EventTarget {
                     const response = { action: "config", config: this.#config };
                     if (port.name === "integration") response.frameId = port.sender?.frameId || 0;
                     port.postMessage(response);
+                } else if (message?.action === "passkey") {
+                    // passkey ceremony: list candidates, sign an assertion, or create a credential
+                    if (!this.#config.passkeys) throw new Error("Passkey support is disabled.");
+                    const rpId = await this.#validateRpId(message.origin, message.rpId);
+                    if (message.phase === "candidates") {
+                        updateStatus("Searching for passkey entries...");
+                        const prefix = `passkeys/${rpId}/`;
+                        const candidates = (await this.#getEntries())
+                            .filter((entry) => entry.name.startsWith(prefix))
+                            .map((entry) => ({ name: entry.name, path: entry.path }));
+                        clearStatus();
+                        port.postMessage({ action: "passkey-candidates", rpId, candidates });
+                    } else if (message.phase === "assert") {
+                        const pathPrefix = `${this.#config.passdir}/passkeys/${rpId}/`;
+                        if (!message.path?.startsWith(pathPrefix) || message.path.includes("..")) {
+                            throw new Error(`Invalid passkey entry path: ${message.path}`);
+                        }
+                        updateStatus("Signing passkey assertion...");
+                        const result = await this.#callNative(
+                            "passkey",
+                            {
+                                op: "get",
+                                path: message.path,
+                                rpId,
+                                origin: message.origin,
+                                clientDataJSON: message.clientDataJSON,
+                                allowCredentials: Array.isArray(message.allowCredentials)
+                                    ? message.allowCredentials.filter((v) => typeof v === "string")
+                                    : undefined,
+                            },
+                            this.#config.decryptTimeout * 1000,
+                        );
+                        clearStatus();
+                        port.postMessage({ action: "passkey-result", result });
+                    } else if (message.phase === "create") {
+                        updateStatus("Creating passkey credential...");
+                        const result = await this.#callNative(
+                            "passkey",
+                            {
+                                op: "create",
+                                rpId,
+                                origin: message.origin,
+                                userHandle: message.userHandle,
+                                userName: message.userName,
+                                userDisplayName: message.userDisplayName,
+                                path: message.path,
+                            },
+                            this.#config.decryptTimeout * 1000,
+                        );
+                        clearStatus();
+                        port.postMessage({ action: "passkey-result", result });
+                    } else {
+                        throw new Error(`Unknown passkey phase: ${message.phase}`);
+                    }
                 } else if (message?.action === "sha256") {
                     // provide a SHA-256 hash of the given value
                     const hash = await Helpers.sha256(message.value);
@@ -552,7 +619,7 @@ export class Agent extends EventTarget {
             const suffix = await this.#getPublicSuffix(origin.hostname);
             const slices = [];
             for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
-            for (const entry of await this.#getEntries()) {
+            for (const entry of (await this.#getEntries()).filter((e) => this.#isFillEntry(e))) {
                 const hash = await Helpers.sha256(entry.path);
                 entry.history = history?.[hash];
 
@@ -591,7 +658,9 @@ export class Agent extends EventTarget {
         }
 
         // add all entries for unrestricted search
-        if (!limit && search?.length) for (const entry of await this.#getEntries()) if (!matches.includes(entry)) matches.push(entry);
+        if (!limit && search?.length)
+            for (const entry of (await this.#getEntries()).filter((e) => this.#isFillEntry(e)))
+                if (!matches.includes(entry)) matches.push(entry);
 
         // filter by space-separated regex search terms
         if (search) {
@@ -642,6 +711,37 @@ export class Agent extends EventTarget {
             if (suffix.indexOf(".") === -1) break;
         }
         return hostname;
+    }
+
+    /**
+     * Validate a WebAuthn relying-party ID against the calling origin.
+     *
+     * The effective rpId defaults to the origin hostname, must be equal to it or a
+     * suffix-boundary ancestor of it, and must not itself be a public suffix (so a
+     * credential can never be scoped to a domain the caller does not control).
+     * Localhost origins skip the public-suffix check to support local development.
+     *
+     * @since 1.0.4
+     * @param {string} origin - The calling page origin (e.g. "https://app.example.com").
+     * @param {string} [rpId] - The requested relying-party ID (defaults to the origin hostname).
+     * @returns {Promise<string>} The validated relying-party ID.
+     * @throws {Error} If the origin is insecure or malformed, the rpId is not a registrable ancestor of the origin hostname, or the rpId is a public suffix.
+     */
+    async #validateRpId(origin, rpId) {
+        const url = new URL(origin); // throws on malformed origins
+        const host = url.hostname;
+        const isLocalhost = host === "localhost" || host.endsWith(".localhost");
+        if (url.protocol !== "https:" && !isLocalhost) {
+            throw new Error(`Passkey ceremonies require a secure context: ${origin}`);
+        }
+        const effectiveRpId = rpId || host;
+        if (effectiveRpId !== host && !host.endsWith(`.${effectiveRpId}`)) {
+            throw new Error(`RP ID "${effectiveRpId}" is not a registrable suffix of "${host}"`);
+        }
+        if (!isLocalhost && (await this.#getPublicSuffix(effectiveRpId)) === effectiveRpId) {
+            throw new Error(`RP ID "${effectiveRpId}" is a public suffix`);
+        }
+        return effectiveRpId;
     }
 }
 

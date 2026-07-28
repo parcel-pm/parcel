@@ -216,6 +216,89 @@ ul {
     padding: 1px 4px 1px 18px;
     z-index: 15;
 }
+body.passkey-popup {
+    #search,
+    #entries {
+        display: none;
+    }
+}
+#passkey {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    gap: 8px;
+    padding: 8px;
+    p {
+        margin: 0;
+    }
+    #passkey-title {
+        font-weight: bold;
+    }
+    #passkey-origin {
+        color: var(--color-text-muted);
+        font-size: 0.85em;
+        word-break: break-all;
+    }
+    #passkey-user {
+        font-size: 0.9em;
+    }
+    #passkey-entries {
+        border: 1px solid var(--color-border);
+        max-height: 180px;
+        overflow-y: auto;
+        button {
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--color-border);
+            color: var(--color-text);
+            cursor: pointer;
+            display: block;
+            padding: 6px 8px;
+            text-align: left;
+            width: 100%;
+            &:focus,
+            &:hover {
+                background-color: var(--color-bg-selected);
+            }
+        }
+        li:last-child button {
+            border-bottom: none;
+        }
+    }
+    #passkey-path {
+        font-family: "Noto Sans Mono", monospace;
+    }
+    #passkey-blob {
+        background-color: var(--color-bg-input);
+        border: 1px solid var(--color-border);
+        color: var(--color-text);
+        font-family: "Noto Sans Mono", monospace;
+        font-size: 0.75em;
+        resize: none;
+        width: 100%;
+    }
+    .passkey-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        button {
+            background-color: var(--color-modal-item-bg);
+            border: 1px solid var(--color-border-mid);
+            border-radius: 3px;
+            color: var(--color-text);
+            cursor: pointer;
+            padding: 4px 10px;
+            &:focus,
+            &:hover {
+                background-color: var(--color-modal-item-focus);
+            }
+            &:disabled {
+                cursor: default;
+                opacity: 0.6;
+            }
+        }
+    }
+}
 parcel-detail {
     border-left: 1px solid var(--color-border);
     box-shadow: -3px 0 3px -2px var(--color-shadow);

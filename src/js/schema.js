@@ -167,7 +167,7 @@ export const SelectorSchema = {
 export const TargetSchema = {
     type: "object",
     properties: {
-        class: { type: "string", required: true, enum: ["login"], default: "login" },
+        class: { type: "string", required: true, enum: ["login", "passkey"], default: "login" },
         dynamic: { type: "boolean", required: true, default: false },
         fallback: { type: "string", minLength: 1 },
         fallbackMatch: { type: "string", format: "regex", minLength: 1 },
@@ -212,6 +212,7 @@ export const ConfigSchema = {
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },
         modified: { type: "integer", required: true, minimum: 1 },
         passdir: { type: "string", required: true },
+        passkeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
         rules: {
@@ -220,7 +221,7 @@ export const ConfigSchema = {
             items: {
                 type: "object",
                 properties: {
-                    class: { type: "string", required: true, enum: ["login"], default: "login" },
+                    class: { type: "string", required: true, enum: ["login", "passkey"], default: "login" },
                     color: { type: "string", required: true, pattern: "^[0-9a-f]{6}$", flags: "ui", default: "333333" },
                     ignore: { type: "boolean", required: true, default: false },
                     pattern: { type: "string", required: true, format: "regex" },

@@ -1,0 +1,376 @@
+/**
+ * Parcel passkey (WebAuthn) interceptor - MAIN world content script.
+ *
+ * Overrides navigator.credentials.create/get so that passkey ceremonies can be
+ * served from the user's password store. Unsuitable requests are passed
+ * through to the browser's native implementation unchanged.
+ *
+ * This is a classic script (like shadow.js): it must not use imports, and any
+ * data crossing to/from integration.js travels as JSON strings inside
+ * CustomEvent details (portable across Chrome and Firefox world isolation).
+ *
+ * @since 1.0.4
+ */
+/* global PublicKeyCredential, AuthenticatorAttestationResponse, AuthenticatorAssertionResponse */
+(function () {
+    "use strict";
+
+    if (!("credentials" in navigator) || typeof PublicKeyCredential === "undefined") {
+        return;
+    }
+    if (navigator.credentials.__parcelWrapped) {
+        return; // already installed (e.g. duplicate injection)
+    }
+
+    const nativeCreate = navigator.credentials.create.bind(navigator.credentials);
+    const nativeGet = navigator.credentials.get.bind(navigator.credentials);
+    const pending = new Map();
+    let requestCounter = 0;
+
+    /**
+     * Encode bytes as base64url (no padding).
+     *
+     * @param {Uint8Array} bytes - input bytes
+     * @returns {string} base64url-encoded string
+     */
+    function b64urlEncode(bytes) {
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+
+    /**
+     * Decode a base64url string to an ArrayBuffer.
+     *
+     * @param {string} str - base64url-encoded string
+     * @returns {ArrayBuffer} decoded bytes
+     */
+    function b64urlDecode(str) {
+        const binary = atob(str.replace(/-/g, "+").replace(/_/g, "/"));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    /**
+     * Serialise create options to a JSON-safe bridge representation.
+     *
+     * @param {PublicKeyCredentialCreationOptions} pk - publicKey options
+     * @returns {Object} JSON-safe options
+     */
+    function serializeCreate(pk) {
+        const out = {
+            challenge: b64urlEncode(new Uint8Array(pk.challenge)),
+            rp: { name: (pk.rp && pk.rp.name) || "", id: pk.rp && pk.rp.id },
+            user: {
+                id: b64urlEncode(new Uint8Array(pk.user.id)),
+                name: pk.user.name || "",
+                displayName: pk.user.displayName || "",
+            },
+            pubKeyCredParams: (pk.pubKeyCredParams || []).map(function (p) {
+                return { type: p.type, alg: p.alg };
+            }),
+            timeout: pk.timeout,
+            attestation: pk.attestation || "none",
+        };
+        if (pk.authenticatorSelection) {
+            out.authenticatorSelection = {
+                authenticatorAttachment: pk.authenticatorSelection.authenticatorAttachment,
+                residentKey: pk.authenticatorSelection.residentKey,
+                requireResidentKey: pk.authenticatorSelection.requireResidentKey,
+                userVerification: pk.authenticatorSelection.userVerification,
+            };
+        }
+        if (pk.excludeCredentials) {
+            out.excludeCredentials = pk.excludeCredentials.map(function (c) {
+                return { type: c.type, id: b64urlEncode(new Uint8Array(c.id)), transports: c.transports };
+            });
+        }
+        return out;
+    }
+
+    /**
+     * Serialise get options to a JSON-safe bridge representation.
+     *
+     * @param {PublicKeyCredentialRequestOptions} pk - publicKey options
+     * @returns {Object} JSON-safe options
+     */
+    function serializeGet(pk) {
+        const out = {
+            challenge: b64urlEncode(new Uint8Array(pk.challenge)),
+            rpId: pk.rpId,
+            timeout: pk.timeout,
+            userVerification: pk.userVerification,
+        };
+        if (pk.allowCredentials) {
+            out.allowCredentials = pk.allowCredentials.map(function (c) {
+                return { type: c.type, id: b64urlEncode(new Uint8Array(c.id)), transports: c.transports };
+            });
+        }
+        return out;
+    }
+
+    /**
+     * Remove the authenticatorAttachment hint - the answer is always "platform".
+     * Not currently exposed by parcel credentials; kept for future use.
+     *
+     * @returns {string} attachment hint
+     */
+    function attachmentHint() {
+        return "platform";
+    }
+
+    /**
+     * Build a duck-typed PublicKeyCredential from bridge response data.
+     *
+     * @param {Object} data - {op, id, response:{...base64url fields, authData, spki}}
+     * @returns {PublicKeyCredential} credential object
+     */
+    function makeCredential(data) {
+        const id = data.id;
+        const rawId = b64urlDecode(id);
+        let response;
+        let userHandle = null;
+        if (data.op === "create") {
+            const authData = b64urlDecode(data.response.authData);
+            const spki = b64urlDecode(data.response.spki);
+            response = {
+                clientDataJSON: b64urlDecode(data.response.clientDataJSON),
+                attestationObject: b64urlDecode(data.response.attestationObject),
+                getAuthenticatorData: function () {
+                    return authData;
+                },
+                getPublicKey: function () {
+                    return spki;
+                },
+                getPublicKeyAlgorithm: function () {
+                    return -7;
+                },
+                getTransports: function () {
+                    return ["internal"];
+                },
+            };
+            Object.setPrototypeOf(response, AuthenticatorAttestationResponse.prototype);
+        } else {
+            userHandle = data.response.userHandle ? b64urlDecode(data.response.userHandle) : null;
+            response = {
+                clientDataJSON: b64urlDecode(data.response.clientDataJSON),
+                authenticatorData: b64urlDecode(data.response.authenticatorData),
+                signature: b64urlDecode(data.response.signature),
+                userHandle: userHandle,
+            };
+            Object.setPrototypeOf(response, AuthenticatorAssertionResponse.prototype);
+        }
+        const cred = {
+            id: id,
+            rawId: rawId,
+            type: "public-key",
+            authenticatorAttachment: attachmentHint(),
+            response: response,
+            getClientExtensionResults: function () {
+                return {};
+            },
+            toJSON: function () {
+                const json = {
+                    type: "public-key",
+                    id: id,
+                    rawId: b64urlEncode(new Uint8Array(rawId)),
+                    authenticatorAttachment: attachmentHint(),
+                    clientExtensionResults: {},
+                    response: {
+                        clientDataJSON: b64urlEncode(new Uint8Array(response.clientDataJSON)),
+                    },
+                };
+                if (data.op === "create") {
+                    json.response.attestationObject = b64urlEncode(new Uint8Array(response.attestationObject));
+                    json.response.transports = ["internal"];
+                } else {
+                    json.response.authenticatorData = b64urlEncode(new Uint8Array(response.authenticatorData));
+                    json.response.signature = b64urlEncode(new Uint8Array(response.signature));
+                    json.response.userHandle = userHandle ? b64urlEncode(new Uint8Array(userHandle)) : null;
+                }
+                return json;
+            },
+        };
+        Object.setPrototypeOf(cred, PublicKeyCredential.prototype);
+        return cred;
+    }
+
+    /**
+     * Relay a ceremony request through the integration script.
+     *
+     * @param {string} op - "create" or "get"
+     * @param {Object} options - serialised publicKey options
+     * @param {number|undefined} timeout - ceremony timeout in ms
+     * @param {AbortSignal|undefined} signal - caller-supplied abort signal
+     * @param {Function} nativeFn - native implementation for fallback
+     * @param {Object} nativeOptions - original unmodified options for fallback
+     * @returns {Promise<PublicKeyCredential>} the credential
+     */
+    function parcelRequest(op, options, timeout, signal, nativeFn, nativeOptions) {
+        return new Promise(function (resolve, reject) {
+            if (signal && signal.aborted) {
+                reject(new DOMException("The operation was aborted.", "AbortError"));
+                return;
+            }
+            const requestId = "pw" + ++requestCounter + Date.now().toString(36);
+            let timer = null;
+            let abortFn = function () {};
+
+            const finish = function (fn) {
+                if (!pending.has(requestId)) {
+                    return; // already settled
+                }
+                pending.delete(requestId);
+                if (timer !== null) {
+                    clearTimeout(timer);
+                }
+                if (signal) {
+                    signal.removeEventListener("abort", abortFn);
+                }
+                fn();
+            };
+
+            abortFn = function () {
+                finish(function () {
+                    document.dispatchEvent(
+                        new CustomEvent("parcel-webauthn-abort", {
+                            detail: JSON.stringify({ requestId: requestId }),
+                        }),
+                    );
+                    reject(new DOMException("The operation was aborted.", "AbortError"));
+                });
+            };
+
+            pending.set(requestId, {
+                op: op,
+                resolve: function (data) {
+                    finish(function () {
+                        try {
+                            resolve(makeCredential(data));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+                },
+                reject: function (name, message) {
+                    finish(function () {
+                        reject(new DOMException(message || "The operation failed.", name || "NotAllowedError"));
+                    });
+                },
+                fallback: function () {
+                    finish(function () {
+                        nativeFn(nativeOptions).then(resolve, reject);
+                    });
+                },
+            });
+
+            if (timeout) {
+                timer = setTimeout(function () {
+                    finish(function () {
+                        document.dispatchEvent(
+                            new CustomEvent("parcel-webauthn-abort", {
+                                detail: JSON.stringify({ requestId: requestId }),
+                            }),
+                        );
+                        reject(new DOMException("The operation timed out.", "NotAllowedError"));
+                    });
+                }, timeout);
+            }
+            if (signal) {
+                signal.addEventListener("abort", abortFn);
+            }
+
+            document.dispatchEvent(
+                new CustomEvent("parcel-webauthn-request", {
+                    detail: JSON.stringify({
+                        requestId: requestId,
+                        op: op,
+                        origin: window.location.origin,
+                        options: options,
+                    }),
+                }),
+            );
+        });
+    }
+
+    /**
+     * Whether this frame should defer to the platform authenticator. Parcel only
+     * serves ceremonies in the top frame or frames same-origin with the top.
+     *
+     * @returns {boolean} true if Parcel may handle ceremonies here
+     */
+    function mayHandleHere() {
+        if (!window.isSecureContext) {
+            return false;
+        }
+        try {
+            return window.top.location.origin === window.location.origin;
+        } catch {
+            return false; // cross-origin iframe
+        }
+    }
+
+    /**
+     * navigator.credentials.create override.
+     *
+     * @param {CredentialCreationOptions} options - creation options
+     * @returns {Promise<Credential>} the credential
+     */
+    function create(options) {
+        const pk = options && options.publicKey;
+        if (!pk || !mayHandleHere()) {
+            return nativeCreate(options);
+        }
+        // only ES256 platform credentials can be served from the password store
+        const supportsES256 = (pk.pubKeyCredParams || []).some(function (p) {
+            return p.type === "public-key" && p.alg === -7;
+        });
+        if (!supportsES256 || (pk.authenticatorSelection && pk.authenticatorSelection.authenticatorAttachment === "cross-platform")) {
+            return nativeCreate(options);
+        }
+        return parcelRequest("create", serializeCreate(pk), pk.timeout, options.signal, nativeCreate, options);
+    }
+
+    /**
+     * navigator.credentials.get override.
+     *
+     * @param {CredentialRequestOptions} options - request options
+     * @returns {Promise<Credential>} the credential
+     */
+    function get(options) {
+        const pk = options && options.publicKey;
+        if (!pk || !mayHandleHere() || options.mediation === "conditional") {
+            return nativeGet(options);
+        }
+        return parcelRequest("get", serializeGet(pk), pk.timeout, options.signal, nativeGet, options);
+    }
+
+    document.addEventListener("parcel-webauthn-response", function (event) {
+        let data;
+        try {
+            data = JSON.parse(event.detail);
+        } catch {
+            return;
+        }
+        const item = data && pending.get(data.requestId);
+        if (!item) {
+            return;
+        }
+        if (data.type === "response") {
+            item.resolve(data.credential);
+        } else if (data.type === "fallback") {
+            item.fallback();
+        } else {
+            item.reject(data.name, data.message);
+        }
+    });
+
+    Object.defineProperty(navigator.credentials, "__parcelWrapped", { value: true });
+    navigator.credentials.create = create;
+    navigator.credentials.get = get;
+})();

@@ -22,6 +22,7 @@ Parcel is designed with security as its highest priority: the extension **does n
 - **Container/tab isolation** — Per-origin history isolation, with support for Firefox Multi-Account Containers.
 - **Read-only by design** — Parcel never creates, edits, or deletes password store files.
 - **TOTP / 2FA autofill** — Generate and fill RFC 6238 TOTP codes from a base32 secret or `otpauth://` URI stored in a pass entry.
+- **Passkey (WebAuthn / FIDO2) support** — Register and authenticate with ES256 passkeys whose private keys live in GPG-encrypted pass entries and never enter the browser.
 
 ---
 
@@ -56,6 +57,8 @@ If you wish to run the test suite, you will also need the following:
 | `src/js/selectors.js` | DOM selectors for detecting login, password, TOTP, and other credential fields. |
 | `src/js/targets.js` | Field-target bindings that map credentials to detected form fields. |
 | `src/js/shadow.js` | Patches `attachShadow` to ensure cross-shadow lookups work correctly. |
+| `src/js/webauthn.js` | Shared passkey helpers: base64url codecs, a minimal CBOR encoder, and builders for clientDataJSON / attestation structures. |
+| `src/js/parcel-webauthn.js` | MAIN-world interceptor for `navigator.credentials.create` / `.get`, bridging WebAuthn ceremonies into the extension with a native fallback. |
 | `src/parcel-host` | Signed bash script that reads `~/.password-store`, filters against `.parcel.json`, and decrypts whitelisted entries. |
 | `parcel-host` | Bootstrap host that verifies GPG signatures and launches `src/parcel-host`. |
 
@@ -191,7 +194,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 |----------|------|---------|-------------|
 | `pattern` | string (regex) | *required* | Regex matched against the entry name (relative to the store root, without `.gpg`). |
 | `ignore` | boolean | `false` | If `true`, entries matching this rule are excluded. |
-| `class` | string | `"login"` | Classification of the entry (only `"login"` is currently supported). |
+| `class` | string | `"login"` | Classification of the entry: `"login"` (a fillable credential entry) or `"passkey"` (a WebAuthn credential; excluded from password filling). |
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
@@ -210,6 +213,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `disableContextPopup` | boolean | `false` | If `true`, disables the inline / context popup. |
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
+| `passkeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
@@ -270,6 +274,66 @@ When an `otpauth://` URI is detected, Parcel extracts the `secret`, `period`, an
 | **Field detection** | Built-in selectors match common TOTP input fields. |
 | **Secret extraction** | The `totp` target pattern reads the secret from the pass entry's plaintext. If the entry contains an `otpauth://` URI, the `totp-url` fallback target is used instead, which parses the URI for parameters. |
 | **Token generation** | `Helpers.generateTOTP()` computes the HMAC-SHA1-based TOTP using WebCrypto, returning the token along with timing metadata (`refreshAt`, `generatedAt`, `interval`). |
+
+---
+
+## Passkeys (WebAuthn / FIDO2)
+
+Parcel can act as a passkey authenticator for websites. Passkey private keys are stored in GPG-encrypted pass entries and are **never** exposed to the browser — the extension forwards ceremony requests to the native host, which performs the cryptography with `openssl` and returns only the signature (or, for new credentials, the newly generated public key).
+
+### How it works
+
+| Step | What happens |
+|------|--------------|
+| **Interception** | A small MAIN-world script (`src/js/parcel-webauthn.js`) intercepts `navigator.credentials.create()` / `.get()` calls for `publicKey` credentials. If Parcel cannot handle the request (support disabled, ceremony unsupported, or consent declined), the call falls back to the browser's native implementation. |
+| **Consent popup** | Every ceremony requires explicit consent: an inline popup shows the requesting site's origin and the passkey entries registered for its relying-party ID. No signature is ever produced without you selecting a credential. |
+| **Cryptography** | The native host decrypts the chosen passkey entry (whitelist- and rate-limit-gated like any other decryption) and signs the assertion with `openssl`. The private key material stays on the host side. |
+| **Response** | The extension assembles the WebAuthn credential object (with a real CBOR attestation for registrations) and returns it to the page. |
+
+User verification is reported to the site as satisfied: consent is given interactively, and decryption itself requires your GPG key passphrase (or PIN/biometric via your GPG agent).
+
+### Passkey entry format
+
+Passkeys live under `passkeys/<rpId>/<account>.gpg` in your password store:
+
+```
+parcel-passkey v1
+rpId: example.com
+credentialId: <base64url>
+algorithm: ES256
+userHandle: <base64url>
+userName: alice
+userDisplayName: Alice A
+publicKey: <128 hex chars; uncompressed P-256 x||y coordinates>
+privateKey:
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----
+```
+
+The host validates the `parcel-passkey v1` marker, the `rpId` (which must match the requesting site's relying-party ID), and any `allowCredentials` restriction sent by the site before signing.
+
+### Registering a new passkey
+
+When a site asks to create a passkey, Parcel generates a fresh ES256 keypair on the host, encrypts a complete `parcel-passkey v1` entry to the recipients of the applicable `.gpg-id` file (walking up from the suggested directory, exactly like `pass` does), and displays the armored result in the popup along with the suggested entry path.
+
+Parcel **never writes to your password store** — you save the entry yourself, out-of-band:
+
+```bash
+pass insert --multiline passkeys/example.com/alice
+# paste the armored blob shown in the popup, then Ctrl-D
+```
+
+Only after the entry exists will the site accept assertions from that credential. If you decline partway through (or never save the entry), discard the ceremony on the site and nothing persists.
+
+### Limitations
+
+- **Algorithm**: ES256 (ECDSA over P-256 with SHA-256) only.
+- **Attestation**: registrations use `fmt: "none"` self-attestation; Parcel cannot prove authenticator provenance to sites that require it.
+- **Counter**: the signature counter is always zero (multi-device-style credential; clone-detection is not available).
+- Sites that require hardware-bound attestation or Ed25519 will need to fall back to a platform authenticator.
+
+Set `"passkeys": false` in `.parcel.json` to disable passkey support entirely.
 
 ---
 

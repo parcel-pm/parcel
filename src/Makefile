@@ -20,12 +20,14 @@ DIST_FILES := \
     js/helpers.js \
     js/integration.js \
     js/integration.es6.js \
+    js/parcel-webauthn.js \
     js/plaintext.js \
     js/popup.js \
     js/schema.js \
     js/selectors.js \
     js/shadow.js \
     js/targets.js \
+    js/webauthn.js \
 	ttf/NotoSansMono-VariableFont_wdth,wght.ttf \
 	ttf/Roboto-VariableFont_wdth,wght.ttf \
 

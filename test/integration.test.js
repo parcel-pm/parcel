@@ -1311,4 +1311,337 @@ describe("Integration script", { concurrency: false }, () => {
         assert.strictEqual(user.value, "shadow-user");
         assert.ok(focused, "submit button inside shadow host should be focused after fill");
     });
+
+    // -----------------------------------------------------------------------
+    // passkey bridge (parcel-webauthn CustomEvent bridge + consent popup)
+    // -----------------------------------------------------------------------
+
+    describe("Passkey bridge", () => {
+        const b64url = (bytes) => Buffer.from(bytes).toString("base64url");
+        const GET_OPTIONS = (overrides = {}) => ({
+            challenge: "Y2hhbGxlbmdl",
+            rpId: "example.com",
+            timeout: 30000,
+            userVerification: "preferred",
+            ...overrides,
+        });
+        const CREATE_OPTIONS = (overrides = {}) => ({
+            challenge: "Y2hhbGxlbmdl",
+            rp: { id: "example.com", name: "Example" },
+            user: { id: "dXNlcg", name: "alice", displayName: "Alice" },
+            pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+            ...overrides,
+        });
+
+        /**
+         * Register a scripted background agent for one-shot "passkey" ports.
+         * @param {(port: object, msg: object) => void} handler - Replies to each phase message.
+         * @returns {() => void} A teardown removing the listener.
+         */
+        function fakePasskeyAgent(handler) {
+            const listener = (receiver) => {
+                if (receiver.name !== "passkey") return;
+                receiver.onMessage.addListener((msg) => handler(receiver, msg));
+            };
+            mock.chrome.runtime.onConnect.addListener(listener);
+            return () => mock.chrome.runtime.onConnect.removeListener(listener);
+        }
+
+        /**
+         * Dispatch a parcel-webauthn-request and resolve with its matching response.
+         * @param {object} detail - `{requestId, op, options}` for the interceptor bridge.
+         * @returns {Promise<object>} The dispatched parcel-webauthn-response detail.
+         */
+        function dispatchPasskey(detail) {
+            const reply = new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    document.removeEventListener("parcel-webauthn-response", listener);
+                    reject(new Error("Timeout waiting for parcel-webauthn-response"));
+                }, 3000);
+                const listener = (ev) => {
+                    const d = JSON.parse(ev.detail);
+                    if (d.requestId === detail.requestId) {
+                        clearTimeout(timer);
+                        document.removeEventListener("parcel-webauthn-response", listener);
+                        resolve(d);
+                    }
+                };
+                document.addEventListener("parcel-webauthn-response", listener);
+            });
+            document.dispatchEvent(new window.CustomEvent("parcel-webauthn-request", { detail: JSON.stringify(detail) }));
+            return reply;
+        }
+
+        test("get with no stored candidates falls back to the browser silently", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+            });
+            try {
+                const response = await dispatchPasskey({ requestId: "pw-no-candidates", op: "get", options: GET_OPTIONS() });
+                assert.strictEqual(response.type, "fallback");
+            } finally {
+                teardown();
+            }
+        });
+
+        test("get ceremony shows candidates, signs via the host, and returns an assertion", async () => {
+            clearBody();
+            let assertPhase = null;
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") {
+                    port.postMessage({
+                        action: "passkey-candidates",
+                        rpId: "example.com",
+                        candidates: [{ name: "passkeys/example.com/alice", path: "/abs/passkeys/example.com/alice.gpg" }],
+                    });
+                } else if (msg.phase === "assert") {
+                    assertPhase = msg;
+                    port.postMessage({
+                        action: "passkey-result",
+                        result: {
+                            op: "get",
+                            credentialId: "Y3JlZA",
+                            authenticatorData: Buffer.from([0xfb, 0xff, 0x3e]).toString("base64"),
+                            signature: Buffer.from([0xfb, 0xfe, 0x00]).toString("base64"),
+                            userHandle: "dXNlcg",
+                        },
+                    });
+                }
+            });
+            try {
+                const triggerReceiver = portReceivers["trigger"];
+                const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({
+                    requestId: "pw-get",
+                    op: "get",
+                    options: GET_OPTIONS({ allowCredentials: [{ type: "public-key", id: "Y3JlZA" }] }),
+                });
+                const trigger = await popupPromise;
+                assert.strictEqual(trigger.mode, "passkey");
+                assert.ok(trigger.token, "consent popup must receive a token");
+
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "ready" });
+                const context = await contextPromise;
+                assert.strictEqual(context.context.op, "get");
+                assert.strictEqual(context.context.rpId, "example.com");
+                assert.strictEqual(context.context.origin, "http://localhost");
+                assert.deepStrictEqual(context.context.candidates, [
+                    { name: "passkeys/example.com/alice", path: "/abs/passkeys/example.com/alice.gpg" },
+                ]);
+                assert.strictEqual(context.context.user, null);
+
+                popup.postMessage({ action: "passkey-assert", path: "/abs/passkeys/example.com/alice.gpg" });
+                const response = await replyPromise;
+
+                // the agent received the exact signing inputs, including allowCredentials
+                assert.ok(assertPhase, "assert phase should have been requested");
+                assert.strictEqual(assertPhase.rpId, "example.com");
+                assert.strictEqual(assertPhase.origin, "http://localhost");
+                assert.strictEqual(assertPhase.path, "/abs/passkeys/example.com/alice.gpg");
+                assert.deepStrictEqual(assertPhase.allowCredentials, ["Y3JlZA"]);
+                const clientData = JSON.parse(Buffer.from(assertPhase.clientDataJSON, "base64").toString("utf8"));
+                assert.deepStrictEqual(clientData, {
+                    type: "webauthn.get",
+                    challenge: "Y2hhbGxlbmdl",
+                    origin: "http://localhost",
+                    crossOrigin: false,
+                });
+
+                // standard base64 from the host must be converted to base64url for the page
+                assert.strictEqual(response.type, "response");
+                assert.strictEqual(response.credential.op, "get");
+                assert.strictEqual(response.credential.id, "Y3JlZA");
+                assert.strictEqual(response.credential.response.authenticatorData, "-_8-");
+                assert.strictEqual(response.credential.response.signature, "-_4A");
+                assert.strictEqual(response.credential.response.userHandle, "dXNlcg");
+            } finally {
+                teardown();
+            }
+        });
+
+        test("create ceremony mints then completes on ack with an attestation", async () => {
+            clearBody();
+            let createPhase = null;
+            const pubKeyHex = "aa".repeat(32) + "bb".repeat(32);
+            const spkiB64 = Buffer.from(new Uint8Array(91).fill(0x01)).toString("base64");
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") {
+                    port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+                } else if (msg.phase === "create") {
+                    createPhase = msg;
+                    port.postMessage({
+                        action: "passkey-result",
+                        result: {
+                            op: "create",
+                            credentialId: b64url(new Uint8Array(32).fill(0x42)),
+                            publicKey: pubKeyHex,
+                            spki: spkiB64,
+                            path: msg.path,
+                            armored: "-----BEGIN PGP MESSAGE-----\nciphertext\n-----END PGP MESSAGE-----",
+                        },
+                    });
+                }
+            });
+            try {
+                const triggerReceiver = portReceivers["trigger"];
+                const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({ requestId: "pw-create", op: "create", options: CREATE_OPTIONS() });
+                const trigger = await popupPromise;
+
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "ready" });
+                const context = await contextPromise;
+                assert.strictEqual(context.context.op, "create");
+                assert.strictEqual(context.context.user.name, "alice");
+
+                popup.postMessage({ action: "passkey-create" });
+                const created = await nextMessage(popup, "passkey-created", 3000);
+                assert.strictEqual(created.path, "passkeys/example.com/alice.gpg");
+                assert.ok(created.armored.includes("BEGIN PGP MESSAGE"));
+                assert.ok(createPhase, "create phase should have been requested");
+                assert.strictEqual(createPhase.userName, "alice");
+                assert.strictEqual(createPhase.userDisplayName, "Alice");
+                assert.strictEqual(createPhase.path, "passkeys/example.com/alice.gpg");
+
+                popup.postMessage({ action: "passkey-create-ack" });
+                const response = await replyPromise;
+                assert.strictEqual(response.type, "response");
+                assert.strictEqual(response.credential.op, "create");
+                assert.strictEqual(response.credential.id, b64url(new Uint8Array(32).fill(0x42)));
+                // SPKI must be base64url; authData must end with the COSE key for the given key pair
+                const authData = Buffer.from(response.credential.response.authData, "base64url");
+                assert.strictEqual(authData.length, 164);
+                // COSE key is a5 01 02 03 26 20 01 21 58 20 <x32> 22 58 20 <y32>: x starts at offset 10
+                assert.strictEqual(Buffer.from(pubKeyHex.slice(0, 64), "hex").equals(authData.subarray(-77 + 10, -77 + 42)), true);
+                assert.strictEqual(Buffer.from(pubKeyHex.slice(64), "hex").equals(authData.subarray(-32)), true);
+                const attestationObject = Buffer.from(response.credential.response.attestationObject, "base64url");
+                assert.ok(attestationObject.subarray(0, 32).toString("hex").startsWith("a363666d74646e6f6e65")); // {"fmt":"none",...}
+                assert.strictEqual(Buffer.from(response.credential.response.spki, "base64url").toString("base64"), spkiB64);
+            } finally {
+                teardown();
+            }
+        });
+
+        test("a second create is refused while a minted credential awaits saving", async () => {
+            clearBody();
+            let mintCount = 0;
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") {
+                    port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+                } else if (msg.phase === "create") {
+                    mintCount++;
+                    port.postMessage({
+                        action: "passkey-result",
+                        result: {
+                            op: "create",
+                            credentialId: b64url(new Uint8Array(32).fill(0x42)),
+                            publicKey: "aa".repeat(32) + "bb".repeat(32),
+                            spki: Buffer.from(new Uint8Array(91).fill(0x01)).toString("base64"),
+                            path: msg.path,
+                            armored: "-----BEGIN PGP MESSAGE-----\nx\n-----END PGP MESSAGE-----",
+                        },
+                    });
+                }
+            });
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                dispatchPasskey({ requestId: "pw-first", op: "create", options: CREATE_OPTIONS() });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                popup.postMessage({ action: "ready" });
+                await nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "passkey-create" });
+                await nextMessage(popup, "passkey-created", 3000);
+
+                // a new ceremony must not supersede the minted, unsaved credential
+                const second = await dispatchPasskey({ requestId: "pw-second", op: "create", options: CREATE_OPTIONS() });
+                assert.strictEqual(second.type, "error");
+                assert.strictEqual(second.name, "NotAllowedError");
+                assert.strictEqual(mintCount, 1, "no second credential may be minted");
+
+                // the original ceremony is still alive and can finish its save flow
+                const firstReply = new Promise((resolve) => {
+                    const listener = (ev) => {
+                        const d = JSON.parse(ev.detail);
+                        if (d.requestId === "pw-first") {
+                            document.removeEventListener("parcel-webauthn-response", listener);
+                            resolve(d);
+                        }
+                    };
+                    document.addEventListener("parcel-webauthn-response", listener);
+                });
+                popup.postMessage({ action: "passkey-cancel" });
+                const first = await firstReply;
+                assert.strictEqual(first.type, "error");
+                assert.ok(first.message.includes("not completed"), `Expected minted-cancel message, got: ${first.message}`);
+            } finally {
+                teardown();
+            }
+        });
+
+        test("forged events from cross-origin frames are refused before agent contact", async () => {
+            clearBody();
+            let contacted = false;
+            const teardown = fakePasskeyAgent(() => {
+                contacted = true;
+            });
+            // jsdom's window.top is non-configurable, so simulate the cross-origin iframe by
+            // shadowing the global window with a derived object whose top accessor throws.
+            // mayHandlePasskeyHere refuses before the first await, so swapping it around the
+            // synchronous dispatch is enough.
+            const fakeWindow = Object.create(window);
+            Object.defineProperty(fakeWindow, "top", {
+                get() {
+                    return Object.defineProperty({}, "location", {
+                        get() {
+                            throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
+                        },
+                    });
+                },
+            });
+            const realWindow = globalThis.window;
+            const reply = (() => {
+                globalThis.window = fakeWindow;
+                try {
+                    return dispatchPasskey({ requestId: "pw-forged", op: "get", options: GET_OPTIONS() });
+                } finally {
+                    globalThis.window = realWindow;
+                }
+            })();
+            try {
+                const response = await reply;
+                assert.strictEqual(response.type, "fallback");
+                assert.strictEqual(contacted, false, "the background worker must not be contacted");
+            } finally {
+                teardown();
+            }
+        });
+
+        test("requests denied by permissions policy fall back to the browser", async () => {
+            clearBody();
+            let contacted = false;
+            const teardown = fakePasskeyAgent(() => {
+                contacted = true;
+            });
+            Object.defineProperty(document, "permissionsPolicy", {
+                value: { allowsFeature: () => false },
+                configurable: true,
+            });
+            try {
+                const response = await dispatchPasskey({ requestId: "pw-policy", op: "create", options: CREATE_OPTIONS() });
+                assert.strictEqual(response.type, "fallback");
+                assert.strictEqual(contacted, false, "the background worker must not be contacted");
+            } finally {
+                delete document.permissionsPolicy;
+                teardown();
+            }
+        });
+    });
 });
