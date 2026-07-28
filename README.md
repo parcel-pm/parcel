@@ -196,11 +196,12 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 |----------|------|---------|-------------|
 | `pattern` | string (regex) | *required* | Regex matched against the entry name (relative to the store root, without `.gpg`). |
 | `ignore` | boolean | `false` | If `true`, entries matching this rule are excluded. |
-| `class` | string | `"login"` | Classification of the entry: `"login"` (a fillable credential entry) or `"passkey"` (a WebAuthn credential; excluded from password filling, and the only entries offered for WebAuthn ceremonies). Stores without configured rules get a default rule classing the `passkeyDir` subtree as `passkey`. |
+| `class` | string | `"login"` | Classification: `"login"` (a fillable credential entry) or `"passkey"` (a WebAuthn credential; excluded from password filling, and the only entries offered for WebAuthn ceremonies). Stores without configured rules get a default rule classing the `passkeyDir` subtree as `passkey`. The special class `"browser-passkey"` instead marks a *site policy* rule: it matches the site's relying-party ID (not entry names), classifies no entries, and defers all WebAuthn ceremonies for matching sites to the platform/browser handler without showing Parcel's consent popup. |
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
-| `useBrowserPasskeys` | boolean | `false` | On a matching rule (whose pattern must match the *site's rpId*, not an entry name), always use the platform/browser passkey handler for that site without showing Parcel's consent popup. Ignored rules with this flag never trigger the deferral. |
+
+For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`.
 
 #### Other options
 

@@ -739,6 +739,29 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("browser-passkey rules never apply to entry matching", async () => {
+        const env = createTestEnv();
+        mkdirSync(join(env.passdir, "browser-site"), { recursive: true });
+        writeFileSync(join(env.passdir, "browser-site", "foo.gpg"), "encrypted-f");
+        // class+ignore both filtered out of entry matching: this rule must not
+        // hide the entry even though its pattern matches
+        writeFileSync(
+            join(env.passdir, ".parcel.json"),
+            JSON.stringify({ rules: [{ pattern: "^browser", ignore: true, class: "browser-passkey" }, { pattern: "." }] }),
+        );
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            const names = msg.data.map((e) => e.name);
+            assert.ok(names.includes("browser-site/foo"), `Expected browser-site/foo to remain listed in ${JSON.stringify(names)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_list includes symlinked directory entries and allows decrypt", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");

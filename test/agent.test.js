@@ -363,7 +363,7 @@ describe("Agent", () => {
      * `shared/fido/` entries are rule-classed as passkeys (outside the default
      * `passkeys/` prefix); `passkeys/example.com/alice` is deliberately left
      * unclassed to exercise class-only candidacy; `test/bob` is a login entry.
-     * `github.com` carries `useBrowserPasskeys` to exercise defer-to-browser.
+     * `github.com` carries class "browser-passkey" to exercise defer-to-browser.
      * @returns {Promise<void>}
      */
     async function configurePasskeyStore() {
@@ -371,9 +371,12 @@ describe("Agent", () => {
             ...makeValidConfig(),
             modified: 2,
             rules: [
+                // a browser-passkey site rule overlaid on an entry prefix: it must neither
+                // classify nor shadow these entries - the later passkey rule still applies
+                { pattern: "^shared/fido/", class: "browser-passkey" },
                 { pattern: "^test/", class: "login" },
                 { pattern: "^shared/fido/", class: "passkey" },
-                { pattern: "^github\\.com$", useBrowserPasskeys: true },
+                { pattern: "^github\\.com$", class: "browser-passkey" },
             ],
         };
         uninstallNativeHandler(mock, handler);
@@ -483,7 +486,7 @@ describe("Agent", () => {
         assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
     });
 
-    test("sites with useBrowserPasskeys rules defer WebAuthn ceremonies to the browser", async () => {
+    test("a browser-passkey rule defers WebAuthn ceremonies for its site", async () => {
         await configurePasskeyStore();
         const passkey = mock.chrome.runtime.connect({ name: "passkey" });
         await settleAsync();
@@ -497,7 +500,7 @@ describe("Agent", () => {
         await fallbackPromise; // no candidates, no popup - straight to the platform handler
     });
 
-    test("useBrowserPasskeys on an ignore rule does not defer", async () => {
+    test("a browser-passkey rule set to ignore does not defer", async () => {
         // empty entry store; only the ignored-defer rule matters
         uninstallNativeHandler(mock, handler);
         handler = installNativeHandler(mock, (msg) => {
@@ -506,7 +509,7 @@ describe("Agent", () => {
                 return {
                     ...makeValidConfig(),
                     modified: 1,
-                    rules: [{ pattern: "^ignored\\.com$", ignore: true, useBrowserPasskeys: true }],
+                    rules: [{ pattern: "^ignored\\.com$", ignore: true, class: "browser-passkey" }],
                 };
             if (msg.action === "list") return [];
             if (msg.action === "changes_since") return { changes: false };

@@ -247,9 +247,12 @@ function action_list() {
             jq -s '
                 .[0] * .[1]
                 | . as $top
-                | ($top.rules|map(select(.ignore==false or (has("ignore") | not)).pattern)) as $include
-                | ($top.rules|map(select(.ignore==true).pattern)) as $ignore
-                | ($top.rules|map(select(.class=="passkey").pattern)) as $passkey
+                # browser-passkey rules are site policy matched against relying-party
+                # IDs, not entry names - exclude them from entry-matching derivations
+                | ($top.rules|map(select(.class != "browser-passkey"))) as $erules
+                | ($erules|map(select(.ignore==false or (has("ignore") | not)).pattern)) as $include
+                | ($erules|map(select(.ignore==true).pattern)) as $ignore
+                | ($erules|map(select(.class=="passkey").pattern)) as $passkey
                 | .entries | (
                     map(
                         .={path: .path, name: .path | ltrimstr($top.passdir + "/") | rtrimstr(".gpg"), is_link: (.is_link == 1), real: .real}

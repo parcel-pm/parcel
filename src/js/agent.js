@@ -262,6 +262,7 @@ export class Agent extends EventTarget {
     #setEntries(entries) {
         for (const rule of this.#config.rules) {
             if (rule.ignore) continue;
+            if (rule.class === "browser-passkey") continue; // browser-passkey rules match rpIds, not entry names
             if (!rule.color) {
                 // auto-generate tag colours for rules that don't have one defined
                 let hash = 0;
@@ -487,13 +488,13 @@ export class Agent extends EventTarget {
                     // passkey ceremony: list candidates, sign an assertion, or create a credential
                     if (!this.#config.passkeys) throw new Error("Passkey support is disabled.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
-                    // sites whose rules carry useBrowserPasskeys defer every WebAuthn ceremony
-                    // to the platform/browser handler without prompting. Rules patterns are
-                    // entry-name regexes, so matching here is against the rpId: only rules
-                    // intentionally written for a site's rpId take effect
+                    // sites whose rules carry class "browser-passkey" defer every WebAuthn
+                    // ceremony to the platform/browser handler without prompting. Rules patterns
+                    // elsewhere are entry names, so matching here is against the rpId: only
+                    // rules intentionally written for a site's rpId take effect
                     if (
                         this.#config.rules?.some(
-                            (rule) => !rule.ignore && rule.useBrowserPasskeys && new RegExp(rule.pattern, "u").test(rpId),
+                            (rule) => !rule.ignore && rule.class === "browser-passkey" && new RegExp(rule.pattern, "u").test(rpId),
                         )
                     ) {
                         port.postMessage({ action: "passkey-fallback" });

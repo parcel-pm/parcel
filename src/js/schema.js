@@ -228,16 +228,12 @@ export const ConfigSchema = {
             items: {
                 type: "object",
                 properties: {
-                    class: { type: "string", required: true, enum: ["login", "passkey"], default: "login" },
+                    class: { type: "string", required: true, enum: ["login", "passkey", "browser-passkey"], default: "login" },
                     color: { type: "string", required: true, pattern: "^[0-9a-f]{6}$", flags: "ui", default: "333333" },
                     ignore: { type: "boolean", required: true, default: false },
                     pattern: { type: "string", required: true, format: "regex" },
                     strip: { type: "string", format: "regex" },
                     tag: { type: "string" },
-                    // when set on a matching rule (matched against the relying-party ID of
-                    // a WebAuthn ceremony rather than an entry name), Parcel defers passkey
-                    // ceremonies for that site to the platform/browser handler with no prompt
-                    useBrowserPasskeys: { type: "boolean", required: true, default: false },
                 },
             },
             required: true,
