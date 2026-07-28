@@ -1192,6 +1192,12 @@
     document.addEventListener("parcel-webauthn-request", (ev) => handlePasskeyRequest(ev.detail));
     document.addEventListener("parcel-webauthn-abort", (ev) => handlePasskeyAbort(ev.detail));
     document.addEventListener("parcel-webauthn-conflict", (ev) => handlePasskeyConflict(ev.detail));
+    // the MAIN-world interceptor runs at document_start too and may report a conflict
+    // before this script has finished evaluating; pick up its marker if so
+    const earlyConflict = document.documentElement?.getAttribute("data-parcel-webauthn-conflict");
+    if (earlyConflict === "locked" || earlyConflict === "wrapped") {
+        handlePasskeyConflict(JSON.stringify({ reason: earlyConflict }));
+    }
 
     /**
      * Handle incoming connections from the popup, binding each connection to its target element

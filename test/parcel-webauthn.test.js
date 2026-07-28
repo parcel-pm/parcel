@@ -31,6 +31,7 @@ function makeEnv({ publicKeyCredentialAvailable = true } = {}) {
     const warnings = [];
     const events = [];
     const credentials = {};
+    const documentAttrs = new Map();
     class FakeCustomEvent {
         constructor(type, init) {
             this.type = type;
@@ -39,7 +40,11 @@ function makeEnv({ publicKeyCredentialAvailable = true } = {}) {
     }
     const sandbox = {
         navigator: { credentials },
-        document: { addEventListener() {}, dispatchEvent: (ev) => events.push(ev) },
+        document: {
+            addEventListener() {},
+            dispatchEvent: (ev) => events.push(ev),
+            documentElement: { setAttribute: (name, value) => documentAttrs.set(name, value) },
+        },
         console: { warn: (...args) => warnings.push(args.join(" ")) },
         CustomEvent: FakeCustomEvent,
     };
@@ -51,6 +56,7 @@ function makeEnv({ publicKeyCredentialAvailable = true } = {}) {
         credentials,
         warnings,
         events,
+        documentAttrs,
         run: () => vm.runInContext(INTERCEPTOR_SRC, context, { filename: "parcel-webauthn.js" }),
         // a genuine native function from the VM realm, standing in for `credentials.create`/`get`
         nativeFn: (source = "Array.prototype.at") => vm.runInContext(source, context),
@@ -114,6 +120,11 @@ describe("parcel-webauthn installer", () => {
             env.warnings.some((w) => w.includes("locked by another extension")),
             "should warn about the conflict",
         );
+        assert.strictEqual(
+            env.documentAttrs.get("data-parcel-webauthn-conflict"),
+            "locked",
+            "a DOM marker is needed because the isolated script may not yet be listening",
+        );
         assert.deepStrictEqual(
             env.events.map((ev) => [ev.type, JSON.parse(ev.detail).reason]),
             [["parcel-webauthn-conflict", "locked"]],
@@ -148,6 +159,7 @@ describe("parcel-webauthn installer", () => {
         assert.strictEqual(env.credentials.__parcelWrapped, undefined);
         assert.strictEqual(env.credentials.__parcelConflict, "wrapped");
         assert.ok(env.warnings.some((w) => w.includes("already been wrapped")));
+        assert.strictEqual(env.documentAttrs.get("data-parcel-webauthn-conflict"), "wrapped");
         assert.deepStrictEqual(
             env.events.map((ev) => [ev.type, JSON.parse(ev.detail).reason]),
             [["parcel-webauthn-conflict", "wrapped"]],

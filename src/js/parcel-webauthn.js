@@ -409,6 +409,14 @@
         } catch {
             // a fully locked-down credentials container; reporting still happened
         }
+        // Both scripts run at document_start and either may go first, so also leave a
+        // DOM marker the isolated integration script reads at init: the live event
+        // alone would be lost whenever the interceptor finishes evaluating first.
+        try {
+            document.documentElement?.setAttribute("data-parcel-webauthn-conflict", reason);
+        } catch {
+            // non-HTML documents may not allow attribute writes; the event still fired
+        }
         document.dispatchEvent(new CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: reason }) }));
     }
 
