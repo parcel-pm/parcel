@@ -376,23 +376,37 @@
         el.style.outline = "2px solid green";
     }
 
+    /** Duration of the passkey ceremony scrim fade, in milliseconds. */
+    const CEREMONY_FADE_MS = 350;
+
     /**
-     * Remove a popup element from the page. Passkey ceremony scrims fade out over 350ms
-     * before removal; all other popups are removed immediately.
+     * Remove a popup element from the page. Passkey ceremony scrims fade out first (via the
+     * Web Animations API, as stylesheet keyframe animations on the shadow host do not run
+     * reliably); all other popups are removed immediately.
      *
      * @since 1.0.4
      * @param {HTMLElement} popup - The `.parcel-popup` element to remove.
      * @returns {void}
      */
     function removePopup(popup) {
-        if (!popup.classList.contains("mode-passkey") || popup.classList.contains("parcel-ceremony-closing")) {
+        if (!popup.classList.contains("mode-passkey") || popup._closing) {
             popup.remove();
             return;
         }
-        popup.classList.add("parcel-ceremony-closing");
+        popup._closing = true;
+        if (typeof popup.animate !== "function") {
+            popup.remove();
+            return;
+        }
         const cleanup = () => popup.remove();
-        popup.addEventListener("animationend", cleanup, { once: true });
-        setTimeout(cleanup, 450); // fail-safe if animationend never fires
+        popup
+            .animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: CEREMONY_FADE_MS,
+                easing: "ease-in",
+                fill: "forwards",
+            })
+            .finished.then(cleanup, cleanup);
+        setTimeout(cleanup, CEREMONY_FADE_MS + 100); // fail-safe if the animation never completes
     }
 
     /**
@@ -504,15 +518,6 @@
                         : ""
                 }
             }
-        }
-        ${
-            mode === "passkey"
-                ? // scrim fades in on creation, out when removal is requested via removePopup()
-                  `:host { animation: parcel-ceremony-fade-in 350ms ease-out both; }
-                   :host(.parcel-ceremony-closing) { animation: parcel-ceremony-fade-out 350ms ease-in both; }
-                   @keyframes parcel-ceremony-fade-in { from { opacity: 0; } to { opacity: 1; } }
-                   @keyframes parcel-ceremony-fade-out { from { opacity: 1; } to { opacity: 0; } }`
-                : ""
         }`;
         root.appendChild(style);
 
@@ -555,6 +560,10 @@
 
         document.body.appendChild(popup);
         popup._resizeFn();
+        if (mode === "passkey" && typeof popup.animate === "function") {
+            // fade the scrim in (WAAPI, matching the fade-out in removePopup)
+            popup.animate([{ opacity: 0 }, { opacity: 1 }], { duration: CEREMONY_FADE_MS, easing: "ease-out" });
+        }
     }
 
     /**
