@@ -34,11 +34,6 @@
 * {
     box-sizing: border-box;
 }
-button:focus-visible {
-    /* subtle focus ring instead of the browser default */
-    outline: 1px solid var(--color-border-mid);
-    outline-offset: 1px;
-}
 html,
 body {
     background-color: var(--color-bg);
