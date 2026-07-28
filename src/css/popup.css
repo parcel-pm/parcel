@@ -34,6 +34,11 @@
 * {
     box-sizing: border-box;
 }
+button:focus,
+button:focus-visible {
+    /* focus feedback is the background change; no outline */
+    outline: none;
+}
 html,
 body {
     background-color: var(--color-bg);
