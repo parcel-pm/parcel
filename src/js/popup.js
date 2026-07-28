@@ -744,6 +744,7 @@
         const elUser = document.getElementById("passkey-user");
         const elEntries = document.getElementById("passkey-entries");
         const elSave = document.getElementById("passkey-save");
+        const elActions = document.getElementById("passkey-actions");
         const elCreate = document.getElementById("passkey-create");
         const elFallback = document.getElementById("passkey-fallback");
         const elCopy = document.getElementById("passkey-copy");
@@ -759,10 +760,12 @@
         // iframe is closed once it has
         const disableActions = () => elRoot.querySelectorAll("button").forEach((button) => (button.disabled = true));
 
-        document.getElementById("passkey-cancel").addEventListener("click", () => {
-            disableActions();
-            tabPort.postMessage({ action: "passkey-cancel" });
-        });
+        elRoot.querySelectorAll(".passkey-cancel").forEach((button) =>
+            button.addEventListener("click", () => {
+                disableActions();
+                tabPort.postMessage({ action: "passkey-cancel" });
+            }),
+        );
         elFallback.addEventListener("click", () => {
             disableActions();
             tabPort.postMessage({ action: "passkey-fallback" });
@@ -809,6 +812,7 @@
          * @returns {void}
          */
         function renderPasskeyContext(context) {
+            elActions.classList.remove("hidden");
             elOrigin.textContent = `Requested by ${context.origin}`;
             if (context.op === "create") {
                 elTitle.textContent = `Create a passkey for ${context.rpId}?`;
@@ -842,14 +846,13 @@
             } else if (msg?.action === "passkey-created") {
                 // the credential has been minted but is not yet stored; the user must save
                 // the entry out-of-band and confirm before the ceremony completes
-                elCreate.classList.add("hidden");
-                elFallback.classList.add("hidden");
+                elActions.classList.add("hidden");
                 passkeySaveFile = msg.file || msg.path;
                 passkeySaveContent = msg.armored || "";
                 document.getElementById("passkey-blob").value = buildPasskeySaveCommand(passkeySaveFile, passkeySaveContent);
                 document.querySelector("#status").textContent = "Save the new passkey entry to continue";
                 elSave.classList.remove("hidden");
-                document.getElementById("passkey-ack").focus();
+                elCopy.focus();
             }
         });
     }
