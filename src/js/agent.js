@@ -502,11 +502,21 @@ export class Agent extends EventTarget {
                     }
                     if (message.phase === "candidates") {
                         updateStatus("Searching for passkey entries...");
-                        // offers are classification-driven: any rule-classed passkey entry is
-                        // offerable wherever it lives; rpId binding is enforced host-side
-                        // against the entry contents at assert time
+                        // candidates must be rule-classed as passkeys and name the relying
+                        // party somewhere in their path, mirroring how login entries are
+                        // matched for an origin (full-host or host-suffix path segments,
+                        // placement-independent) - an entry for this rpId is offered wherever
+                        // in the store the user files it. The host re-enforces the rpId
+                        // binding against the entry contents at assert time
+                        const suffix = await this.#getPublicSuffix(rpId);
+                        const slices = [];
+                        for (let s = rpId; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
                         const candidates = (await this.#getEntries())
-                            .filter((entry) => entry.rule?.class === "passkey")
+                            .filter((entry) => {
+                                if (entry.rule?.class !== "passkey") return false;
+                                const parts = entry.name.split("/");
+                                return slices.some((s) => parts.includes(s));
+                            })
                             .map((entry) => ({ name: entry.name, path: entry.path }));
                         clearStatus();
                         port.postMessage({ action: "passkey-candidates", rpId, candidates });

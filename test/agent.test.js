@@ -376,6 +376,11 @@ describe("Agent", () => {
                 { pattern: "^shared/fido/", class: "browser-passkey" },
                 { pattern: "^test/", class: "login" },
                 { pattern: "^shared/fido/", class: "passkey" },
+                // classes carol (matching rpId) and zed (foreign rpId), but not alice
+                { pattern: "^passkeys/example\\.com/carol$", class: "passkey" },
+                { pattern: "^passkeys/other\\.test/", class: "passkey" },
+                // proves passkey entries work from any location that names the rpId
+                { pattern: "^misc/", class: "passkey" },
                 { pattern: "^github\\.com$", class: "browser-passkey" },
             ],
         };
@@ -386,8 +391,11 @@ describe("Agent", () => {
             if (msg.action === "list")
                 return [
                     { name: "passkeys/example.com/alice", path: "/home/test/.password-store/passkeys/example.com/alice.gpg" },
+                    { name: "passkeys/example.com/carol", path: "/home/test/.password-store/passkeys/example.com/carol.gpg" },
+                    { name: "passkeys/other.test/zed", path: "/home/test/.password-store/passkeys/other.test/zed.gpg" },
                     { name: "shared/fido/alice", path: "/home/test/.password-store/shared/fido/alice.gpg" },
                     { name: "shared/fido/carol", path: "/home/test/.password-store/shared/fido/carol.gpg" },
+                    { name: "misc/example.com/a", path: "/home/test/.password-store/misc/example.com/a.gpg" },
                     { name: "test/bob", path: "/home/test/.password-store/test/bob.gpg" },
                 ];
             if (msg.action === "changes_since") return { changes: false };
@@ -400,17 +408,19 @@ describe("Agent", () => {
         await configPromise;
     }
 
-    test("passkey candidates are exactly the rule-classed entries", async () => {
+    test("passkey candidates are rule-classed entries whose path names the rpId", async () => {
         await configurePasskeyStore();
         const passkey = mock.chrome.runtime.connect({ name: "passkey" });
         await settleAsync();
         const candidatesPromise = nextMessage(passkey, "passkey-candidates");
         passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://login.example.com", rpId: "example.com" });
         const msg = await candidatesPromise;
-        // the unclassed passkeys/ entry and the login entry are not offered
+        // included: classed entries whose path names this site's rpId, wherever filed
+        // excluded: the unclassed in-dir entry (alice), the foreign-rpId entry (zed),
+        //           Passkey entries that never name example.com, and the login entry
         assert.deepStrictEqual(msg.candidates, [
-            { name: "shared/fido/alice", path: "/home/test/.password-store/shared/fido/alice.gpg" },
-            { name: "shared/fido/carol", path: "/home/test/.password-store/shared/fido/carol.gpg" },
+            { name: "passkeys/example.com/carol", path: "/home/test/.password-store/passkeys/example.com/carol.gpg" },
+            { name: "misc/example.com/a", path: "/home/test/.password-store/misc/example.com/a.gpg" },
         ]);
     });
 
