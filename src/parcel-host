@@ -20,6 +20,7 @@ set -e
 # set up the environment
 TOKEN="broadcast"
 ALLOWED_FILES=()
+PASSKEY_FILES=()
 if [ ! -d "$PASSWORD_STORE_DIR" ]; then
     parcel_error "Invalid password store directory: $PASSWORD_STORE_DIR" 1
 fi
@@ -245,15 +246,17 @@ function action_list() {
                 | . as $top
                 | ($top.rules|map(select(.ignore==false or (has("ignore") | not)).pattern)) as $include
                 | ($top.rules|map(select(.ignore==true).pattern)) as $ignore
+                | ($top.rules|map(select(.class=="passkey").pattern)) as $passkey
                 | .entries | (
                     map(
-                        .={path: .path, name: .path | ltrimstr($top.passdir + "/") | rtrimstr(".gpg"), is_link: .is_link, real: .real}
+                        .={path: .path, name: .path | ltrimstr($top.passdir + "/") | rtrimstr(".gpg"), is_link: (.is_link == 1), real: .real}
                         | . as $entry
+                        | .is_passkey = (reduce $passkey[] as $pattern (false; . or ($entry.name|test($pattern))))
                         | select(
                             reduce $include[] as $pattern (false; . or ($entry.name|test($pattern)))
                             and (reduce $ignore[] as $pattern (false; . or ($entry.name|test($pattern)))|not)
                             and (
-                                ($entry.is_link == 0)
+                                ($entry.is_link | not)
                                 or (
                                     ($top.allowLinks == true) and (
                                         ($entry.real | startswith($top.realPassdir + "/"))
@@ -273,6 +276,9 @@ function action_list() {
     # kludgery required to set a global array's content using a string of single-quoted strings
     declare -a LOCAL_AF="( $(jq -rc 'map(.path) | @sh' <<< "$OUT") )"
     ALLOWED_FILES=( "${LOCAL_AF[@]}" )
+
+    declare -a LOCAL_PKF="( $(jq -rc 'map(select(.is_passkey)) | map(.path) | @sh' <<< "$OUT") )"
+    PASSKEY_FILES=( "${LOCAL_PKF[@]}" )
 
     parcel_send "$OUT"
 }
@@ -397,6 +403,15 @@ function action_decrypt() {
         parcel_error "Access Denied: Path out of scope: $FILE_PATH"
         return 0
     fi
+    # passkey entries carry private key material and must never be returned as plaintext
+    local PASSKEY
+    for PASSKEY in "${PASSKEY_FILES[@]}"; do
+        if [ "$PASSKEY" = "$FILE_PATH" ]; then
+            audit_decrypt "$FILE_PATH" "Denied (passkey entry)" "$INTENT" "$ORIGIN"
+            parcel_error "Access Denied: Passkey entries may not be decrypted: $FILE_PATH"
+            return 0
+        fi
+    done
     if [ ! -f "$FILE_PATH" ]; then
         audit_decrypt "$FILE_PATH" "File not found" "$INTENT" "$ORIGIN"
         parcel_error "File not found: $FILE_PATH"
@@ -475,6 +490,20 @@ function passkey_op_get() {
     if [ $ALLOW -ne 1 ]; then
         audit_decrypt "$FILE_PATH" "Denied (path out of scope)" "passkey" "$ORIGIN"
         parcel_error "Access Denied: Path out of scope: $FILE_PATH"
+        return 0
+    fi
+    # only entries classified as passkeys by the config may be used to sign assertions
+    local IS_PASSKEY=0
+    local PASSKEY
+    for PASSKEY in "${PASSKEY_FILES[@]}"; do
+        if [ "$PASSKEY" = "$FILE_PATH" ]; then
+            IS_PASSKEY=1
+            break
+        fi
+    done
+    if [ $IS_PASSKEY -ne 1 ]; then
+        audit_decrypt "$FILE_PATH" "Denied (not a passkey entry)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Not a passkey entry: $FILE_PATH"
         return 0
     fi
     if [ ! -f "$FILE_PATH" ]; then
@@ -694,3 +723,4 @@ $PRIV_PEM"
         --arg armored "$ARMORED" \
         '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, file: $file, armored: $armored}')"
 }
+

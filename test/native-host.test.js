@@ -1434,6 +1434,12 @@ exit 1
     }
     mkdirSync(join(env.passdir, "passkeys", "example.com"), { recursive: true });
     writeFileSync(join(env.passdir, "passkeys", "example.com", "alice.gpg"), makePasskeyEntry());
+    if (opts.rules === undefined) {
+        writeFileSync(
+            join(env.passdir, ".parcel.json"),
+            JSON.stringify({ rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }] }),
+        );
+    }
     return env;
 }
 
@@ -1589,7 +1595,7 @@ describe("action_passkey", () => {
         const env = createPasskeyEnv();
         writeFileSync(
             join(env.passdir, ".parcel.json"),
-            JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.0000001 }),
+            JSON.stringify({ rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }], decryptBucket: 1, decryptRate: 0.0000001 }),
         );
         const { proc, read, send } = await installMainScript(env);
         try {
@@ -1813,6 +1819,44 @@ describe("action_passkey", () => {
             send({ action: "passkey", op: "delete", rpId: "example.com", origin: "https://example.com" });
             const msg = await read();
             assert.ok(msg.error?.includes("Invalid passkey operation"), `Expected op error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_decrypt refuses to decrypt a passkey-class entry", async () => {
+        const env = createPasskeyEnv();
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+            const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
+            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_passkey get rejects entries not classified as passkey", async () => {
+        const env = createPasskeyEnv();
+        // regular login entry (no passkey-class rule matching)
+        writeFileSync(join(env.passdir, "test-entry.gpg"), "encrypted-a");
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+            const keyPath = join(env.passdir, "test-entry.gpg");
+            send(
+                Object.assign(passkeyGetRequest(env), {
+                    path: keyPath,
+                }),
+            );
+            const msg = await read();
+            assert.ok(msg.error?.includes("Not a passkey entry"), `Expected not-a-passkey error, got: ${JSON.stringify(msg)}`);
         } finally {
             proc.kill();
             env.cleanup();
