@@ -853,7 +853,7 @@
             return;
         const respond = (payload) => passkeyRespond(req.requestId, payload);
         try {
-            if (!mayHandlePasskeyHere(req.op) || (await config).passkeys === false) {
+            if (!mayHandlePasskeyHere(req.op) || (await config).handlePasskeys === false) {
                 respond({ type: "fallback" });
                 return;
             }
@@ -967,7 +967,7 @@
             return;
         }
         const cfg = await config;
-        if (cfg.passkeys === false) return;
+        if (cfg.handlePasskeys === false) return;
         const hostname = window.location.hostname;
         const defersToBrowser = cfg.rules?.some((rule) => {
             if (rule.ignore || rule.class !== "browser-passkey") return false;

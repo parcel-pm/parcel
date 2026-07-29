@@ -2002,7 +2002,7 @@ describe("action_passkey", () => {
     test("default rules classify entries under passkeyDir as passkeys", async () => {
         const env = createPasskeyEnv();
         // no "rules" key - the host must synthesize a passkey-class rule for the passkey dir
-        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ passkeys: true }));
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ handlePasskeys: true }));
         const { proc, read, send } = await installMainScript(env);
         try {
             send({ action: "list" });

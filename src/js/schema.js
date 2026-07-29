@@ -219,7 +219,7 @@ export const ConfigSchema = {
             pattern: "^[^\\x00-\\x1f\\x7f*?[\\\\]+$",
             default: "passkeys",
         },
-        passkeys: { type: "boolean", required: true, default: true },
+        handlePasskeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
         rules: {

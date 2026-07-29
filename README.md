@@ -215,7 +215,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `disableContextPopup` | boolean | `false` | If `true`, disables the inline / context popup. |
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
-| `passkeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
+| `handlePasskeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
 | `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (see [Passkey entry format](#passkey-entry-format)), and classed as `passkey` by the default rules. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
@@ -350,11 +350,11 @@ Passkey-capable password managers (1Password, Bitwarden, etc.) all intercept the
 - If Parcel's interceptor installs first, it installs its shim as **non-configurable** properties, so a later-loading extension (or hostile page script) cannot silently replace it. Parcel then owns passkey ceremonies for that page.
 - If another extension got there first — whether it locked the API or merely wrapped it — Parcel **backs off entirely**: it does not poll, does not re-define, and does not try to work around the other extension's lock. A warning is logged to the page console.
 
-When Parcel backs off **and you have Parcel passkeys stored for that site**, an in-page notice appears once per site explaining the conflict, with the option to dismiss it permanently for that site. Sites configured with a `browser-passkey` rule, or when passkeys are disabled (`"passkeys": false`), are never alerted on — an explicit choice is not a conflict.
+When Parcel backs off **and you have Parcel passkeys stored for that site**, an in-page notice appears once per site explaining the conflict, with the option to dismiss it permanently for that site. Sites configured with a `browser-passkey` rule, or when passkeys are disabled (`"handlePasskeys": false`), are never alerted on — an explicit choice is not a conflict.
 
-To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"passkeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question. For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`.
+To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"handlePasskeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question. For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`.
 
-Set `"passkeys": false` in `.parcel.json` to disable passkey support entirely.
+Set `"handlePasskeys": false` in `.parcel.json` to disable passkey support entirely.
 
 ---
 

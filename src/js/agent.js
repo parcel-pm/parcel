@@ -486,7 +486,7 @@ export class Agent extends EventTarget {
                     port.postMessage(response);
                 } else if (message?.action === "passkey") {
                     // passkey ceremony: list candidates, sign an assertion, or create a credential
-                    if (!this.#config.passkeys) throw new Error("Passkey support is disabled.");
+                    if (!this.#config.handlePasskeys) throw new Error("Passkey support is disabled.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
                     // sites whose rules carry class "browser-passkey" defer every WebAuthn
                     // ceremony to the platform/browser handler without prompting. Rules patterns
