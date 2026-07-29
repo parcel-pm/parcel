@@ -727,7 +727,7 @@
 
     // ---------------------------------------------------------------------
     // Passkey (WebAuthn) support. The MAIN-world interceptor in
-    // js/parcel-webauthn.js relays navigator.credentials.create()/get() calls
+    // js/main-world/webauthn.js relays navigator.credentials.create()/get() calls
     // here via DOM CustomEvents; the user consents via a centred inline popup
     // and the background worker performs the crypto via the native host.
     // ---------------------------------------------------------------------

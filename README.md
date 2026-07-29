@@ -56,9 +56,9 @@ If you wish to run the test suite, you will also need the following:
 | `src/js/schema.js` | Schema–based validation for configuration, selectors, and targets. |
 | `src/js/selectors.js` | DOM selectors for detecting login, password, TOTP, and other credential fields. |
 | `src/js/targets.js` | Field-target bindings that map credentials to detected form fields. |
-| `src/js/shadow.js` | Patches `attachShadow` to ensure cross-shadow lookups work correctly. |
+| `src/js/main-world/shadow.js` | Patches `attachShadow` to ensure cross-shadow lookups work correctly. |
 | `src/js/webauthn.js` | Shared passkey helpers: base64url codecs, a minimal CBOR encoder, and builders for clientDataJSON / attestation structures. |
-| `src/js/parcel-webauthn.js` | MAIN-world interceptor for `navigator.credentials.create` / `.get`, bridging WebAuthn ceremonies into the extension with a native fallback. |
+| `src/js/main-world/webauthn.js` | MAIN-world interceptor for `navigator.credentials.create` / `.get`, bridging WebAuthn ceremonies into the extension with a native fallback. |
 | `src/parcel-host` | Signed bash script that reads `~/.password-store`, filters against `.parcel.json`, and decrypts whitelisted entries. |
 | `parcel-host` | Bootstrap host that verifies GPG signatures and launches `src/parcel-host`. |
 
@@ -290,7 +290,7 @@ Parcel can act as a passkey authenticator for websites. Passkey private keys are
 
 | Step | What happens |
 |------|--------------|
-| **Interception** | A small MAIN-world script (`src/js/parcel-webauthn.js`) intercepts `navigator.credentials.create()` / `.get()` calls for `publicKey` credentials. If Parcel cannot handle the request (support disabled, ceremony unsupported, or consent declined), the call falls back to the browser's native implementation. |
+| **Interception** | A small MAIN-world script (`src/js/main-world/webauthn.js`) intercepts `navigator.credentials.create()` / `.get()` calls for `publicKey` credentials. If Parcel cannot handle the request (support disabled, ceremony unsupported, or consent declined), the call falls back to the browser's native implementation. |
 | **Consent popup** | Every ceremony requires explicit consent: an inline popup shows the requesting site's origin and the passkey entries registered for its relying-party ID. No signature is ever produced without you selecting a credential. |
 | **Cryptography** | The native host decrypts the chosen passkey entry (whitelist- and rate-limit-gated like any other decryption) and signs the assertion with `openssl`. The private key material stays on the host side. |
 | **Response** | The extension assembles the WebAuthn credential object (with a real CBOR attestation for registrations) and returns it to the page. |

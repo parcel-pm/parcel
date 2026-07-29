@@ -1014,7 +1014,7 @@ describe("Integration script", { concurrency: false }, () => {
         for (const [k, v] of Object.entries(attrs)) host.setAttribute(k, String(v));
         document.body.appendChild(host);
         const root = host.attachShadow({ mode: "open" });
-        // Mimic src/js/shadow.js which tags hosts asynchronously; tests need
+        // Mimic src/js/main-world/shadow.js which tags hosts asynchronously; tests need
         // the attribute synchronously so Helpers.shadowSelectorAll can recurse.
         host.setAttribute("is-shadow", "");
         return { host, root };
@@ -1023,7 +1023,7 @@ describe("Integration script", { concurrency: false }, () => {
     /**
      * Click an element that lives inside a shadow root.
      *
-     * src/js/shadow.js re-dispatches shadow-DOM clicks as a
+     * src/js/main-world/shadow.js re-dispatches shadow-DOM clicks as a
      * `parcel-shadow-click` CustomEvent on document, tagging the real target
      * with a `parcel-shadow-event` attribute so integration.js can locate it
      * across the shadow boundary. The test harness replaces attachShadow and

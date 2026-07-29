@@ -1,5 +1,5 @@
 /**
- * Tests for src/js/parcel-webauthn.js (MAIN-world WebAuthn interceptor)
+ * Tests for src/js/main-world/webauthn.js (MAIN-world WebAuthn interceptor)
  *
  * The script is a classic side-effect script with no exports (MAIN world
  * cannot be an ES module), so it is executed in a fresh `node:vm` context
@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
-const INTERCEPTOR_SRC = readFileSync(require.resolve("../src/js/parcel-webauthn.js"), "utf8");
+const INTERCEPTOR_SRC = readFileSync(require.resolve("../src/js/main-world/webauthn.js"), "utf8");
 
 /**
  * Build a fresh VM sandbox for one interceptor run, with fakes for the
@@ -57,7 +57,7 @@ function makeEnv({ publicKeyCredentialAvailable = true } = {}) {
         warnings,
         events,
         documentAttrs,
-        run: () => vm.runInContext(INTERCEPTOR_SRC, context, { filename: "parcel-webauthn.js" }),
+        run: () => vm.runInContext(INTERCEPTOR_SRC, context, { filename: "main-world/webauthn.js" }),
         // a genuine native function from the VM realm, standing in for `credentials.create`/`get`
         nativeFn: (source = "Array.prototype.at") => vm.runInContext(source, context),
         // a plain VM-realm JS function, standing in for a foreign extension's shim
@@ -78,7 +78,7 @@ function lockLikeForeignManager(credentials, foreignCreate, foreignGet) {
     Object.defineProperty(credentials, "get", { configurable: false, enumerable: true, get: () => foreignGet, set: () => {} });
 }
 
-describe("parcel-webauthn installer", () => {
+describe("main-world webauthn installer", () => {
     test("installs non-configurable wrappers and marks the API when the API is native", () => {
         const env = makeEnv();
         const rawCreate = env.nativeFn("Array.prototype.at");
