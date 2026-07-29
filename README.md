@@ -240,7 +240,7 @@ Example `.parcel.json`:
 
 ---
 
-## TOTP / 2FA support
+## TOTP / 2FA
 
 Parcel can generate time-based one-time passwords (TOTP, [RFC 6238](https://datatracker.ietf.org/doc/html/rfc6238)) from a secret stored in a pass entry and fill them into the page's OTP input field — just like a regular password. Token generation uses the browser's built-in [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto) (HMAC-SHA1); no third-party library is involved.
 
@@ -290,7 +290,7 @@ Parcel can act as a passkey authenticator for websites. Passkey private keys are
 |------|--------------|
 | **Interception** | A small MAIN-world script (`src/js/main-world/webauthn.js`) intercepts `navigator.credentials.create()` / `.get()` calls for `publicKey` credentials. If Parcel cannot handle the request (support disabled, ceremony unsupported, or consent declined), the call falls back to the browser's native implementation. |
 | **Consent popup** | Every ceremony requires explicit consent: an inline popup shows the requesting site's origin and the passkey entries registered for its relying-party ID. No signature is ever produced without you selecting a credential. |
-| **Cryptography** | The native host decrypts the chosen passkey entry (whitelist- and rate-limit-gated like any other decryption) and signs the assertion with `openssl`. The private key material stays on the host side. |
+| **Cryptography** | The native host decrypts the chosen passkey entry (whitelist and rate-limit-gated like any other decryption) and signs the assertion with `openssl`. The private key material stays on the host side. |
 | **Response** | The extension assembles the WebAuthn credential object (with a real CBOR attestation for registrations) and returns it to the page. |
 
 User verification is reported to the site as satisfied: consent is given interactively, and decryption itself requires your GPG key passphrase (or PIN/biometric via your GPG agent).
@@ -334,6 +334,8 @@ EOF
 
 The **Copy command** button copies the whole snippet. Alternatively, click **Download .gpg file** and move the downloaded file into place, e.g. `mv ~/Downloads/alice.gpg ~/.password-store/passkeys/example.com/alice.gpg`. Either way the entry is saved **verbatim** as the `.gpg` file (do *not* re-encrypt it with `pass insert`) — the armored content is already encrypted to your store's `.gpg-id` recipients.
 
+If you use `git` to track or synchronise your password store, remember to `git add` and commit the new `.gpg` file so it is picked up by your usual workflow.
+
 Only after the entry exists will the site accept assertions from that credential. If you decline partway through (or never save the entry), discard the ceremony on the site and nothing persists.
 
 ### Limitations
@@ -352,7 +354,7 @@ Passkey-capable password managers (1Password, Bitwarden, etc.) all intercept the
 
 When Parcel backs off **and you have Parcel passkeys stored for that site**, an in-page notice appears once per site explaining the conflict, with the option to dismiss it permanently for that site. Sites configured with a `browser-passkey` rule, or when passkeys are disabled (`"handlePasskeys": false`), are never alerted on — an explicit choice is not a conflict.
 
-To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"handlePasskeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question. For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`.
+To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"handlePasskeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question. For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`. Unlike ordinary rules (whose `pattern` is matched against entry names), a `browser-passkey` rule's `pattern` is matched against the site's relying-party ID.
 
 Set `"handlePasskeys": false` in `.parcel.json` to disable passkey support entirely.
 
