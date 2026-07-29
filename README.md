@@ -215,7 +215,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `disableContextPopup` | boolean | `false` | If `true`, disables the inline / context popup. |
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
-| `handlePasskeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
+| `handlePasskeys` | boolean | `true` | If `false`, disables passkey support entirely. |
 | `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (see [Passkey entry format](#passkey-entry-format)), and classed as `passkey` by the default rules. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
