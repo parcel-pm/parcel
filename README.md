@@ -196,12 +196,10 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 |----------|------|---------|-------------|
 | `pattern` | string (regex) | *required* | Regex matched against the entry name (relative to the store root, without `.gpg`). |
 | `ignore` | boolean | `false` | If `true`, entries matching this rule are excluded. |
-| `class` | string | `"login"` | Classification: `"login"` (a fillable credential entry) or `"passkey"` (a WebAuthn credential; excluded from password filling, and the only entries offered for WebAuthn ceremonies). Stores without configured rules get a default rule classing the `passkeyDir` subtree as `passkey`. The special class `"browser-passkey"` instead marks a *site policy* rule: it matches the site's relying-party ID (not entry names), classifies no entries, and defers all WebAuthn ceremonies for matching sites to the platform/browser handler without showing Parcel's consent popup. |
+| `class` | string | `"login"` | `"login"` (fillable credential) or `"passkey"` (WebAuthn credential, excluded from filling; see [Passkeys](#passkeys-webauthn--fido2)). `"browser-passkey"` is a site-policy rule (not an entry class) that defers a site's ceremonies to the browser (see [Passkey conflicts](#passkey-conflicts-with-other-password-managers)). |
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
-
-For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`.
 
 #### Other options
 
@@ -218,7 +216,7 @@ For example, to always use the browser's built-in passkey handler for `github.co
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
 | `passkeys` | boolean | `true` | If `false`, disables passkey support entirely: Parcel will not intercept WebAuthn ceremonies. |
-| `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (`<passkeyDir>/<rpId>/<account>.gpg`), and the subtree classed as `passkey` by the default rules. Control characters and the glob metacharacters `* ? [ \` are not permitted; spaces, unicode and dot segments are allowed. External storage is supported via symlinks (subject to the links policy): point `passkeyDir` at the symlink's in-store location. A `passkeyDir` containing literal `..` segments names entries the store scan can never list, so such passkeys can be created but not used for assertions. |
+| `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (see [Passkey entry format](#passkey-entry-format)), and classed as `passkey` by the default rules. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
@@ -318,6 +316,8 @@ privateKey:
 
 The host validates the `#!parcel-passkey v1` marker, the `rpId` (which must match the requesting site's relying-party ID), and any `allowCredentials` restriction sent by the site before signing.
 
+External storage is supported via symlinks: point `passkeyDir` at a symlink's in-store location (subject to the `allowLinks` / `allowExternalLinks` policy). A `passkeyDir` containing literal `..` segments names entries the store scan can never list, so such passkeys can be created but not used for assertions.
+
 ### Registering a new passkey
 
 When a site asks to create a passkey, Parcel generates a fresh ES256 keypair on the host, encrypts a complete `#!parcel-passkey v1` entry to the recipients of the applicable `.gpg-id` file (walking up from the suggested directory, exactly like `pass` does), and displays the armored result in the popup along with the suggested entry path.
@@ -352,7 +352,7 @@ Passkey-capable password managers (1Password, Bitwarden, etc.) all intercept the
 
 When Parcel backs off **and you have Parcel passkeys stored for that site**, an in-page notice appears once per site explaining the conflict, with the option to dismiss it permanently for that site. Sites configured with a `browser-passkey` rule, or when passkeys are disabled (`"passkeys": false`), are never alerted on — an explicit choice is not a conflict.
 
-To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"passkeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question.
+To resolve a conflict, decide which provider should serve passkeys, then either disable passkeys in the other extension, or set `"passkeys": false` / a `browser-passkey` rule in `.parcel.json` for the sites in question. For example, to always use the browser's built-in passkey handler for `github.com` (e.g. a TPM-resident credential) while keeping Parcel for everything else, use `{ "pattern": "^github\\.com$", "class": "browser-passkey" }`.
 
 Set `"passkeys": false` in `.parcel.json` to disable passkey support entirely.
 
