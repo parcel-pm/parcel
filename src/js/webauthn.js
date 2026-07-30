@@ -4,6 +4,8 @@
  * Provides base64url codecs, a minimal CBOR encoder, and builders for the
  * protocol structures Parcel synthesises (clientDataJSON, attestationObject).
  *
+ * Parcel's fixed AAGUID is 5ca471bb-a56d-46ad-a496-67e70e9ed9fb.
+ *
  * @module webauthn
  * @since 1.0.4
  */
@@ -151,7 +153,7 @@ export function cborEncode(value) {
         }
     };
     encode(value);
-    return new Uint8Array(out.flat());
+    return new Uint8Array(out);
 }
 
 /**
@@ -175,6 +177,9 @@ export async function buildAttestationAuthData(rpId, credentialId, publicKeyHex)
     const x = pubBytes.subarray(0, 32);
     const y = pubBytes.subarray(32, 64);
     // COSE_Key: {1:2 (EC2), 3:-7 (ES256), -1:1 (P-256), -2:x, -3:y}
+    // Insertion order must be preserved: Map.forEach is order-stable and the
+    // resulting byte sequence must match what the host signs. The order here
+    // also happens to be canonical-CBOR (sorted by key), but that's incidental.
     const cose = cborEncode(
         new Map([
             [1, 2],
@@ -195,6 +200,10 @@ export async function buildAttestationAuthData(rpId, credentialId, publicKeyHex)
 
 /**
  * Build a "none"-type attestationObject wrapping the given authenticatorData.
+ *
+ * The "none" format omits attestation statements: the relying party receives
+ * no provenance claim about the authenticator. This is the standard choice for
+ * software authenticators that cannot attest to hardware roots of trust.
  *
  * @param {Uint8Array} authData - authenticatorData bytes
  * @returns {Uint8Array} attestationObject bytes (CBOR)
