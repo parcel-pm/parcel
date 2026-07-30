@@ -130,16 +130,6 @@
     }
 
     /**
-     * Remove the authenticatorAttachment hint - the answer is always "platform".
-     * Not currently exposed by parcel credentials; kept for future use.
-     *
-     * @returns {string} attachment hint
-     */
-    function attachmentHint() {
-        return "platform";
-    }
-
-    /**
      * Build a duck-typed PublicKeyCredential from bridge response data.
      *
      * @param {Object} data - {op, id, response:{...base64url fields, authData, spki}}
@@ -184,7 +174,7 @@
             id: id,
             rawId: rawId,
             type: "public-key",
-            authenticatorAttachment: attachmentHint(),
+            authenticatorAttachment: "platform",
             response: response,
             getClientExtensionResults: function () {
                 return {};
@@ -194,7 +184,7 @@
                     type: "public-key",
                     id: id,
                     rawId: b64urlEncode(new Uint8Array(rawId)),
-                    authenticatorAttachment: attachmentHint(),
+                    authenticatorAttachment: "platform",
                     clientExtensionResults: {},
                     response: {
                         clientDataJSON: b64urlEncode(new Uint8Array(response.clientDataJSON)),
@@ -345,7 +335,12 @@
         const supportsES256 = (pk.pubKeyCredParams || []).some(function (p) {
             return p.type === "public-key" && p.alg === -7;
         });
-        if (!supportsES256 || (pk.authenticatorSelection && pk.authenticatorSelection.authenticatorAttachment === "cross-platform")) {
+        const hints = pk.hints || [];
+        const crossPlatform =
+            (pk.authenticatorSelection && pk.authenticatorSelection.authenticatorAttachment === "cross-platform") ||
+            hints.includes("security-key") ||
+            hints.includes("hybrid");
+        if (!supportsES256 || crossPlatform) {
             return nativeCreate(options);
         }
         return parcelRequest("create", serializeCreate(pk), pk.timeout, options.signal, nativeCreate, options);
