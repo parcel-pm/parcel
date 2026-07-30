@@ -1572,6 +1572,21 @@ exit 1
             }
         });
 
+        test("get rejects when allowCredentials is provided but all entries are malformed", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { allowCredentials: ["!!!invalid!!!"] }));
+                const msg = await read();
+                assert.ok(msg.error?.includes("not allowed by request"), `Expected credential not allowed, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
+
         test("get rejects an rpId that does not match the entry", async () => {
             const env = createPasskeyEnv();
             const { proc, read, send } = await installMainScript(env);
@@ -1581,6 +1596,25 @@ exit 1
                 send(passkeyGetRequest(env, { rpId: "different.com" }));
                 const msg = await read();
                 assert.ok(msg.error?.includes("rpId does not match"), `Expected rpId mismatch, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
+
+        test("get rejects an unsupported algorithm", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(join(env.passdir, "passkeys", "example.com", "alice.gpg"), makePasskeyEntry({ algorithm: "RS256" }));
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env));
+                const msg = await read();
+                assert.ok(
+                    msg.error?.includes("Unsupported or missing algorithm"),
+                    `Expected algorithm rejection, got: ${JSON.stringify(msg)}`,
+                );
             } finally {
                 proc.kill();
                 env.cleanup();

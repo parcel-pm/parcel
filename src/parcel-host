@@ -25,6 +25,9 @@ if [ ! -d "$PASSWORD_STORE_DIR" ]; then
     parcel_error "Invalid password store directory: $PASSWORD_STORE_DIR" 1
 fi
 
+# allow the user to override the openssl binary via parcelrc
+if [ -n "$OPENSSL" ]; then function openssl() { "$OPENSSL" "$@"; return $?; }; fi
+
 # token-bucket rate limiter for action_decrypt
 DECRYPT_BUCKET_TOKENS=""
 DECRYPT_BUCKET_LAST=""
@@ -437,13 +440,11 @@ function action_decrypt() {
     # classification - the content marker is the authoritative backstop for the
     # rule-based check above. Prefix-match the marker so that future format
     # versions are refused by this host version too
-    case "$(head -n 1 <<< "$OUT")" in
-        "#!parcel-passkey "*)
-            audit_decrypt "$FILE_PATH" "Denied (passkey content)" "$INTENT" "$ORIGIN"
-            parcel_error "Access Denied: Passkey entries may not be decrypted: $FILE_PATH"
-            return 0
-            ;;
-    esac
+    if [[ "$(head -n 1 <<< "$OUT")" == "#!parcel-passkey "* ]]; then
+        audit_decrypt "$FILE_PATH" "Denied (passkey content)" "$INTENT" "$ORIGIN"
+        parcel_error "Access Denied: Passkey entries may not be decrypted: $FILE_PATH"
+        return 0
+    fi
     audit_decrypt "$FILE_PATH" "Success" "$INTENT" "$ORIGIN"
     parcel_send "$(jq -n --arg path "$FILE_PATH" --rawfile plaintext <(printf '%s' "$OUT") '{path: $path, plaintext: $plaintext}')"
 }
@@ -469,7 +470,7 @@ function action_passkey() {
     local ORIGIN="$(jq -r '.origin' <<< "$1")"
 
     if ! command -v openssl &>/dev/null; then
-        parcel_error "openssl is required for passkey support"
+        parcel_error "Cannot find openssl (${OPENSSL:-openssl}): Please configure the correct path for it in parcelrc"
         return 0
     fi
     if [[ ! "$RP_ID" =~ ^[a-z0-9][a-z0-9.-]{0,252}$ ]] || [[ "$RP_ID" == *..* ]]; then
@@ -559,6 +560,12 @@ function passkey_op_get() {
         parcel_error "Access Denied: Entry rpId does not match request"
         return 0
     fi
+    local ENTRY_ALGORITHM="$(printf '%s\n' "$ENTRY" | sed -n 's/^algorithm: //p' | head -n1)"
+    if [ "$ENTRY_ALGORITHM" != "ES256" ]; then
+        audit_decrypt "$FILE_PATH" "Denied (unsupported algorithm)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Unsupported or missing algorithm in passkey entry"
+        return 0
+    fi
     local CRED_ID="$(printf '%s\n' "$ENTRY" | sed -n 's/^credentialId: //p' | head -n1)"
     local USER_HANDLE="$(printf '%s\n' "$ENTRY" | sed -n 's/^userHandle: //p' | head -n1)"
     if [[ ! "$CRED_ID" =~ ^[A-Za-z0-9_-]{1,86}$ ]]; then
@@ -566,10 +573,15 @@ function passkey_op_get() {
         parcel_error "Invalid credentialId in passkey entry: $FILE_PATH"
         return 0
     fi
-    # when the relying party supplied allowCredentials, the entry's credential must be among them
+    # when the relying party supplied allowCredentials, the entry's credential must be among them;
+    # the presence check is on the raw request array, not the filtered result, so that an
+    # all-malformed list still constrains the ceremony (privacy: allowCredentials exists to
+    # prevent credential enumeration, so a rejected credential must never be signed)
+    local HAS_ALLOW_CREDENTIALS
+    HAS_ALLOW_CREDENTIALS="$(jq -r 'if (.allowCredentials | type) == "array" and length > 0 then "yes" else "no" end' <<< "$1" 2>/dev/null)"
     local ALLOW_CREDENTIALS
     ALLOW_CREDENTIALS="$(jq -r '(if (.allowCredentials | type) == "array" then .allowCredentials else [] end)[] | select(test("^[A-Za-z0-9_-]{1,86}$"))' <<< "$1" 2>/dev/null)"
-    if [ -n "$ALLOW_CREDENTIALS" ]; then
+    if [ "$HAS_ALLOW_CREDENTIALS" == "yes" ]; then
         local CRED_ALLOWED=0
         while IFS= read -r ALLOWED_CRED; do
             if [ "$ALLOWED_CRED" = "$CRED_ID" ]; then
@@ -703,13 +715,10 @@ function passkey_op_create() {
         fi
         DIR="$(dirname "$DIR")"
     done
-    case "$GPG_ID" in
-        "$STORE_ROOT"/*) ;;
-        *)
-            # refuse to encrypt for recipient files outside the password store
-            GPG_ID=""
-            ;;
-    esac
+    if [[ "$GPG_ID" != "$STORE_ROOT"/* ]]; then
+        # refuse to encrypt for recipient files outside the password store
+        GPG_ID=""
+    fi
     if [ -z "$GPG_ID" ]; then
         audit_passkey "Denied (no .gpg-id found)" "$ORIGIN" "$SUGGESTED_FULL"
         parcel_error "No .gpg-id found for $SUGGESTED"
