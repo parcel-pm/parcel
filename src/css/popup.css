@@ -254,7 +254,7 @@ body.passkey-popup {
     }
     #passkey-existing-list {
         font-size: 0.85em;
-        margin: -6px 0 0 0;
+        margin: 6px 0 0 0;
         li {
             color: var(--color-text-muted);
             margin-bottom: 6px;
