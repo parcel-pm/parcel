@@ -2,7 +2,9 @@
 
 (async () => {
     const Helpers = (await import(chrome.runtime.getURL("/js/helpers.js"))).Helpers;
-    const { Schema, SelectorSchema } = await import(chrome.runtime.getURL("/js/schema.js"));
+    const { Schema, SelectorSchema, PasskeyRequestSchema, PasskeyAbortSchema, PasskeyConflictSchema } = await import(
+        chrome.runtime.getURL("/js/schema.js")
+    );
     const webauthn = await import(chrome.runtime.getURL("/js/webauthn.js"));
     const targetSelectors = import(chrome.runtime.getURL("/js/selectors.js"));
     const targetBindings = {};
@@ -92,7 +94,7 @@
         if (port.name !== "trigger") return;
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "trigger-popup") {
-                triggerPopup(msg.token, msg.frameId, msg.position, msg.origin, msg.mode);
+                triggerPopup(msg.token, msg.frameId, msg.position, msg.mode);
             } else if (msg?.action === "close-popup") {
                 document.querySelectorAll(".parcel-popup").forEach((popup) => removePopup(popup));
             } else if (msg?.action === "resize-popup") {
@@ -420,11 +422,10 @@
      * @param {string} token - The token for the element.
      * @param {number} frameId - The ID of the frame in which the target element resides.
      * @param {DOMRect} position - The position of the target element.
-     * @param {string} [_origin] - The origin of the requesting frame (unused; reserved).
      * @param {string} [mode] - Optional popup mode (e.g. "passkey"), passed through to the popup iframe URL.
      * @returns {Promise<void>}
      */
-    async function triggerPopup(token, frameId, position, _origin = null, mode = null) {
+    async function triggerPopup(token, frameId, position, mode = null) {
         // remove old popups
         for (const popup of [...Helpers.shadowSelectorAll(".parcel-popup")]) {
             removePopup(popup);
@@ -530,9 +531,7 @@
         // extension-origin frame; without it the async Clipboard API is policy-denied)
         const frame = document.createElement("iframe");
         frame.setAttribute("allow", "clipboard-write");
-        frame.src = chrome.runtime.getURL(
-            `/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${encodeURIComponent(mode)}` : ""}`,
-        );
+        frame.src = chrome.runtime.getURL(`/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${mode}` : ""}`);
         root.appendChild(frame);
         if (scrimMode) {
             // provisional card size until the popup reports its real size via resize-popup
@@ -613,7 +612,6 @@
                 frameId,
                 token: target._parcelToken,
                 position: target.getBoundingClientRect(),
-                origin: window.location.origin,
             });
         } catch (_err) {
             // dispatch other clicks to the root frame too, so that they can be used to close the popup
@@ -772,7 +770,7 @@
                 else if (response?.action === "passkey-candidates")
                     settle(resolve, { rpId: response.rpId, candidates: response.candidates });
                 else if (response?.action === "passkey-result") settle(resolve, { result: response.result });
-                // ignore "status"/"clear-status" progress messages
+                // ignore other message types (e.g. status / clear-status progress messages etc.)
             });
             port.onDisconnect.addListener(() => {
                 chrome.runtime.lastError; // consume the disconnect error
@@ -812,13 +810,6 @@
     }
 
     /**
-     * Handle a ceremony request relayed by the MAIN-world interceptor: fetch the candidate
-     * entries, bind the ceremony state to a fresh token, and open the consent popup.
-     * @since 1.0.4
-     * @param {string} detailJSON - The JSON-serialised event detail (`{requestId, op, options}`).
-     * @returns {Promise<void>}
-     */
-    /**
      * Decide whether this frame may raise a passkey ceremony. The frame must be the top
      * frame or same-origin with it (mirroring the MAIN-world interceptor), and the
      * document must hold the matching WebAuthn permissions policy. Forged
@@ -836,21 +827,28 @@
         }
         const policy = document.permissionsPolicy;
         if (!policy || typeof policy.allowsFeature !== "function") return true;
-        // unknown feature names evaluate to false, so create must consult both the modern
+        // unknown feature names evaluate to false, so both ops must consult the modern
         // split name and the legacy combined name (pre-split browsers only know the latter)
-        if (op === "get") return policy.allowsFeature("publickey-credentials-get");
+        if (op === "get") return policy.allowsFeature("publickey-credentials-get") || policy.allowsFeature("publickey-credentials");
         return policy.allowsFeature("publickey-credentials-create") || policy.allowsFeature("publickey-credentials");
     }
 
+    /**
+     * Handle a ceremony request relayed by the MAIN-world interceptor: fetch the candidate
+     * entries, bind the ceremony state to a fresh token, and open the consent popup.
+     * @since 1.0.4
+     * @param {string} detailJSON - The JSON-serialised event detail (`{requestId, op, options}`).
+     * @returns {Promise<void>}
+     */
     async function handlePasskeyRequest(detailJSON) {
         let req;
         try {
             req = JSON.parse(detailJSON);
-        } catch (_err) {
-            return; // not a Parcel event, or malformed
-        }
-        if (typeof req?.requestId !== "string" || !["get", "create"].includes(req?.op) || typeof req?.options !== "object" || !req.options)
+            Schema.validate(PasskeyRequestSchema, req);
+        } catch (err) {
+            console.warn("[integration] rejected malformed passkey request:", err.message);
             return;
+        }
         const respond = (payload) => passkeyRespond(req.requestId, payload);
         try {
             if (!mayHandlePasskeyHere(req.op) || (await config).handlePasskeys === false) {
@@ -927,8 +925,10 @@
         let msg;
         try {
             msg = JSON.parse(detailJSON);
-        } catch (_err) {
-            return; // not a Parcel event, or malformed
+            Schema.validate(PasskeyAbortSchema, msg);
+        } catch (err) {
+            console.warn("[integration] rejected malformed passkey abort:", err.message);
+            return;
         }
         const token = Object.keys(passkeyBindings).find((t) => passkeyBindings[t]?.requestId === msg?.requestId);
         if (!token) return;
@@ -952,10 +952,11 @@
         let msg;
         try {
             msg = JSON.parse(detailJSON);
-        } catch (_err) {
-            return; // not a Parcel event, or malformed
+            Schema.validate(PasskeyConflictSchema, msg);
+        } catch (err) {
+            console.warn("[integration] rejected malformed passkey conflict:", err.message);
+            return;
         }
-        if (!msg || (msg.reason !== "locked" && msg.reason !== "wrapped")) return;
         // one notice per frame lifetime is plenty, whatever happens later; the flag is
         // only consumed when a modal is actually about to be shown
         if (passkeyConflictShown) return;
@@ -1198,6 +1199,7 @@
     // before this script has finished evaluating; pick up its marker if so
     const earlyConflict = document.documentElement?.getAttribute("data-parcel-webauthn-conflict");
     if (earlyConflict === "locked" || earlyConflict === "wrapped") {
+        document.documentElement?.removeAttribute("data-parcel-webauthn-conflict");
         handlePasskeyConflict(JSON.stringify({ reason: earlyConflict }));
     }
 
