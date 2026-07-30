@@ -10,7 +10,16 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert";
-import { MetaSchema, SelectorSchema, TargetSchema, ConfigSchema, PasskeyRequestSchema, PasskeyAbortSchema, PasskeyConflictSchema, Schema } from "../src/js/schema.js";
+import {
+    MetaSchema,
+    SelectorSchema,
+    TargetSchema,
+    ConfigSchema,
+    PasskeyRequestSchema,
+    PasskeyAbortSchema,
+    PasskeyConflictSchema,
+    Schema,
+} from "../src/js/schema.js";
 
 describe("Schema.validate", () => {
     // ----------------------------------------------------------------
