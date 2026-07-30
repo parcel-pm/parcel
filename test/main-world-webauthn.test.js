@@ -78,7 +78,7 @@ function lockLikeForeignManager(credentials, foreignCreate, foreignGet) {
     Object.defineProperty(credentials, "get", { configurable: false, enumerable: true, get: () => foreignGet, set: () => {} });
 }
 
-describe("main-world webauthn installer", () => {
+describe("Main-world webauthn installer", () => {
     test("installs non-configurable wrappers and marks the API when the API is native", () => {
         const env = makeEnv();
         const rawCreate = env.nativeFn("Array.prototype.at");
