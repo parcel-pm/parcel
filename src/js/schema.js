@@ -246,3 +246,42 @@ export const ConfigSchema = {
         },
     },
 };
+
+/**
+ * Schema for a passkey ceremony request relayed from the MAIN-world interceptor.
+ * @type {object}
+ * @since 1.0.4
+ */
+export const PasskeyRequestSchema = {
+    type: "object",
+    properties: {
+        requestId: { type: "string", required: true, minLength: 1 },
+        op: { type: "string", required: true, enum: ["get", "create"] },
+        origin: { type: "string" },
+        options: { type: "object", required: true },
+    },
+};
+
+/**
+ * Schema for a passkey ceremony abort notification from the MAIN-world interceptor.
+ * @type {object}
+ * @since 1.0.4
+ */
+export const PasskeyAbortSchema = {
+    type: "object",
+    properties: {
+        requestId: { type: "string", required: true, minLength: 1 },
+    },
+};
+
+/**
+ * Schema for a passkey conflict report from the MAIN-world interceptor.
+ * @type {object}
+ * @since 1.0.4
+ */
+export const PasskeyConflictSchema = {
+    type: "object",
+    properties: {
+        reason: { type: "string", required: true, enum: ["locked", "wrapped"] },
+    },
+};

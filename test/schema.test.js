@@ -10,7 +10,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert";
-import { MetaSchema, SelectorSchema, TargetSchema, ConfigSchema, Schema } from "../src/js/schema.js";
+import { MetaSchema, SelectorSchema, TargetSchema, ConfigSchema, PasskeyRequestSchema, PasskeyAbortSchema, PasskeyConflictSchema, Schema } from "../src/js/schema.js";
 
 describe("Schema.validate", () => {
     // ----------------------------------------------------------------
@@ -338,6 +338,18 @@ describe("Defined schemas", () => {
 
     test("ConfigSchema is a valid schema", () => {
         assert.doesNotThrow(() => Schema.validate(MetaSchema, ConfigSchema));
+    });
+
+    test("PasskeyRequestSchema is a valid schema", () => {
+        assert.doesNotThrow(() => Schema.validate(MetaSchema, PasskeyRequestSchema));
+    });
+
+    test("PasskeyAbortSchema is a valid schema", () => {
+        assert.doesNotThrow(() => Schema.validate(MetaSchema, PasskeyAbortSchema));
+    });
+
+    test("PasskeyConflictSchema is a valid schema", () => {
+        assert.doesNotThrow(() => Schema.validate(MetaSchema, PasskeyConflictSchema));
     });
 
     test("ConfigSchema: passkeyDir defaults to 'passkeys'", () => {
