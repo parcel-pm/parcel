@@ -11,6 +11,9 @@
 /**
  * Encode bytes as base64url (no padding).
  *
+ * Accepts ArrayBuffer in addition to Uint8Array because callers (e.g.
+ * crypto.subtle.digest) return ArrayBuffer.
+ *
  * @param {Uint8Array|ArrayBuffer} bytes - input bytes
  * @returns {string} base64url-encoded string
  * @since 1.0.4
@@ -28,6 +31,9 @@ export function b64urlEncode(bytes) {
 
 /**
  * Decode a base64url string (padding optional) to bytes.
+ *
+ * Returns Uint8Array (not ArrayBuffer) because callers need typed-array
+ * access (.length, .set()).
  *
  * @param {string} str - base64url-encoded string
  * @returns {Uint8Array} decoded bytes

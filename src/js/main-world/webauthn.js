@@ -8,6 +8,8 @@
  * This is a classic script (like shadow.js): it must not use imports, and any
  * data crossing to/from integration.js travels as JSON strings inside
  * CustomEvent details (portable across Chrome and Firefox world isolation).
+ * Some helpers (e.g. base64url codecs) are therefore duplicated deliberately
+ * from the ES-module source in src/js/webauthn.js.
  *
  * @since 1.0.4
  */
@@ -34,6 +36,10 @@
     /**
      * Encode bytes as base64url (no padding).
      *
+     * Uint8Array only (no ArrayBuffer handling) — the near-duplicate in
+     * src/js/webauthn.js also accepts ArrayBuffer for crypto.subtle.digest
+     * callers.
+     *
      * @param {Uint8Array} bytes - input bytes
      * @returns {string} base64url-encoded string
      */
@@ -47,6 +53,11 @@
 
     /**
      * Decode a base64url string to an ArrayBuffer.
+     *
+     * Returns ArrayBuffer (not Uint8Array) because the WebAuthn credential
+     * fields built here require BufferSource values — the near-duplicate in
+     * src/js/webauthn.js returns Uint8Array for callers that need typed-array
+     * access.
      *
      * @param {string} str - base64url-encoded string
      * @returns {ArrayBuffer} decoded bytes
