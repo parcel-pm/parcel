@@ -295,7 +295,6 @@
                     detail: JSON.stringify({
                         requestId: requestId,
                         op: op,
-                        origin: window.location.origin,
                         options: options,
                     }),
                 }),

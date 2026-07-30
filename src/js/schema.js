@@ -257,7 +257,6 @@ export const PasskeyRequestSchema = {
     properties: {
         requestId: { type: "string", required: true, minLength: 1 },
         op: { type: "string", required: true, enum: ["get", "create"] },
-        origin: { type: "string" },
         options: { type: "object", required: true },
     },
 };
