@@ -866,7 +866,7 @@
                 const parts = [];
                 if (violated.length) {
                     parts.push(
-                        `This site requested authenticator hints Parcel cannot satisfy (${violated.join(", ")}). \n` +
+                        `This site requested authenticator hints Parcel cannot satisfy (${violated.join(", ")}). ` +
                             "Proceed only if you understand the site may reject the credential.",
                     );
                 }
