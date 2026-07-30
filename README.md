@@ -213,6 +213,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `decryptRate` | number | `0.006667` (24 per hour) | Token refill rate in tokens per second for decryption rate limiting. |
 | `disableContextPopup` | boolean | `false` | If `true`, disables the inline / context popup. |
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
+| `gitInPasskeyCommand` | boolean | `false` | If `true`, the save command shown when creating a passkey includes a `git add` and `git commit` for the new entry. |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
 | `handlePasskeys` | boolean | `true` | If `false`, disables passkey support entirely. |
 | `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (see [Passkey entry format](#passkey-entry-format)), and classed as `passkey` by the default rules. |
