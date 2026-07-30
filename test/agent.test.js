@@ -255,6 +255,42 @@ describe("Agent", () => {
         assert.strictEqual(listCalls, 1, "action_list only called once despite concurrent searches");
     });
 
+    test("path hashes are cached across searches on the same entry list", async () => {
+        // Verify Helpers.sha256 (via crypto.subtle.digest) is called once per
+        // entry path on the first search, then skipped on subsequent searches
+        // that reuse the cached entry list (same entry objects within the TTL).
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+
+        const subtle = crypto.subtle;
+        const realDigest = subtle.digest.bind(subtle);
+        let digestCalls = 0;
+        // Spy on crypto.subtle.digest, delegating to the real implementation.
+        subtle.digest = (algorithm, data) => {
+            digestCalls++;
+            return realDigest(algorithm, data);
+        };
+        try {
+            // First search loads the entry list and hashes each path once.
+            let matchPromise = nextMessage(popup, "match");
+            popup.postMessage({ action: "match", url: "https://example.com" });
+            const match1 = await matchPromise;
+            assert.strictEqual(match1.entries.length, 1, "first match returned entry");
+            const callsAfterFirst = digestCalls;
+            assert.ok(callsAfterFirst >= 1, "digest called on first search");
+
+            // Second search reuses the cached entry list and the cached path hash.
+            matchPromise = nextMessage(popup, "match");
+            popup.postMessage({ action: "match", url: "https://example.com" });
+            const match2 = await matchPromise;
+            assert.strictEqual(match2.entries.length, 1, "second match returned entry");
+            assert.strictEqual(digestCalls, callsAfterFirst, "digest not called again on cached search");
+        } finally {
+            delete subtle.digest;
+        }
+    });
+
     test("decrypt rejected from integration port", async () => {
         const integration = mock.chrome.runtime.connect({ name: "integration" });
         await settleAsync();

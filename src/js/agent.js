@@ -20,6 +20,8 @@ export class Agent extends EventTarget {
     #host;
     #entries;
     #entriesUpdated = 0;
+    /** @type {WeakMap<object, Promise<string>>} Cached SHA-256 hashes of entry paths, keyed by entry object. */
+    #pathHashes = new WeakMap();
     #initError;
     #currentNativeCall = null;
     #authorisedTokens = new Set();
@@ -292,6 +294,29 @@ export class Agent extends EventTarget {
      */
     #isFillEntry(entry) {
         return !entry.name.startsWith(`${this.#config.passkeyDir}/`) && entry.rule?.class !== "passkey";
+    }
+
+    /**
+     * Get the SHA-256 hash of an entry's path, caching the in-flight promise so
+     * repeat searches within the same entry-cache lifetime skip the crypto.
+     *
+     * The cache is keyed by entry object reference. {@link Agent.#setEntries}
+     * replaces the entry list wholesale on refresh, so stale entries (and their
+     * cached hashes) become unreachable — the `WeakMap` discards them
+     * automatically. The promise is cached rather than the resolved value so
+     * concurrent `search()` calls share a single `digest()` per entry instead
+     * of duplicating the work.
+     * @since 1.0.4
+     * @param {object} entry - The pass entry whose path should be hashed.
+     * @returns {Promise<string>} The SHA-256 hash of `entry.path`.
+     */
+    #pathHash(entry) {
+        let hash = this.#pathHashes.get(entry);
+        if (!hash) {
+            hash = Helpers.sha256(entry.path);
+            this.#pathHashes.set(entry, hash);
+        }
+        return hash;
     }
 
     /**
@@ -648,7 +673,7 @@ export class Agent extends EventTarget {
             const slices = [];
             for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
             for (const entry of (await this.#getEntries()).filter((e) => this.#isFillEntry(e))) {
-                const hash = await Helpers.sha256(entry.path);
+                const hash = await this.#pathHash(entry);
                 entry.history = history?.[hash];
 
                 const parts = entry.name.split("/").reverse();
