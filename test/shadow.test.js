@@ -1,5 +1,5 @@
 /**
- * Tests for src/js/shadow.js
+ * Tests for src/js/main-world/shadow.js
  *
  * @since 1.0.0
  */
@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const SHADOW_JS_PATH = require.resolve("../src/js/shadow.js");
+const SHADOW_JS_PATH = require.resolve("../src/js/main-world/shadow.js");
 const SHADOW_JS_SRC = readFileSync(SHADOW_JS_PATH, "utf8");
 
 let evalCounter = 0;

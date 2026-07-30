@@ -28,6 +28,7 @@ It **cannot**:
 
 - Decrypt arbitrary files.
 - Decrypt password entries that have not been whitelisted.
+- Obtain the plaintext or private key material of stored passkeys.
 - Access or use your GPG key (other than to decrypt whitelisted password entries).
 - Access or modify arbitrary files on disk.
 - Execute anything outside of the browser sandbox.
@@ -82,6 +83,22 @@ The extension stores per-origin history and settings in `chrome.storage.local`. 
 
 The entirety of Parcel's configuration lives in a `.parcel.json` file at the root of your password store directory. By design, Parcel is incapable of modifying its own configuration file—the host script will read it, but contains no API endpoint to modify it. There are no modifiable settings within the browser extension itself.
 
+### Passkey ceremonies
+
+Parcel's passkey (WebAuthn / FIDO2) support keeps the trust boundary in the same place as password filling: private keys exist only inside GPG-encrypted pass entries, and all asymmetric cryptography (ES256 key generation and assertion signing) happens in the native host via `openssl`. The extension receives only signatures and public keys — private key material never enters the browser process, in plaintext or otherwise.
+
+Additional protections specific to passkeys:
+
+1. **Interactive consent** — No signature is produced without you explicitly selecting a credential in the consent popup, which displays the requesting site's true origin. A page cannot silently authenticate you, and there is no API for signing without the popup.
+2. **Relying-party binding** — The host verifies that the passkey entry's embedded `rpId` matches the requesting site's relying-party ID before signing, and enforces any `allowCredentials` restriction supplied by the site: an entry registered for one site cannot be used for another.
+3. **Read-only store preserved** — New credentials are generated, encrypted to your store's `.gpg-id` recipients, and displayed to you as an armored blob; *you* save the entry verbatim into the store as the `.gpg` file (do **not** re-encrypt it with `pass insert` — the content is already encrypted to your store's recipients). The host does not write entry files.
+4. **Consent-gated fallback** — If you decline or dismiss the popup, or disable passkey support (`"handlePasskeys": false` in `.parcel.json`), ceremonies fall back to the browser's native implementation and Parcel is not involved.
+5. **Permissions Policy honoured** — A site that sends e.g. `Permissions-Policy: publickey-credentials-create=()` has opted the page out of that WebAuthn capability. Parcel checks the policy in its isolated content-script realm — where page script cannot spoof the result — and hands such ceremonies back to the browser, which rejects them. An extension-based authenticator that skips or misplaces this check silently re-grants a capability the site deliberately withdrew.
+6. **`allowCredentials` disclosure accepted** — When a site restricts an assertion with an `allowCredentials` allow-list, native authenticators reject instantly and silently if nothing matches. Parcel cannot do this: credential IDs live inside the encrypted entries, so filtering candidates against an allow-list would require decrypting every candidate *before* consent — handing GPG unlock prompts and rate-limit budget to an unvetted site. Parcel therefore presents the consent popup whenever any passkey entry exists for the relying party, and the host enforces the allow-list immediately before signing instead. A site that deliberately supplies only foreign credential IDs can therefore infer — from the presence of the consent popup — that the user holds Parcel passkey entries for that site. This is consciously accepted: it is consistent with Parcel's existing posture that a site can observe Parcel's presence and entry-holding for itself (the fill popup is observable the same way), and the marginal increment is small — the site already knows which of its *accounts* hold passkeys from its own registration records.
+7. **Popup-spam guard** — A site could re-raise the consent modal in a loop by calling the WebAuthn API again after each dismissal. After two consecutive dismissed ceremonies, further requests are refused popup-free for one second (mirroring native behaviour for rapid repeats of a dismissed ceremony); a ceremony you actually complete clears the streak immediately.
+
+The WebAuthn interception script necessarily runs in each page's JavaScript realm (this is how WebAuthn works for any extension-based authenticator), which means sites can observe that an extension handles passkey requests — an extension of the detectability noted in the tradeoffs below. The events bridging this script to Parcel's isolated content script are ordinary DOM `CustomEvent`s, which page script can forge or observe; no shared secret between the two realms is possible, because anything the page realm can hold, a compromised page can read. Parcel therefore treats the bridge as untrusted: the origin and relying-party ID are re-derived and validated in the isolated world and background worker on every request, and every ceremony requires the consent popup displaying the true origin. A forged bridge message can summon an unwarranted popup, but cannot obtain a signature, decrypt a key, or steer a ceremony toward an origin other than the one displayed.
+
 ## Deliberate Tradeoffs
 
 | Tradeoff | Rationale |
@@ -93,6 +110,8 @@ The entirety of Parcel's configuration lives in a `.parcel.json` file at the roo
 | **Entry rules do not use dereferenced paths** | For portability and usability, file paths are not dereferenced prior to evaluating them against the whitelist / ignore rules. Users should not enable either of the symlink options unless they are certain that all links within the scope of their whitelisting rules are trustworthy. |
 | **No clipboard auto-clear** | Automatically clearing the clipboard after copying credentials requires first *reading* the clipboard to ensure that the data to be cleared is still present. In order to avoid holding a `clipboardRead` permission, which would be a notable additional attack surface, Parcel does not implement this feature. |
 | **Extension is detectable by websites** | The extension's `web_accessible_resources` and shadow DOM shim are visible to browsed websites, which allows any website to detect the presence of the extension and fingerprint users based on the extension's unique ID. The resulting fingerprint surface is considered an acceptable necessity. |
+| **WebAuthn interception in the page realm** | Passkey support requires intercepting `navigator.credentials` in each page's main JavaScript realm. A malicious page could attempt to fingerprint or interfere with this interception; it cannot, however, extract key material, forge consent, or bypass the host-side relying-party and whitelist checks, because all cryptography and policy enforcement happen in the native host. |
+| **WebAuthn interception is first-come, first-served** | Extensions cannot coordinate who intercepts `navigator.credentials`. If Parcel's interceptor installs first, the shim is installed as non-configurable accessor properties so a later injector (another extension at `document_start`, or hostile page script) cannot silently replace it. If another extension got there first — whether it locked the API or merely wrapped it — Parcel backs off entirely: no polling, no re-definition, no working around a foreign lock. In that case Parcel warns on the page console, and if you hold Parcel passkeys for the site it surfaces a one-time in-page notice (dismissible per origin). |
 
 
 ## Security-Related Configuration
@@ -121,6 +140,7 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `allowLinks` | Include symlinked entries in the entry list (default: `false`). |
 | `allowExternalLinks` | Include symlinks pointing outside the password store (default: `false`; requires `allowLinks`). |
 | `cacheTTL` | Seconds the extension caches the entry list before re-querying the host (default: `10`). |
+| `handlePasskeys` | Enable WebAuthn passkey ceremonies. When `false`, Parcel does not intercept passkey requests at all (default: `true`). |
 | `decryptTimeout` | Seconds before a decryption request is aborted (default: `60`). |
 | `decryptBucket` | Token-bucket capacity for decryption rate limiting. Each decryption costs one token (default: `24`). |
 | `decryptRate` | Token refill rate in tokens per second for decryption rate limiting (default: `0.006667`; i.e. 24 per hour). |

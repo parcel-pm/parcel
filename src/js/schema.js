@@ -167,7 +167,7 @@ export const SelectorSchema = {
 export const TargetSchema = {
     type: "object",
     properties: {
-        class: { type: "string", required: true, enum: ["login"], default: "login" },
+        class: { type: "string", required: true, enum: ["login", "passkey"], default: "login" },
         dynamic: { type: "boolean", required: true, default: false },
         fallback: { type: "string", minLength: 1 },
         fallbackMatch: { type: "string", format: "regex", minLength: 1 },
@@ -210,8 +210,17 @@ export const ConfigSchema = {
         disableContextPopup: { type: "boolean", required: true, default: false },
         fillRelated: { type: "boolean", required: true, default: true },
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },
+        gitInPasskeyCommand: { type: "boolean", required: true, default: false },
         modified: { type: "integer", required: true, minimum: 1 },
         passdir: { type: "string", required: true },
+        passkeyDir: {
+            type: "string",
+            required: true,
+            minLength: 1,
+            pattern: "^[^\\p{Cc}*?[\\\\]+$", // Excludes control chars (\p{Cc}) and the glob metacharacters * ? [ \
+            default: "passkeys",
+        },
+        handlePasskeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
         rules: {
@@ -220,7 +229,7 @@ export const ConfigSchema = {
             items: {
                 type: "object",
                 properties: {
-                    class: { type: "string", required: true, enum: ["login"], default: "login" },
+                    class: { type: "string", required: true, enum: ["login", "passkey", "browser-passkey"], default: "login" },
                     color: { type: "string", required: true, pattern: "^[0-9a-f]{6}$", flags: "ui", default: "333333" },
                     ignore: { type: "boolean", required: true, default: false },
                     pattern: { type: "string", required: true, format: "regex" },
@@ -236,5 +245,43 @@ export const ConfigSchema = {
             required: true,
             default: defaultTargets,
         },
+    },
+};
+
+/**
+ * Schema for a passkey ceremony request relayed from the MAIN-world interceptor.
+ * @type {object}
+ * @since 1.0.4
+ */
+export const PasskeyRequestSchema = {
+    type: "object",
+    properties: {
+        requestId: { type: "string", required: true, minLength: 1 },
+        op: { type: "string", required: true, enum: ["get", "create"] },
+        options: { type: "object", required: true },
+    },
+};
+
+/**
+ * Schema for a passkey ceremony abort notification from the MAIN-world interceptor.
+ * @type {object}
+ * @since 1.0.4
+ */
+export const PasskeyAbortSchema = {
+    type: "object",
+    properties: {
+        requestId: { type: "string", required: true, minLength: 1 },
+    },
+};
+
+/**
+ * Schema for a passkey conflict report from the MAIN-world interceptor.
+ * @type {object}
+ * @since 1.0.4
+ */
+export const PasskeyConflictSchema = {
+    type: "object",
+    properties: {
+        reason: { type: "string", required: true, enum: ["locked", "wrapped"] },
     },
 };

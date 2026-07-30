@@ -158,6 +158,50 @@
             <input type="text" id="searchPattern" class="selected" />
         </div>
         <ul id="entries"></ul>
+        <div id="passkey" class="hidden">
+            <p id="passkey-title"></p>
+            <p id="passkey-origin"></p>
+            <p id="passkey-user" class="hidden"></p>
+            <p id="passkey-hints" class="hidden"></p>
+            <p id="passkey-existing" class="hidden"></p>
+            <ul id="passkey-existing-list" class="hidden"></ul>
+            <ul id="passkey-entries"></ul>
+            <div id="passkey-save" class="hidden">
+                <p>
+                    Parcel created a new passkey, but cannot store it for you. Run the command below in a terminal &mdash; or download the
+                    file and move it to the path in the command &mdash; then confirm here.
+                </p>
+                <label id="passkey-commit-label">
+                    <input type="checkbox" id="passkey-commit" />
+                    Include git commit
+                </label>
+                <textarea id="passkey-blob" rows="12" readonly></textarea>
+                <div class="passkey-buttons">
+                    <button id="passkey-copy" type="button">Copy command</button>
+                    <button id="passkey-download" type="button">Download .gpg file</button>
+                    <button id="passkey-ack" type="button">Done</button>
+                    <button class="passkey-cancel" type="button">Cancel</button>
+                </div>
+            </div>
+            <div class="passkey-buttons" id="passkey-actions">
+                <button id="passkey-create" type="button">Create passkey</button>
+                <button id="passkey-fallback" type="button">Use browser passkey instead</button>
+                <button class="passkey-cancel" type="button">Cancel</button>
+            </div>
+        </div>
+        <div id="passkey-conflict" class="hidden">
+            <p id="passkey-conflict-title">Parcel passkeys are unavailable on <span id="passkey-conflict-origin">this site</span></p>
+            <p id="passkey-conflict-body">
+                Another browser extension is handling passkey (WebAuthn) ceremonies here, so Parcel cannot offer the passkeys it has stored
+                for this site. To prefer Parcel, disable passkey support in the other extension; to prefer the other extension, there is
+                nothing more to do &mdash; it is already in control.
+            </p>
+            <div class="passkey-buttons">
+                <button id="passkey-conflict-dismiss" type="button">Don&rsquo;t show again for this site</button>
+                <button id="passkey-conflict-docs" type="button">Learn more</button>
+                <button class="passkey-conflict-close" type="button">Close</button>
+            </div>
+        </div>
         <p id="status">Status bar</p>
         <div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
     </body>

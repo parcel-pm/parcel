@@ -23,7 +23,7 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
   - `src/js/integration.js` is the content script injected into all frames at `document_start`. It detects fill targets, opens the inline/context popup, fills fields, and handles the broadcast "best target" autofill path.
   - `src/js/popup.js` is the toolbar/context popup UI. It requests matches and decrypted plaintext from the background worker, relays fill commands back into the active frame, and stores per-origin/per-container history in `chrome.storage.local`.
 - Shared behavior lives in `src/js/helpers.js`, `src/js/plaintext.js`, `src/js/schema.js`, `src/js/selectors.js`, and `src/js/targets.js`. The intended config extension points are `additionalSelectors` and `additionalTargets`.
-- Shadow DOM support is deliberate: `src/js/shadow.js` patches `attachShadow`, and cross-shadow lookups are expected to go through `Helpers.shadowSelector()` / `Helpers.shadowSelectorAll()`.
+- Shadow DOM support is deliberate: `src/js/main-world/shadow.js` patches `attachShadow`, and cross-shadow lookups are expected to go through `Helpers.shadowSelector()` / `Helpers.shadowSelectorAll()`.
 - The native side is split in two:
   - the repo-root `parcel-host` bootstrap host, which verifies signatures and loads the bundled script,
   - `src/parcel-host`, the signed host implementation that reads `~/.password-store`, filters entries against `.parcel.json`, and decrypts only paths that were previously whitelisted by `action_list`.

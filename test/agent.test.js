@@ -356,6 +356,189 @@ describe("Agent", () => {
         const after = mock.getNativePort("com.github.erayd.parcel");
         assert.strictEqual(after, before, "no spurious reconnect when already connected");
     });
+
+    /**
+     * Push a passkey-aware config and entry list into the agent.
+     *
+     * `shared/fido/` entries are rule-classed as passkeys (outside the default
+     * `passkeys/` prefix); `passkeys/example.com/alice` is deliberately left
+     * unclassed to exercise class-only candidacy; `test/bob` is a login entry.
+     * `github.com` carries class "browser-passkey" to exercise defer-to-browser.
+     * @returns {Promise<void>}
+     */
+    async function configurePasskeyStore() {
+        const passkeyConfig = {
+            ...makeValidConfig(),
+            modified: 2,
+            rules: [
+                // a browser-passkey site rule overlaid on an entry prefix: it must neither
+                // classify nor shadow these entries - the later passkey rule still applies
+                { pattern: "^shared/fido/", class: "browser-passkey" },
+                { pattern: "^test/", class: "login" },
+                { pattern: "^shared/fido/", class: "passkey" },
+                // classes carol (matching rpId) and zed (foreign rpId), but not alice
+                { pattern: "^passkeys/example\\.com/carol$", class: "passkey" },
+                { pattern: "^passkeys/other\\.test/", class: "passkey" },
+                // proves passkey entries work from any location that names the rpId
+                { pattern: "^misc/", class: "passkey" },
+                { pattern: "^github\\.com$", class: "browser-passkey" },
+            ],
+        };
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return passkeyConfig;
+            if (msg.action === "list")
+                return [
+                    { name: "passkeys/example.com/alice", path: "/home/test/.password-store/passkeys/example.com/alice.gpg" },
+                    { name: "passkeys/example.com/carol", path: "/home/test/.password-store/passkeys/example.com/carol.gpg" },
+                    { name: "passkeys/other.test/zed", path: "/home/test/.password-store/passkeys/other.test/zed.gpg" },
+                    { name: "shared/fido/alice", path: "/home/test/.password-store/shared/fido/alice.gpg" },
+                    { name: "shared/fido/carol", path: "/home/test/.password-store/shared/fido/carol.gpg" },
+                    { name: "misc/example.com/a", path: "/home/test/.password-store/misc/example.com/a.gpg" },
+                    { name: "test/bob", path: "/home/test/.password-store/test/bob.gpg" },
+                ];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "passkey") return { op: "get", credentialId: "Y3JlZA" };
+        });
+        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        await settleAsync();
+        const configPromise = nextMessage(integration, "config");
+        integration.postMessage({ action: "config", config: passkeyConfig });
+        await configPromise;
+    }
+
+    test("passkey candidates are rule-classed entries whose path names the rpId", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://login.example.com", rpId: "example.com" });
+        const msg = await candidatesPromise;
+        // included: classed entries whose path names this site's rpId, wherever filed
+        // excluded: the unclassed in-dir entry (alice), the foreign-rpId entry (zed),
+        //           Passkey entries that never name example.com, and the login entry
+        assert.deepStrictEqual(msg.candidates, [
+            {
+                name: "passkeys/example.com/carol",
+                path: "/home/test/.password-store/passkeys/example.com/carol.gpg",
+                rule: { pattern: "^passkeys/example\\.com/carol$", class: "passkey", ignore: false, color: "333333" },
+            },
+            {
+                name: "misc/example.com/a",
+                path: "/home/test/.password-store/misc/example.com/a.gpg",
+                rule: { pattern: "^misc/", class: "passkey", ignore: false, color: "333333" },
+            },
+        ]);
+    });
+
+    test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const resultPromise = nextMessage(passkey, "passkey-result");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/shared/fido/alice.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await resultPromise;
+        assert.strictEqual(msg.result.op, "get");
+    });
+
+    test("passkey assertion is rejected for an unclassed entry inside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const errorPromise = nextMessage(passkey, "error");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/passkeys/example.com/alice.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await errorPromise;
+        assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
+    });
+
+    test("passkey assertion normalises a mixed-case rpId", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const resultPromise = nextMessage(passkey, "passkey-result");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/shared/fido/alice.gpg",
+            origin: "https://login.example.com",
+            rpId: "Example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await resultPromise;
+        assert.strictEqual(msg.result.op, "get");
+    });
+
+    test("passkey assertion is rejected for a login-classed entry outside the passkey dir", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const errorPromise = nextMessage(passkey, "error");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "assert",
+            path: "/home/test/.password-store/test/bob.gpg",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            clientDataJSON: "Y2xpZW50",
+            allowCredentials: [],
+        });
+        const msg = await errorPromise;
+        assert.ok(msg.error?.includes("Invalid passkey entry path"), `expected path rejection, got: ${JSON.stringify(msg)}`);
+    });
+
+    test("a browser-passkey rule defers WebAuthn ceremonies for its site", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const fallbackPromise = nextMessage(passkey, "passkey-fallback");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "candidates",
+            origin: "https://github.com",
+            rpId: "github.com",
+        });
+        await fallbackPromise; // no candidates, no popup - straight to the platform handler
+    });
+
+    test("a browser-passkey rule set to ignore does not defer", async () => {
+        // empty entry store; only the ignored-defer rule matters
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure")
+                return {
+                    ...makeValidConfig(),
+                    modified: 1,
+                    rules: [{ pattern: "^ignored\\.com$", ignore: true, class: "browser-passkey" }],
+                };
+            if (msg.action === "list") return [];
+            if (msg.action === "changes_since") return { changes: false };
+        });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://ignored.com", rpId: "ignored.com" });
+        const msg = await candidatesPromise; // defer did not fire; candidates posted (empty list)
+        assert.deepStrictEqual(msg.candidates, []);
+    });
 });
 
 describe("Agent initialisation failures", () => {

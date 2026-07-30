@@ -20,9 +20,13 @@ set -e
 # set up the environment
 TOKEN="broadcast"
 ALLOWED_FILES=()
+PASSKEY_FILES=()
 if [ ! -d "$PASSWORD_STORE_DIR" ]; then
     parcel_error "Invalid password store directory: $PASSWORD_STORE_DIR" 1
 fi
+
+# allow the user to override the openssl binary via parcelrc
+if [ -n "$OPENSSL" ]; then function openssl() { "$OPENSSL" "$@"; return $?; }; fi
 
 # token-bucket rate limiter for action_decrypt
 DECRYPT_BUCKET_TOKENS=""
@@ -70,7 +74,10 @@ function load_config() {
         REPORT_MODIFIED="$CONFIG_MODIFIED"
     fi
     local REALPASSDIR="$(readlink -f "$PASSWORD_STORE_DIR")"
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" '. + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules:[{pattern:"."}], defaultRules: true} end)' <<< "$CONFIG")"; then
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" '
+        def reescape: reduce (explode[]) as $c (""; if ([36,40,41,42,43,46,47,63,91,92,93,94,123,124,125] | index($c)) != null then . + "\\" + ([$c] | implode) else . + ([$c] | implode) end);
+        def defrules: [{pattern: ("^" + ((."passkeyDir" // "passkeys") | reescape) + "/"), class: "passkey"}, {pattern: "."}];
+        . + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules: defrules, defaultRules: true} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
 }
@@ -243,17 +250,22 @@ function action_list() {
             jq -s '
                 .[0] * .[1]
                 | . as $top
-                | ($top.rules|map(select(.ignore==false or (has("ignore") | not)).pattern)) as $include
-                | ($top.rules|map(select(.ignore==true).pattern)) as $ignore
+                # browser-passkey rules are site policy matched against relying-party
+                # IDs, not entry names - exclude them from entry-matching derivations
+                | ($top.rules|map(select(.class != "browser-passkey"))) as $erules
+                | ($erules|map(select(.ignore==false or (has("ignore") | not)).pattern)) as $include
+                | ($erules|map(select(.ignore==true).pattern)) as $ignore
+                | ($erules|map(select(.class=="passkey").pattern)) as $passkey
                 | .entries | (
                     map(
-                        .={path: .path, name: .path | ltrimstr($top.passdir + "/") | rtrimstr(".gpg"), is_link: .is_link, real: .real}
+                        .={path: .path, name: .path | ltrimstr($top.passdir + "/") | rtrimstr(".gpg"), is_link: (.is_link == 1), real: .real}
                         | . as $entry
+                        | .is_passkey = (reduce $passkey[] as $pattern (false; . or ($entry.name|test($pattern))))
                         | select(
                             reduce $include[] as $pattern (false; . or ($entry.name|test($pattern)))
                             and (reduce $ignore[] as $pattern (false; . or ($entry.name|test($pattern)))|not)
                             and (
-                                ($entry.is_link == 0)
+                                ($entry.is_link | not)
                                 or (
                                     ($top.allowLinks == true) and (
                                         ($entry.real | startswith($top.realPassdir + "/"))
@@ -273,6 +285,9 @@ function action_list() {
     # kludgery required to set a global array's content using a string of single-quoted strings
     declare -a LOCAL_AF="( $(jq -rc 'map(.path) | @sh' <<< "$OUT") )"
     ALLOWED_FILES=( "${LOCAL_AF[@]}" )
+
+    declare -a LOCAL_PKF="( $(jq -rc 'map(select(.is_passkey)) | map(.path) | @sh' <<< "$OUT") )"
+    PASSKEY_FILES=( "${LOCAL_PKF[@]}" )
 
     parcel_send "$OUT"
 }
@@ -397,6 +412,15 @@ function action_decrypt() {
         parcel_error "Access Denied: Path out of scope: $FILE_PATH"
         return 0
     fi
+    # passkey entries carry private key material and must never be returned as plaintext
+    local PASSKEY
+    for PASSKEY in "${PASSKEY_FILES[@]}"; do
+        if [ "$PASSKEY" = "$FILE_PATH" ]; then
+            audit_decrypt "$FILE_PATH" "Denied (passkey entry)" "$INTENT" "$ORIGIN"
+            parcel_error "Access Denied: Passkey entries may not be decrypted: $FILE_PATH"
+            return 0
+        fi
+    done
     if [ ! -f "$FILE_PATH" ]; then
         audit_decrypt "$FILE_PATH" "File not found" "$INTENT" "$ORIGIN"
         parcel_error "File not found: $FILE_PATH"
@@ -412,6 +436,337 @@ function action_decrypt() {
         parcel_error "Failed to decrypt $FILE_PATH"
         return 0
     fi
+    # entries in passkey format must never be returned as plaintext under any
+    # classification - the content marker is the authoritative backstop for the
+    # rule-based check above. Prefix-match the marker so that future format
+    # versions are refused by this host version too
+    if [[ "$(head -n 1 <<< "$OUT")" == "#!parcel-passkey "* ]]; then
+        audit_decrypt "$FILE_PATH" "Denied (passkey content)" "$INTENT" "$ORIGIN"
+        parcel_error "Access Denied: Passkey entries may not be decrypted: $FILE_PATH"
+        return 0
+    fi
     audit_decrypt "$FILE_PATH" "Success" "$INTENT" "$ORIGIN"
-    parcel_send "$(jq -n --arg path "$FILE_PATH" --arg plaintext "$OUT" '{path: $path, plaintext: $plaintext}')"
+    parcel_send "$(jq -n --arg path "$FILE_PATH" --rawfile plaintext <(printf '%s' "$OUT") '{path: $path, plaintext: $plaintext}')"
+}
+
+# audit a passkey operation which does not itself decrypt an entry
+function audit_passkey() {
+    local SHOULD_AUDIT="$(jq -r '.auditDecrypt' <<< "$CONFIG")"
+    if [ "$SHOULD_AUDIT" != "true" ]; then
+        return 0
+    fi
+    local EVENT="${1//[[:cntrl:]]/}"
+    local ORIGIN="${2//[[:cntrl:]]/}"
+    local ENTRY_PATH="${3//[[:cntrl:]]/}"
+    local TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    echo "[$TIMESTAMP] PASSKEY ${EVENT:0:128} ${ORIGIN:0:1024} ${ENTRY_PATH:0:1024}" >&5
+}
+
+# perform a WebAuthn passkey ceremony (assertion signing, or credential creation)
+function action_passkey() {
+    update_config
+    local OP="$(jq -r '.op' <<< "$1")"
+    local RP_ID="$(jq -r '.rpId // empty' <<< "$1")"
+    local ORIGIN="$(jq -r '.origin' <<< "$1")"
+
+    if ! command -v openssl &>/dev/null; then
+        parcel_error "Cannot find openssl (${OPENSSL:-openssl}): Please configure the correct path for it in parcelrc"
+        return 0
+    fi
+    if [[ ! "$RP_ID" =~ ^[a-z0-9][a-z0-9.-]{0,252}$ ]] || [[ "$RP_ID" == *..* ]]; then
+        parcel_error "Invalid relying party id: $RP_ID"
+        return 0
+    fi
+
+    case "$OP" in
+        get)
+            passkey_op_get "$1" "$ORIGIN";;
+        create)
+            passkey_op_create "$1" "$ORIGIN";;
+        *)
+            parcel_error "Invalid passkey operation: $OP";;
+    esac
+}
+
+# sign a WebAuthn assertion using the private key stored in a passkey entry
+function passkey_op_get() {
+    local FILE_PATH="$(jq -r '.path' <<< "$1")"
+    local ORIGIN="$2"
+    local CLIENT_DATA="$(jq -r '.clientDataJSON' <<< "$1")"
+    if ! check_decrypt_rate_limit; then
+        audit_decrypt "$FILE_PATH" "Denied (rate limit)" "passkey" "$ORIGIN"
+        parcel_error "Decryption rate limit exceeded"
+        return 0
+    fi
+    local ALLOW=0
+    for ALLOWED in "${ALLOWED_FILES[@]}"; do
+        if [ "$ALLOWED" = "$FILE_PATH" ]; then
+            ALLOW=1
+            break
+        fi
+    done
+    if [ $ALLOW -ne 1 ]; then
+        audit_decrypt "$FILE_PATH" "Denied (path out of scope)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Path out of scope: $FILE_PATH"
+        return 0
+    fi
+    # only entries classified as passkeys by the config may be used to sign assertions
+    local IS_PASSKEY=0
+    local PASSKEY
+    for PASSKEY in "${PASSKEY_FILES[@]}"; do
+        if [ "$PASSKEY" = "$FILE_PATH" ]; then
+            IS_PASSKEY=1
+            break
+        fi
+    done
+    if [ $IS_PASSKEY -ne 1 ]; then
+        audit_decrypt "$FILE_PATH" "Denied (not a passkey entry)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Not a passkey entry: $FILE_PATH"
+        return 0
+    fi
+    if [ ! -f "$FILE_PATH" ]; then
+        audit_decrypt "$FILE_PATH" "File not found" "passkey" "$ORIGIN"
+        parcel_error "File not found: $FILE_PATH"
+        return 0
+    fi
+    if ! validate_decrypt_path_policy "$FILE_PATH"; then
+        audit_decrypt "$FILE_PATH" "Denied (path out of scope)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Path out of scope: $FILE_PATH"
+        return 0
+    fi
+    if [[ ! "$CLIENT_DATA" =~ ^[A-Za-z0-9+/]*={0,2}$ ]]; then
+        audit_decrypt "$FILE_PATH" "Denied (invalid client data)" "passkey" "$ORIGIN"
+        parcel_error "Invalid clientDataJSON encoding"
+        return 0
+    fi
+
+    local ENTRY
+    if ! ENTRY="$(gpg --decrypt --quiet --batch --no-tty --yes --output - < "$FILE_PATH" 2>/dev/null)"; then
+        audit_decrypt "$FILE_PATH" "Decryption failed" "passkey" "$ORIGIN"
+        parcel_error "Failed to decrypt $FILE_PATH"
+        return 0
+    fi
+    ENTRY="${ENTRY//$'\r'/}"
+
+    local FIRST_LINE="${ENTRY%%$'\n'*}"
+    if [ "$FIRST_LINE" != "#!parcel-passkey v1" ]; then
+        audit_decrypt "$FILE_PATH" "Denied (missing or unsupported passkey header)" "passkey" "$ORIGIN"
+        parcel_error "Malformed passkey entry (missing or unsupported #!parcel-passkey header): $FILE_PATH"
+        return 0
+    fi
+    local ENTRY_RPID="$(printf '%s\n' "$ENTRY" | sed -n 's/^rpId: //p' | head -n1)"
+    if [ "$ENTRY_RPID" != "$RP_ID" ]; then
+        audit_decrypt "$FILE_PATH" "Denied (rpId mismatch)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Entry rpId does not match request"
+        return 0
+    fi
+    local ENTRY_ALGORITHM="$(printf '%s\n' "$ENTRY" | sed -n 's/^algorithm: //p' | head -n1)"
+    if [ "$ENTRY_ALGORITHM" != "ES256" ]; then
+        audit_decrypt "$FILE_PATH" "Denied (unsupported algorithm)" "passkey" "$ORIGIN"
+        parcel_error "Access Denied: Unsupported or missing algorithm in passkey entry"
+        return 0
+    fi
+    local CRED_ID="$(printf '%s\n' "$ENTRY" | sed -n 's/^credentialId: //p' | head -n1)"
+    local USER_HANDLE="$(printf '%s\n' "$ENTRY" | sed -n 's/^userHandle: //p' | head -n1)"
+    if [[ ! "$CRED_ID" =~ ^[A-Za-z0-9_-]{1,86}$ ]]; then
+        audit_decrypt "$FILE_PATH" "Denied (invalid credential id)" "passkey" "$ORIGIN"
+        parcel_error "Invalid credentialId in passkey entry: $FILE_PATH"
+        return 0
+    fi
+    # when the relying party supplied allowCredentials, the entry's credential must be among them;
+    # the presence check is on the raw request array, not the filtered result, so that an
+    # all-malformed list still constrains the ceremony (privacy: allowCredentials exists to
+    # prevent credential enumeration, so a rejected credential must never be signed)
+    local HAS_ALLOW_CREDENTIALS
+    HAS_ALLOW_CREDENTIALS="$(jq -r 'if (.allowCredentials | type) == "array" and length > 0 then "yes" else "no" end' <<< "$1" 2>/dev/null)"
+    local ALLOW_CREDENTIALS
+    ALLOW_CREDENTIALS="$(jq -r '(if (.allowCredentials | type) == "array" then .allowCredentials else [] end)[] | select(test("^[A-Za-z0-9_-]{1,86}$"))' <<< "$1" 2>/dev/null)"
+    if [ "$HAS_ALLOW_CREDENTIALS" == "yes" ]; then
+        local CRED_ALLOWED=0
+        while IFS= read -r ALLOWED_CRED; do
+            if [ "$ALLOWED_CRED" = "$CRED_ID" ]; then
+                CRED_ALLOWED=1
+                break
+            fi
+        done <<< "$ALLOW_CREDENTIALS"
+        if [ "$CRED_ALLOWED" -ne 1 ]; then
+            audit_decrypt "$FILE_PATH" "Denied (credential not allowed)" "passkey" "$ORIGIN"
+            parcel_error "Access Denied: Credential not allowed by request"
+            return 0
+        fi
+    fi
+    if [[ -n "$USER_HANDLE" && ! "$USER_HANDLE" =~ ^[A-Za-z0-9_-]{1,86}$ ]]; then
+        audit_decrypt "$FILE_PATH" "Denied (invalid user handle)" "passkey" "$ORIGIN"
+        parcel_error "Invalid userHandle in passkey entry: $FILE_PATH"
+        return 0
+    fi
+    local PRIV_PEM
+    PRIV_PEM="$(printf '%s\n' "$ENTRY" | awk '/^-----BEGIN PRIVATE KEY-----/{f=1} f{print} /^-----END PRIVATE KEY-----/{exit}')"
+    if [[ "$PRIV_PEM" != "-----BEGIN PRIVATE KEY-----"* ]] || [[ "$PRIV_PEM" != *"-----END PRIVATE KEY-----" ]]; then
+        audit_decrypt "$FILE_PATH" "Denied (missing private key)" "passkey" "$ORIGIN"
+        parcel_error "Missing private key in passkey entry: $FILE_PATH"
+        return 0
+    fi
+
+    # binary material must stream through pipes; bash variables cannot hold NUL bytes
+    local AUTHDATA_B64
+    AUTHDATA_B64="$({ printf '%s' "$RP_ID" | openssl dgst -sha256 -binary; printf '\x1d\x00\x00\x00\x00'; } | openssl base64 | tr -d '\n')"
+    local SIG_B64
+    # NB: base64 decoding requires -A for single-line input - without it openssl silently yields nothing
+    SIG_B64="$({ printf '%s' "$AUTHDATA_B64" | openssl base64 -d -A; printf '%s' "$CLIENT_DATA" | openssl base64 -d -A | openssl dgst -sha256 -binary; } 2>/dev/null | openssl dgst -sha256 -sign <(printf '%s\n' "$PRIV_PEM") 2>/dev/null | openssl base64 | tr -d '\n')"
+    if [ -z "$SIG_B64" ]; then
+        audit_decrypt "$FILE_PATH" "Signing failed" "passkey" "$ORIGIN"
+        parcel_error "Failed to sign passkey assertion"
+        return 0
+    fi
+    audit_decrypt "$FILE_PATH" "Success" "passkey" "$ORIGIN"
+    parcel_send "$(jq -n \
+        --arg credentialId "$CRED_ID" \
+        --arg authenticatorData "$AUTHDATA_B64" \
+        --arg signature "$SIG_B64" \
+        --arg userHandle "$USER_HANDLE" \
+        '{op: "get", credentialId: $credentialId, authenticatorData: $authenticatorData, signature: $signature, userHandle: $userHandle}')"
+}
+
+# generate a new ES256 passkey and return it encrypted to the store's .gpg-id recipients
+function passkey_op_create() {
+    local ORIGIN="$2"
+    local USER_HANDLE="$(jq -r '.userHandle' <<< "$1")"
+    local USER_NAME="$(jq -r '.userName' <<< "$1")"
+    local USER_DISPLAY="$(jq -r '.userDisplayName' <<< "$1")"
+    local SUGGESTED="$(jq -r '.path' <<< "$1")"
+    local PASSKEY_DIR="$(jq -r '.passkeyDir // "passkeys"' <<< "$CONFIG")"
+
+    if [[ ! "$USER_HANDLE" =~ ^[A-Za-z0-9_-]{1,86}$ ]]; then
+        parcel_error "Invalid user handle"
+        return 0
+    fi
+    # the passkey directory anchor is user-controlled; control characters would
+    # break the single-line audit format, and glob metacharacters must never
+    # appear where path prefixes are compared so the checks below stay literal
+    # at every current and future call site
+    if [[ -z "$PASSKEY_DIR" || "$PASSKEY_DIR" =~ [[:cntrl:]] || "$PASSKEY_DIR" =~ [\*\?\[\\] ]]; then
+        audit_passkey "Denied (invalid passkeyDir)" "$ORIGIN" ""
+        parcel_error "Invalid passkeyDir in config: $PASSKEY_DIR"
+        return 0
+    fi
+    # the suggested path is advice only - parcel never writes entry files itself;
+    # the anchor itself may point anywhere the user configured, but the
+    # page-influenced tail ($RP_ID/<basename>) must not traverse past it; $RP_ID
+    # was already restricted to hostname syntax by action_passkey
+    if [[ "$SUGGESTED" != "$PASSKEY_DIR/$RP_ID/"* ]]; then
+        parcel_error "Invalid suggested path: $SUGGESTED"
+        return 0
+    fi
+    local TAIL="${SUGGESTED#"$PASSKEY_DIR/"}"
+    if [[ "$TAIL" == *..* ]]; then
+        parcel_error "Invalid suggested path: $SUGGESTED"
+        return 0
+    fi
+    local BASENAME="${SUGGESTED##*/}"
+    if [[ ! "$BASENAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.gpg$ ]]; then
+        parcel_error "Invalid suggested path: $SUGGESTED"
+        return 0
+    fi
+    # strip control characters + limit lengths on anything page-supplied
+    USER_NAME="${USER_NAME//[[:cntrl:]]/}"
+    USER_NAME="${USER_NAME:0:128}"
+    USER_DISPLAY="${USER_DISPLAY//[[:cntrl:]]/}"
+    USER_DISPLAY="${USER_DISPLAY:0:128}"
+
+    # generate the keypair; coordinates are extracted as hex text from the DER encoding
+    local PRIV_PEM
+    PRIV_PEM="$(openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)"
+    if [[ "$PRIV_PEM" != "-----BEGIN PRIVATE KEY-----"* ]]; then
+        parcel_error "Failed to generate passkey"
+        return 0
+    fi
+    local PUB_HEX
+    PUB_HEX="$(printf '%s\n' "$PRIV_PEM" | openssl ec -pubout -outform DER 2>/dev/null | tail -c 64 | od -An -tx1 | tr -d ' \n')"
+    local SPKI_B64
+    SPKI_B64="$(printf '%s\n' "$PRIV_PEM" | openssl ec -pubout -outform DER 2>/dev/null | openssl base64 | tr -d '\n')"
+    if [ ${#PUB_HEX} -ne 128 ] || [ -z "$SPKI_B64" ]; then
+        parcel_error "Failed to generate passkey public key"
+        return 0
+    fi
+    local CRED_ID
+    CRED_ID="$(head -c 32 /dev/urandom | openssl base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')"
+
+    # normalize the store root so a trailing slash cannot break containment checks
+    local STORE_ROOT="$PASSWORD_STORE_DIR"
+    while [ "$STORE_ROOT" != "/" ] && [ "$STORE_ROOT" != "${STORE_ROOT%/}" ]; do
+        STORE_ROOT="${STORE_ROOT%/}"
+    done
+
+    # locate the applicable .gpg-id by walking up from the suggested directory (mimics pass);
+    # the walk is textual (dirname chops the path string - symlinks resolve only in the -f
+    # test), so every chain from "$STORE_ROOT/<anything>" passes through exactly $STORE_ROOT
+    # before terminating and the root .gpg-id is always consulted as the final fallback
+    local SUGGESTED_FULL="$STORE_ROOT/$SUGGESTED"
+    local DIR="$(dirname "$SUGGESTED_FULL")"
+    local GPG_ID=""
+    while true; do
+        if [ -f "$DIR/.gpg-id" ]; then
+            GPG_ID="$DIR/.gpg-id"
+            break
+        fi
+        if [ "$DIR" == "$STORE_ROOT" ] || [ "$DIR" == "/" ]; then
+            break
+        fi
+        DIR="$(dirname "$DIR")"
+    done
+    if [[ "$GPG_ID" != "$STORE_ROOT"/* ]]; then
+        # refuse to encrypt for recipient files outside the password store
+        GPG_ID=""
+    fi
+    if [ -z "$GPG_ID" ]; then
+        audit_passkey "Denied (no .gpg-id found)" "$ORIGIN" "$SUGGESTED_FULL"
+        parcel_error "No .gpg-id found for $SUGGESTED"
+        return 0
+    fi
+    local RECIP_ARGS=()
+    local RECIPIENT
+    while IFS= read -r RECIPIENT; do
+        RECIPIENT="${RECIPIENT%%#*}"
+        # trim leading/trailing whitespace; interior whitespace is significant
+        # for recipient forms such as "Name <user@example.com>"
+        RECIPIENT="${RECIPIENT#"${RECIPIENT%%[![:space:]]*}"}"
+        RECIPIENT="${RECIPIENT%"${RECIPIENT##*[![:space:]]}"}"
+        if [ -n "$RECIPIENT" ]; then
+            RECIP_ARGS+=("-r" "$RECIPIENT")
+        fi
+    done < "$GPG_ID"
+    if [ ${#RECIP_ARGS[@]} -eq 0 ]; then
+        audit_passkey "Denied (.gpg-id has no recipients)" "$ORIGIN" "$SUGGESTED_FULL"
+        parcel_error "No encryption recipients in $GPG_ID"
+        return 0
+    fi
+
+    local ENTRY="\
+#!parcel-passkey v1
+rpId: $RP_ID
+credentialId: $CRED_ID
+algorithm: ES256
+userHandle: $USER_HANDLE
+userName: $USER_NAME
+userDisplayName: $USER_DISPLAY
+publicKey: $PUB_HEX
+privateKey:
+$PRIV_PEM"
+
+    local ARMORED
+    if ! ARMORED="$(printf '%s\n' "$ENTRY" | gpg --batch --yes --quiet --no-tty --armor --trust-model always "${RECIP_ARGS[@]}" --encrypt 2>/dev/null)" || [[ "$ARMORED" != "-----BEGIN PGP MESSAGE-----"* ]]; then
+        audit_passkey "Encryption failed" "$ORIGIN" "$SUGGESTED_FULL"
+        parcel_error "Failed to encrypt passkey entry to $GPG_ID recipients"
+        return 0
+    fi
+    audit_passkey "Credential created" "$ORIGIN" "$SUGGESTED_FULL"
+    parcel_send "$(jq -n \
+        --arg credentialId "$CRED_ID" \
+        --arg publicKey "$PUB_HEX" \
+        --arg spki "$SPKI_B64" \
+        --arg path "$SUGGESTED" \
+        --arg file "$SUGGESTED_FULL" \
+        --arg armored "$ARMORED" \
+        '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, file: $file, armored: $armored}')"
 }

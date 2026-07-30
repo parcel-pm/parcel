@@ -54,6 +54,10 @@ if [ ! -e "$PARCELRC" ]; then
 # Default: jq
 #JQ="jq"
 
+# The openssl binary to use.
+# Default: openssl
+#OPENSSL="openssl"
+
 # Where to write the log file
 #LOGFILE="\$HOME/.local/log/parcel-host.log"
 

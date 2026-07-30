@@ -34,6 +34,11 @@
 * {
     box-sizing: border-box;
 }
+button:focus,
+button:focus-visible {
+    /* focus feedback is the background change; no outline */
+    outline: none;
+}
 html,
 body {
     background-color: var(--color-bg);
@@ -215,6 +220,197 @@ ul {
     margin: 0;
     padding: 1px 4px 1px 18px;
     z-index: 15;
+}
+body.passkey-popup {
+    #search,
+    #entries {
+        display: none;
+    }
+}
+#passkey {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    gap: 8px;
+    padding: 8px;
+    p {
+        margin: 0;
+    }
+    #passkey-title {
+        font-weight: bold;
+    }
+    #passkey-origin {
+        color: var(--color-text-muted);
+        font-size: 0.85em;
+        word-break: break-all;
+    }
+    #passkey-user {
+        font-size: 0.9em;
+    }
+    #passkey-hints {
+        background-color: var(--color-bg-warning);
+        color: var(--color-text-warning);
+        font-size: 0.85em;
+        margin: 0;
+        /* width:0 keeps the long text out of the popup's max-content sizing
+           (percentage min-width collapses during intrinsic sizing); min-width
+           then stretches it to the final parent width so the text wraps */
+        min-width: 100%;
+        padding: 4px 6px;
+        width: 0;
+        word-break: break-word;
+    }
+    #passkey-existing {
+        color: var(--color-text-muted);
+        font-size: 0.85em;
+        word-break: break-word;
+    }
+    #passkey-existing-list {
+        font-size: 0.85em;
+        margin: 6px 0 0 0;
+        li {
+            color: var(--color-text-muted);
+            margin-bottom: 6px;
+            overflow-wrap: break-word;
+            .tag {
+                border-radius: 0.5em;
+                color: var(--color-text);
+                display: inline-block;
+                flex-shrink: 0;
+                font-family: "Roboto", Calibri, sans-serif;
+                margin-right: 0.5em;
+                padding: 0.2em 0.5em;
+            }
+        }
+    }
+    #passkey-entries {
+        border: 1px solid var(--color-border);
+        max-height: 180px;
+        overflow-y: auto;
+        button {
+            align-items: center;
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--color-border);
+            color: var(--color-text);
+            cursor: pointer;
+            display: flex;
+            gap: 8px;
+            padding: 6px 8px;
+            text-align: left;
+            width: 100%;
+            &:focus,
+            &:hover {
+                background-color: var(--color-bg-selected);
+            }
+        }
+        li:last-child button {
+            border-bottom: none;
+        }
+        .tag {
+            align-self: center;
+            border-radius: 0.5em;
+            display: inline-block;
+            flex-shrink: 0;
+            font-family: "Roboto", Calibri, sans-serif;
+            padding: 0.2em 0.5em;
+        }
+        .name-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            min-width: 0;
+        }
+        .name {
+            margin-right: 0.35em;
+        }
+        .path {
+            color: var(--color-text-muted);
+            font-size: 0.8em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+    #passkey-save > p:first-child {
+        margin-bottom: 8px;
+    }
+    #passkey-commit-label {
+        display: block;
+        margin-bottom: 4px;
+    }
+    #passkey-blob {
+        background-color: var(--color-bg-input);
+        border: 1px solid var(--color-border);
+        color: var(--color-text);
+        font-family: "Noto Sans Mono", monospace;
+        font-size: 0.75em;
+        margin: 8px 0;
+        resize: none;
+        width: 100%;
+    }
+    .passkey-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        button {
+            background-color: var(--color-modal-item-bg);
+            border: 1px solid var(--color-border-mid);
+            border-radius: 3px;
+            color: var(--color-text);
+            cursor: pointer;
+            padding: 4px 10px;
+            &:focus,
+            &:hover {
+                background-color: var(--color-modal-item-focus);
+            }
+            &:disabled {
+                cursor: default;
+                opacity: 0.6;
+            }
+        }
+    }
+}
+#passkey-conflict {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    gap: 8px;
+    padding: 8px;
+    p {
+        margin: 0;
+    }
+    #passkey-conflict-title {
+        /* header bar: same treatment as the error banner (p.error), bleeding to the card edges */
+        background-color: var(--color-bg-error);
+        color: var(--color-text-error);
+        font-weight: bold;
+        margin: -8px -8px 0;
+        padding: 6px 8px;
+        /* origins can be unbroken text; never let one blow out the header */
+        word-break: break-all;
+    }
+    .passkey-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        button {
+            background-color: var(--color-modal-item-bg);
+            border: 1px solid var(--color-border-mid);
+            border-radius: 3px;
+            color: var(--color-text);
+            cursor: pointer;
+            padding: 4px 10px;
+            &:focus,
+            &:hover {
+                background-color: var(--color-modal-item-focus);
+            }
+            &:disabled {
+                cursor: default;
+                opacity: 0.6;
+            }
+        }
+    }
 }
 parcel-detail {
     border-left: 1px solid var(--color-border);
