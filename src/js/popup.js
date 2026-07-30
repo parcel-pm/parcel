@@ -752,6 +752,18 @@
         const elExisting = document.getElementById("passkey-existing");
         const elExistingList = document.getElementById("passkey-existing-list");
         const elEntries = document.getElementById("passkey-entries");
+
+        /**
+         * The display name for a passkey candidate, with its rule's strip pattern
+         * applied (falls back to the raw entry name when the rule sets no strip).
+         *
+         * @param {Object} candidate - candidate entry ({name, rule})
+         * @returns {string} display name
+         * @since 1.0.4
+         */
+        function stripName(candidate) {
+            return candidate.rule?.strip ? candidate.name.replace(new RegExp(candidate.rule.strip, "ui"), "") : candidate.name;
+        }
         const elSave = document.getElementById("passkey-save");
         const elActions = document.getElementById("passkey-actions");
         const elCreate = document.getElementById("passkey-create");
@@ -860,9 +872,16 @@
                     elExistingList.replaceChildren(
                         ...context.candidates.map((candidate) => {
                             const li = document.createElement("li");
-                            li.textContent = candidate.rule?.strip
-                                ? candidate.name.replace(new RegExp(candidate.rule.strip, "ui"), "")
-                                : candidate.name;
+                            if (candidate.rule?.tag) {
+                                const tag = document.createElement("span");
+                                tag.classList.add("tag");
+                                tag.textContent = candidate.rule.tag;
+                                tag.style.backgroundColor = `#${candidate.rule.color}`;
+                                const luma = Helpers.getLuma(candidate.rule.color);
+                                tag.style.color = luma < 0.35 ? "var(--color-text-tag-inverted)" : "var(--color-text-tag)";
+                                li.appendChild(tag);
+                            }
+                            li.appendChild(document.createTextNode(stripName(candidate)));
                             return li;
                         }),
                     );
@@ -895,9 +914,7 @@
                     const nameContainer = document.createElement("span");
                     nameContainer.classList.add("name-container");
 
-                    const displayName = candidate.rule?.strip
-                        ? candidate.name.replace(new RegExp(candidate.rule.strip, "ui"), "")
-                        : candidate.name;
+                    const displayName = stripName(candidate);
 
                     const name = document.createElement("span");
                     name.classList.add("name");

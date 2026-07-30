@@ -258,6 +258,15 @@ body.passkey-popup {
         li {
             color: var(--color-text-muted);
             overflow-wrap: break-word;
+            .tag {
+                border-radius: 0.5em;
+                color: var(--color-text);
+                display: inline-block;
+                flex-shrink: 0;
+                font-family: "Roboto", Calibri, sans-serif;
+                margin-right: 0.5em;
+                padding: 0.2em 0.5em;
+            }
         }
     }
     #passkey-entries {
