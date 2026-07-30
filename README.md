@@ -325,11 +325,11 @@ When a site asks to create a passkey, Parcel generates a fresh ES256 keypair on 
 Parcel **never writes to your password store** — you save the entry yourself, out-of-band. The popup shows a complete, self-contained shell command (`mkdir -p` plus a quoted heredoc) which you can review, copy and run verbatim:
 
 ```bash
-mkdir -p '/home/user/.password-store/passkeys/example.com' && cat > '/home/user/.password-store/passkeys/example.com/alice.gpg' <<'EOF'
+mkdir -p '/home/user/.password-store/passkeys/example.com' && cat > '/home/user/.password-store/passkeys/example.com/alice.gpg' <<'PARCEL_PASSKEY_EOF'
 -----BEGIN PGP MESSAGE-----
 ... armored entry content ...
 -----END PGP MESSAGE-----
-EOF
+PARCEL_PASSKEY_EOF
 ```
 
 The **Copy command** button copies the whole snippet. Alternatively, click **Download .gpg file** and move the downloaded file into place, e.g. `mv ~/Downloads/alice.gpg ~/.password-store/passkeys/example.com/alice.gpg`. Either way the entry is saved **verbatim** as the `.gpg` file (do *not* re-encrypt it with `pass insert`) — the armored content is already encrypted to your store's `.gpg-id` recipients.
