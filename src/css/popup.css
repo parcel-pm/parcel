@@ -257,6 +257,7 @@ body.passkey-popup {
         margin: -6px 0 0 0;
         li {
             color: var(--color-text-muted);
+            margin-bottom: 6px;
             overflow-wrap: break-word;
             .tag {
                 border-radius: 0.5em;
