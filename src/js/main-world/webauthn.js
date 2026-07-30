@@ -411,7 +411,7 @@
                     ? "navigator.credentials is locked by another extension"
                     : "navigator.credentials has already been wrapped by another extension") +
                 ", so passkey interception is disabled in this frame. To prefer Parcel, disable passkeys in the " +
-                "conflicting extension; to prefer the other provider, set passkeys to false or a browser-passkey " +
+                "conflicting extension; to prefer the other provider, set handlePasskeys to false or a browser-passkey " +
                 "rule in Parcel's configuration.",
         );
         try {
