@@ -252,6 +252,14 @@ body.passkey-popup {
         font-size: 0.85em;
         word-break: break-word;
     }
+    #passkey-existing-list {
+        font-size: 0.85em;
+        margin: -6px 0 0 0;
+        li {
+            color: var(--color-text-muted);
+            overflow-wrap: break-word;
+        }
+    }
     #passkey-entries {
         border: 1px solid var(--color-border);
         max-height: 180px;

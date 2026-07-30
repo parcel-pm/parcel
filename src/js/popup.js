@@ -750,6 +750,7 @@
         const elOrigin = document.getElementById("passkey-origin");
         const elUser = document.getElementById("passkey-user");
         const elExisting = document.getElementById("passkey-existing");
+        const elExistingList = document.getElementById("passkey-existing-list");
         const elEntries = document.getElementById("passkey-entries");
         const elSave = document.getElementById("passkey-save");
         const elActions = document.getElementById("passkey-actions");
@@ -855,15 +856,25 @@
                 // existing passkeys for this site are surfaced here instead - letting
                 // the user spot a duplicate registration before creating another one
                 if (context.candidates?.length) {
-                    const names = [...new Set(context.candidates.map((candidate) => candidate.name))];
-                    elExisting.textContent = `You already have ${names.length === 1 ? "a passkey" : `${names.length} passkeys`} for this site: ${names.join(", ")}`;
+                    const paths = [...new Set(context.candidates.map((candidate) => candidate.path.slice(0, -4)))];
+                    elExisting.textContent = `You already have ${paths.length === 1 ? "a passkey" : `${paths.length} passkeys`} for this site:`;
+                    elExistingList.replaceChildren(
+                        ...paths.map((path) => {
+                            const li = document.createElement("li");
+                            li.textContent = path;
+                            return li;
+                        }),
+                    );
                     elExisting.classList.remove("hidden");
+                    elExistingList.classList.remove("hidden");
                 } else {
                     elExisting.classList.add("hidden");
+                    elExistingList.classList.add("hidden");
                 }
                 elCreate.focus();
             } else {
                 elExisting.classList.add("hidden");
+                elExistingList.classList.add("hidden");
                 elTitle.textContent = `Sign in to ${context.rpId} with a passkey?`;
                 elCreate.classList.add("hidden");
                 for (const candidate of context.candidates) {
