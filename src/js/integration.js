@@ -393,6 +393,13 @@
     const PASSKEY_DISMISS_THRESHOLD = 2;
     const PASSKEY_POPUP_COOLDOWN_MS = 1000;
 
+    /**
+     * Cap on the persistent passkeyConflictDismissed map (origins where the conflict
+     * notice was permanently dismissed): bounds storage growth and the recorded trail
+     * of conflicting sites; oldest-dismissed origins are evicted first.
+     */
+    const PASSKEY_CONFLICT_DISMISSED_LIMIT = 1000;
+
     /** Popup modes rendered as a centred card over a fullscreen scrim that fades in and out. */
     const SCRIM_MODES = new Set(["passkey", "passkey-conflict"]);
 
@@ -1063,7 +1070,15 @@
                         stored?.passkeyConflictDismissed && typeof stored.passkeyConflictDismissed === "object"
                             ? stored.passkeyConflictDismissed
                             : {};
+                    // delete-before-set keeps re-dismissals most-recent; string keys iterate oldest-first
+                    delete dismissed[binding.origin];
                     dismissed[binding.origin] = true;
+                    const origins = Object.keys(dismissed);
+                    if (origins.length > PASSKEY_CONFLICT_DISMISSED_LIMIT) {
+                        for (const oldOrigin of origins.slice(0, origins.length - PASSKEY_CONFLICT_DISMISSED_LIMIT)) {
+                            delete dismissed[oldOrigin];
+                        }
+                    }
                     await chrome.storage.local.set({ passkeyConflictDismissed: dismissed });
                     close();
                 } else if (msg?.action === "close") {
