@@ -829,6 +829,48 @@
     }
 
     /**
+     * WebAuthn hint token pattern (L3 spec): lowercase ASCII, digits, and hyphens,
+     * starting with a letter. Values exceeding 32 characters are rejected to cap
+     * display cost. This guard prevents attacker-controlled hint strings (the hints
+     * originate in the MAIN world, where page script can forge them) from carrying
+     * arbitrary content into the consent popup.
+     * @since 1.0.5
+     */
+    const PASSKEY_HINT_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
+    /**
+     * Hints that Parcel's software passkeys cannot satisfy, because they request
+     * hardware or roaming authenticators. Values here are the full set of spec
+     * hint tokens that imply a non-software authenticator.
+     * @since 1.0.5
+     */
+    const PARCEL_UNSATISFIABLE_HINTS = new Set(["security-key", "hybrid"]);
+
+    /**
+     * Classify WebAuthn hints from a ceremony request into those Parcel cannot
+     * satisfy and those that fail the spec-token regex guard. Both lists contain
+     * only strings that have passed length-capping; the popup renders them via
+     * textContent, so there is no injection surface.
+     * @since 1.0.5
+     * @param {string[]|undefined} hints - The hints array from serialised ceremony options.
+     * @returns {{violated: string[], nonCompliant: string[]}} Classified hints.
+     */
+    function violatedPasskeyHints(hints) {
+        const violated = [];
+        const nonCompliant = [];
+        if (!Array.isArray(hints)) return { violated, nonCompliant };
+        for (const hint of hints) {
+            if (typeof hint !== "string") continue;
+            if (PASSKEY_HINT_PATTERN.test(hint)) {
+                if (PARCEL_UNSATISFIABLE_HINTS.has(hint)) violated.push(hint);
+            } else {
+                nonCompliant.push(hint.length > 64 ? hint.slice(0, 64) + "\u2026" : hint);
+            }
+        }
+        return { violated, nonCompliant };
+    }
+
+    /**
      * Decide whether this frame may raise a passkey ceremony. The frame must be the top
      * frame or same-origin with it (mirroring the MAIN-world interceptor), and the
      * document must hold the matching WebAuthn permissions policy. Forged
@@ -943,6 +985,7 @@
                 options: req.options,
                 candidates,
                 passkeyDir: (await config).passkeyDir,
+                hintWarning: violatedPasskeyHints(req.options.hints),
                 minted: null,
             };
             authPort.postMessage(token);
@@ -1151,6 +1194,7 @@
                             origin: binding.origin,
                             candidates: binding.candidates,
                             user: binding.op === "create" ? binding.options.user : null,
+                            hintWarning: binding.hintWarning || { violated: [], nonCompliant: [] },
                         },
                     });
                 } else if (msg?.action === "passkey-assert") {

@@ -213,4 +213,61 @@ describe("Popup script (passkey mode)", { concurrency: false }, () => {
         assert.ok(document.getElementById("passkey-existing-list").classList.contains("hidden"), "list hidden for get");
         assert.strictEqual(document.querySelectorAll("#passkey-entries button").length, 1, "assertion row rendered");
     });
+
+    test("violated hints render a warning notice", async () => {
+        tabReceiver.postMessage({
+            action: "passkey-context",
+            context: {
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                user: { name: "alice", displayName: "Alice A" },
+                candidates: [],
+                hintWarning: { violated: ["security-key", "hybrid"], nonCompliant: [] },
+            },
+        });
+        await settleAsync();
+
+        const hints = document.getElementById("passkey-hints");
+        assert.ok(!hints.classList.contains("hidden"), "hints warning is visible");
+        assert.match(hints.textContent, /security-key/);
+        assert.match(hints.textContent, /hybrid/);
+    });
+
+    test("non-compliant hints are surfaced to the user", async () => {
+        tabReceiver.postMessage({
+            action: "passkey-context",
+            context: {
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                user: { name: "alice" },
+                candidates: [],
+                hintWarning: { violated: [], nonCompliant: ["<script>alert(1)</script>"] },
+            },
+        });
+        await settleAsync();
+
+        const hints = document.getElementById("passkey-hints");
+        assert.ok(!hints.classList.contains("hidden"), "hints warning is visible for non-compliant hint");
+        assert.match(hints.textContent, /Non-compliant WebAuthn hint/);
+        assert.ok(hints.textContent.includes("<script>alert(1)</script>"), "raw hint shown as text, not executed");
+    });
+
+    test("no hints keeps the warning hidden", async () => {
+        tabReceiver.postMessage({
+            action: "passkey-context",
+            context: {
+                op: "create",
+                rpId: "example.com",
+                origin: "https://example.com",
+                user: { name: "alice" },
+                candidates: [],
+                hintWarning: { violated: [], nonCompliant: [] },
+            },
+        });
+        await settleAsync();
+
+        assert.ok(document.getElementById("passkey-hints").classList.contains("hidden"), "hints warning hidden");
+    });
 });

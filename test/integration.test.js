@@ -1823,6 +1823,62 @@ describe("Integration script", { concurrency: false }, () => {
             }
         }
 
+        test("create with unsatisfiable hints still reaches the popup and surfaces them", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+            });
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({
+                    requestId: "pw-hints",
+                    op: "create",
+                    options: CREATE_OPTIONS({ hints: ["client-device", "security-key", "hybrid"] }),
+                });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "ready" });
+                const context = await contextPromise;
+                // hints must not defer the ceremony — it reaches the popup
+                assert.strictEqual(context.context.op, "create");
+                assert.deepStrictEqual(context.context.hintWarning.violated, ["security-key", "hybrid"]);
+                popup.postMessage({ action: "passkey-cancel" });
+                const response = await replyPromise;
+                assert.strictEqual(response.name, "NotAllowedError");
+            } finally {
+                teardown();
+                await runSuccessfulAssertion("pw-hints-cleanse");
+            }
+        });
+
+        test("non-compliant hint strings are length-capped and classified", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+            });
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const longHint = "x".repeat(100);
+                dispatchPasskey({ requestId: "pw-noncomp", op: "create", options: CREATE_OPTIONS({ hints: [longHint] }) });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "ready" });
+                const context = await contextPromise;
+                assert.strictEqual(context.context.hintWarning.violated.length, 0);
+                assert.strictEqual(context.context.hintWarning.nonCompliant.length, 1);
+                assert.ok(context.context.hintWarning.nonCompliant[0].endsWith("\u2026"), "long hint truncated");
+                assert.ok(context.context.hintWarning.nonCompliant[0].length <= 65);
+                popup.postMessage({ action: "passkey-cancel" });
+            } finally {
+                teardown();
+                await runSuccessfulAssertion("pw-noncomp-cleanse");
+            }
+        });
+
         test("create honours the split publickey-credentials-create permission name", async () => {
             // current engines only know the split names; unknown names evaluate to false
             await assertCreateReachesPopup(

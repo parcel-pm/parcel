@@ -750,6 +750,7 @@
         const elTitle = document.getElementById("passkey-title");
         const elOrigin = document.getElementById("passkey-origin");
         const elUser = document.getElementById("passkey-user");
+        const elHints = document.getElementById("passkey-hints");
         const elExisting = document.getElementById("passkey-existing");
         const elExistingList = document.getElementById("passkey-existing-list");
         const elEntries = document.getElementById("passkey-entries");
@@ -858,6 +859,25 @@
         async function renderPasskeyContext(context) {
             elActions.classList.remove("hidden");
             elOrigin.textContent = `Requested by ${context.origin}`;
+            // Surface WebAuthn hints Parcel cannot satisfy (e.g. security-key, hybrid)
+            // and any non-compliant hint tokens, so the user can make an informed choice.
+            const { violated = [], nonCompliant = [] } = context.hintWarning || {};
+            if (violated.length || nonCompliant.length) {
+                const parts = [];
+                if (violated.length) {
+                    parts.push(
+                        `This site requested authenticator hints Parcel cannot satisfy (${violated.join(", ")}). ` +
+                            "Proceed only if you understand the site may reject the credential.",
+                    );
+                }
+                if (nonCompliant.length) {
+                    parts.push(`Non-compliant WebAuthn hint received: ${nonCompliant.join(", ")}.`);
+                }
+                elHints.textContent = parts.join(" ");
+                elHints.classList.remove("hidden");
+            } else {
+                elHints.classList.add("hidden");
+            }
             if (context.op === "create") {
                 elTitle.textContent = `Create a passkey for ${context.rpId}?`;
                 elUser.textContent = context.user?.displayName
