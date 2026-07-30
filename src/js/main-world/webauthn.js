@@ -195,6 +195,9 @@
                 if (data.op === "create") {
                     json.response.attestationObject = b64urlEncode(new Uint8Array(response.attestationObject));
                     json.response.transports = ["internal"];
+                    json.response.publicKey = b64urlEncode(new Uint8Array(spki));
+                    json.response.publicKeyAlgorithm = -7;
+                    json.response.authenticatorData = b64urlEncode(new Uint8Array(authData));
                 } else {
                     json.response.authenticatorData = b64urlEncode(new Uint8Array(response.authenticatorData));
                     json.response.signature = b64urlEncode(new Uint8Array(response.signature));
