@@ -824,7 +824,6 @@
             } else {
                 elTitle.textContent = `Sign in to ${context.rpId} with a passkey?`;
                 elCreate.classList.add("hidden");
-                const prefix = `${(await config).passkeyDir}/${context.rpId}/`;
                 for (const candidate of context.candidates) {
                     const button = document.createElement("button");
                     button.type = "button";
@@ -842,8 +841,9 @@
                     const nameContainer = document.createElement("span");
                     nameContainer.classList.add("name-container");
 
-                    let displayName = candidate.name.startsWith(prefix) ? candidate.name.slice(prefix.length) : candidate.name;
-                    if (candidate.rule?.strip) displayName = displayName.replace(new RegExp(candidate.rule.strip, "ui"), "");
+                    const displayName = candidate.rule?.strip
+                        ? candidate.name.replace(new RegExp(candidate.rule.strip, "ui"), "")
+                        : candidate.name;
 
                     const name = document.createElement("span");
                     name.classList.add("name");
