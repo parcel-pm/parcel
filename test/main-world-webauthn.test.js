@@ -132,7 +132,7 @@ describe("Main-world webauthn installer", () => {
         );
     });
 
-    test("backs off without touching anything when only one method is locked", () => {
+    test("backs off without install when only one method is locked", () => {
         const env = makeEnv();
         const rawCreate = env.nativeFn();
         const foreignGet = env.foreignFn();
