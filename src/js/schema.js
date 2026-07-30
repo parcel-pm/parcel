@@ -210,6 +210,7 @@ export const ConfigSchema = {
         disableContextPopup: { type: "boolean", required: true, default: false },
         fillRelated: { type: "boolean", required: true, default: true },
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },
+        gitInPasskeyCommand: { type: "boolean", required: true, default: false },
         modified: { type: "integer", required: true, minimum: 1 },
         passdir: { type: "string", required: true },
         passkeyDir: {

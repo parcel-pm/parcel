@@ -917,10 +917,9 @@
                 passkeyRpId = msg.rpId || "";
                 config.then((c) => {
                     passkeyPassdir = c.passdir;
+                    elCommitToggle.checked = !!c.gitInPasskeyCommand;
                     refreshSaveCommand();
                 });
-                elCommitToggle.checked = false;
-                refreshSaveCommand();
                 document.querySelector("#status").textContent = "Save the new passkey entry to continue";
                 elSave.classList.remove("hidden");
                 elCopy.focus();
