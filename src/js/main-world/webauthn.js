@@ -340,16 +340,16 @@
             return p.type === "public-key" && p.alg === -7;
         });
         const hints = pk.hints || [];
-        const crossPlatform =
-            (pk.authenticatorSelection && pk.authenticatorSelection.authenticatorAttachment === "cross-platform") ||
-            hints.includes("security-key") ||
-            hints.includes("hybrid");
         if (!supportsES256) {
             console.debug("Parcel passkeys: deferring create() to browser: no ES256 (-7) in pubKeyCredParams");
             return nativeCreate(options);
         }
-        if (crossPlatform) {
-            console.debug("Parcel passkeys: deferring create() to browser: cross-platform authenticator requested");
+        if (pk.authenticatorSelection && pk.authenticatorSelection.authenticatorAttachment === "cross-platform") {
+            console.debug("Parcel passkeys: deferring create() to browser: authenticatorAttachment is cross-platform");
+            return nativeCreate(options);
+        }
+        if (hints.includes("security-key") || hints.includes("hybrid")) {
+            console.debug("Parcel passkeys: deferring create() to browser: hints request " + hints.join(","));
             return nativeCreate(options);
         }
         return parcelRequest("create", serializeCreate(pk), pk.timeout, options.signal, nativeCreate, options);
