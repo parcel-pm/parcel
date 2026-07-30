@@ -674,7 +674,9 @@ VALID_SIGNERS="${env.knownSigner}"
             const msg = await read();
             assert.ok(Array.isArray(msg.data), `Expected array, got: ${JSON.stringify(msg.data)}`);
             assert.strictEqual(msg.data.length, 7);
-            const names = msg.data.map((e) => e.name).sort();
+            // Assert the order as returned — do not .sort(), or a host-side
+            // sorting regression will go undetected
+            const names = msg.data.map((e) => e.name);
             assert.deepStrictEqual(names, [
                 "another-entry",
                 "internal-link",
@@ -1279,12 +1281,24 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "configure" });
             const first = await read();
             const firstModified = first.data?.modified;
+            const parcelJson = join(env.passdir, ".parcel.json");
+
+            // Modify config content but reset mtime so a caching host won't reload.
+            // A non-caching host rebuilds CONFIG from the same mtime but new content,
+            // so its returned rules would differ.
+            writeFileSync(parcelJson, JSON.stringify({
+                rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }],
+                allowLinks: true,
+            }));
+            utimesSync(parcelJson, new Date(firstModified * 1000), new Date(firstModified * 1000));
 
             send({ action: "configure" });
             const second = await read();
             const secondModified = second.data?.modified;
 
-            assert.strictEqual(firstModified, secondModified, "Config should be cached (same mtime)");
+            assert.strictEqual(firstModified, secondModified, "modified should be stable when mtime unchanged");
+            // The cached config should still reflect the old rules (1 rule, no passkey class)
+            assert.strictEqual(second.data?.rules.length, 1, "Cached config should not reflect mid-flight config change");
         } finally {
             proc.kill();
             env.cleanup();
