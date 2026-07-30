@@ -150,8 +150,15 @@ describe("Popup script (passkey mode)", { concurrency: false }, () => {
                 origin: "https://example.com",
                 user: { name: "alice", displayName: "Alice A" },
                 candidates: [
-                    { name: "alice", path: "/home/test/.password-store/passkeys/example.com/alice.gpg" },
-                    { name: "shared", path: "/home/test/.password-store/passkeys/example.com/shared.gpg" },
+                    {
+                        name: "passkeys/example.com/alice",
+                        path: "/home/test/.password-store/passkeys/example.com/alice.gpg",
+                        rule: { strip: "^passkeys/" },
+                    },
+                    {
+                        name: "passkeys/example.com/shared",
+                        path: "/home/test/.password-store/passkeys/example.com/shared.gpg",
+                    },
                 ],
             },
         });
@@ -163,10 +170,7 @@ describe("Popup script (passkey mode)", { concurrency: false }, () => {
         assert.ok(!list.classList.contains("hidden"), "existing-passkeys list is visible");
         assert.match(note.textContent, /2 passkeys/);
         const items = [...list.querySelectorAll("li")].map((li) => li.textContent);
-        assert.deepStrictEqual(items, [
-            "/home/test/.password-store/passkeys/example.com/alice",
-            "/home/test/.password-store/passkeys/example.com/shared",
-        ]);
+        assert.deepStrictEqual(items, ["example.com/alice", "passkeys/example.com/shared"], "strip rule applied, name shown not path");
         // candidates must not render as clickable assertion rows in create mode
         assert.strictEqual(document.querySelectorAll("#passkey-entries button").length, 0);
     });

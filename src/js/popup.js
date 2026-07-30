@@ -856,12 +856,13 @@
                 // existing passkeys for this site are surfaced here instead - letting
                 // the user spot a duplicate registration before creating another one
                 if (context.candidates?.length) {
-                    const paths = [...new Set(context.candidates.map((candidate) => candidate.path.slice(0, -4)))];
-                    elExisting.textContent = `You already have ${paths.length === 1 ? "a passkey" : `${paths.length} passkeys`} for this site:`;
+                    elExisting.textContent = `You already have ${context.candidates.length === 1 ? "a passkey" : `${context.candidates.length} passkeys`} for this site:`;
                     elExistingList.replaceChildren(
-                        ...paths.map((path) => {
+                        ...context.candidates.map((candidate) => {
                             const li = document.createElement("li");
-                            li.textContent = path;
+                            li.textContent = candidate.rule?.strip
+                                ? candidate.name.replace(new RegExp(candidate.rule.strip, "ui"), "")
+                                : candidate.name;
                             return li;
                         }),
                     );
