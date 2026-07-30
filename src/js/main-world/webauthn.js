@@ -327,7 +327,12 @@
      */
     function create(options) {
         const pk = options && options.publicKey;
-        if (!pk || !mayHandleHere()) {
+        if (!pk) {
+            console.debug("Parcel passkeys: deferring create() to browser: no publicKey options");
+            return nativeCreate(options);
+        }
+        if (!mayHandleHere()) {
+            console.debug("Parcel passkeys: deferring create() to browser: not a secure same-origin top frame");
             return nativeCreate(options);
         }
         // only ES256 platform credentials can be served from the password store
@@ -339,7 +344,12 @@
             (pk.authenticatorSelection && pk.authenticatorSelection.authenticatorAttachment === "cross-platform") ||
             hints.includes("security-key") ||
             hints.includes("hybrid");
-        if (!supportsES256 || crossPlatform) {
+        if (!supportsES256) {
+            console.debug("Parcel passkeys: deferring create() to browser: no ES256 (-7) in pubKeyCredParams");
+            return nativeCreate(options);
+        }
+        if (crossPlatform) {
+            console.debug("Parcel passkeys: deferring create() to browser: cross-platform authenticator requested");
             return nativeCreate(options);
         }
         return parcelRequest("create", serializeCreate(pk), pk.timeout, options.signal, nativeCreate, options);
@@ -353,7 +363,16 @@
      */
     function get(options) {
         const pk = options && options.publicKey;
-        if (!pk || !mayHandleHere() || options.mediation === "conditional") {
+        if (!pk) {
+            console.debug("Parcel passkeys: deferring get() to browser: no publicKey options");
+            return nativeGet(options);
+        }
+        if (!mayHandleHere()) {
+            console.debug("Parcel passkeys: deferring get() to browser: not a secure same-origin top frame");
+            return nativeGet(options);
+        }
+        if (options.mediation === "conditional") {
+            console.debug("Parcel passkeys: deferring get() to browser: conditional mediation (autofill UI)");
             return nativeGet(options);
         }
         return parcelRequest("get", serializeGet(pk), pk.timeout, options.signal, nativeGet, options);

@@ -870,7 +870,13 @@
         }
         const respond = (payload) => passkeyRespond(req.requestId, payload);
         try {
-            if (!mayHandlePasskeyHere(req.op) || (await config).handlePasskeys === false) {
+            if (!mayHandlePasskeyHere(req.op)) {
+                console.debug("[integration] deferring passkey to browser: frame not permitted to handle ceremonies");
+                respond({ type: "fallback" });
+                return;
+            }
+            if ((await config).handlePasskeys === false) {
+                console.debug("[integration] deferring passkey to browser: handlePasskeys is disabled");
                 respond({ type: "fallback" });
                 return;
             }
@@ -891,6 +897,7 @@
             const reply = await passkeyRequest({ action: "passkey", phase: "candidates", origin, rpId });
             if (reply.fallback) {
                 // the site opted into browser passkeys via a browser-passkey rule
+                console.debug(`[integration] deferring passkey to browser: browser-passkey rule matched for rpId ${rpId}`);
                 respond({ type: "fallback" });
                 return;
             }
@@ -898,6 +905,7 @@
 
             if (req.op === "get" && candidates.length === 0) {
                 // nothing stored for this relying party — silently hand the call back to the browser
+                console.debug(`[integration] deferring passkey get() to browser: no stored candidates for rpId ${rpId}`);
                 respond({ type: "fallback" });
                 return;
             }
