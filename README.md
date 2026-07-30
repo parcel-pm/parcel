@@ -344,6 +344,7 @@ Only after the entry exists will the site accept assertions from that credential
 - **Attestation**: registrations use `fmt: "none"` self-attestation; Parcel cannot prove authenticator provenance to sites that require it.
 - **Counter**: the signature counter is always zero (multi-device-style credential; clone-detection is not available).
 - Sites that require hardware-bound attestation or Ed25519 will need to fall back to a platform authenticator.
+- **Duplicate registrations**: Parcel cannot honour `excludeCredentials` (credential IDs live inside the encrypted entries, so they cannot be checked without decrypting every candidate before consent). The create consent view instead lists any passkeys you already hold for the site, so you can spot a duplicate registration before creating another.
 - **Allow-list privacy**: on `get()` ceremonies where the site supplies `allowCredentials`, Parcel cannot pre-filter candidates (credential IDs are stored inside the encrypted entries, so filtering would require decrypting every candidate before obtaining consent). The consent popup is therefore shown whenever any passkey exists for the relying party — even if none match the allow-list — and the allow-list is enforced by the host at signing time. A site that supplies only foreign credential IDs can thereby observe that you hold Parcel passkeys for it (see [SECURITY.md](SECURITY.md#passkey-ceremonies)).
 
 ### Passkey conflicts with other password managers

@@ -749,6 +749,7 @@
         const elTitle = document.getElementById("passkey-title");
         const elOrigin = document.getElementById("passkey-origin");
         const elUser = document.getElementById("passkey-user");
+        const elExisting = document.getElementById("passkey-existing");
         const elEntries = document.getElementById("passkey-entries");
         const elSave = document.getElementById("passkey-save");
         const elActions = document.getElementById("passkey-actions");
@@ -849,8 +850,20 @@
                     ? `Account: ${context.user.displayName} (${context.user.name})`
                     : `Account: ${context.user?.name || "unnamed account"}`;
                 elUser.classList.remove("hidden");
+                // Parcel cannot honour excludeCredentials (credential IDs live inside
+                // encrypted entries, so they can't be checked without decryption), so
+                // existing passkeys for this site are surfaced here instead - letting
+                // the user spot a duplicate registration before creating another one
+                if (context.candidates?.length) {
+                    const names = [...new Set(context.candidates.map((candidate) => candidate.name))];
+                    elExisting.textContent = `You already have ${names.length === 1 ? "a passkey" : `${names.length} passkeys`} for this site: ${names.join(", ")}`;
+                    elExisting.classList.remove("hidden");
+                } else {
+                    elExisting.classList.add("hidden");
+                }
                 elCreate.focus();
             } else {
+                elExisting.classList.add("hidden");
                 elTitle.textContent = `Sign in to ${context.rpId} with a passkey?`;
                 elCreate.classList.add("hidden");
                 for (const candidate of context.candidates) {
