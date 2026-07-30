@@ -387,7 +387,15 @@
      * @returns {boolean} true if fn appears to be native code
      */
     function isNativeFn(fn) {
-        return typeof fn === "function" && /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(fn));
+        if (typeof fn !== "function") {
+            return false;
+        }
+        try {
+            return /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(fn));
+        } catch {
+            // Function.prototype.toString throws for a Proxy: a Proxied method is a foreign shim
+            return false;
+        }
     }
 
     /**

@@ -714,7 +714,8 @@
     /**
      * Build the self-contained shell snippet that saves an armored passkey entry to disk.
      * Paths are single-quote-escaped and the heredoc delimiter is quoted so the blob
-     * cannot be mangled by shell expansion.
+     * cannot be mangled by shell expansion. The delimiter is deliberately distinctive
+     * so the command cannot terminate early should the content ever contain the line.
      *
      * @since 1.0.4
      * @param {string} file - Absolute path of the entry file to write.
@@ -726,7 +727,7 @@
     function buildPasskeySaveCommand(file, content, rpId, passdir) {
         const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
         const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
-        let cmd = `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${content}\nEOF\n`;
+        let cmd = `mkdir -p ${q(dir)} && cat > ${q(file)} <<'PARCEL_PASSKEY_EOF'\n${content}\nPARCEL_PASSKEY_EOF\n`;
         if (rpId) {
             const gitDir = passdir && file.startsWith(passdir) ? passdir : dir;
             cmd += `git -C ${q(gitDir)} add ${q(file)} && git -C ${q(gitDir)} commit -m "Added passkey for ${rpId} to store."\n`;
