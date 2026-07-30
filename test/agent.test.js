@@ -419,8 +419,16 @@ describe("Agent", () => {
         // excluded: the unclassed in-dir entry (alice), the foreign-rpId entry (zed),
         //           Passkey entries that never name example.com, and the login entry
         assert.deepStrictEqual(msg.candidates, [
-            { name: "passkeys/example.com/carol", path: "/home/test/.password-store/passkeys/example.com/carol.gpg" },
-            { name: "misc/example.com/a", path: "/home/test/.password-store/misc/example.com/a.gpg" },
+            {
+                name: "passkeys/example.com/carol",
+                path: "/home/test/.password-store/passkeys/example.com/carol.gpg",
+                rule: { pattern: "^passkeys/example\\.com/carol$", class: "passkey", ignore: false, color: "333333" },
+            },
+            {
+                name: "misc/example.com/a",
+                path: "/home/test/.password-store/misc/example.com/a.gpg",
+                rule: { pattern: "^misc/", class: "passkey", ignore: false, color: "333333" },
+            },
         ]);
     });
 

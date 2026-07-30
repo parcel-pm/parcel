@@ -828,7 +828,43 @@
                 for (const candidate of context.candidates) {
                     const button = document.createElement("button");
                     button.type = "button";
-                    button.textContent = candidate.name.startsWith(prefix) ? candidate.name.slice(prefix.length) : candidate.name;
+
+                    if (candidate.rule?.tag) {
+                        const tag = document.createElement("span");
+                        tag.classList.add("tag");
+                        tag.textContent = candidate.rule.tag;
+                        tag.style.backgroundColor = `#${candidate.rule.color}`;
+                        const luma = Helpers.getLuma(candidate.rule.color);
+                        tag.style.color = luma < 0.35 ? "var(--color-text-tag-inverted)" : "var(--color-text-tag)";
+                        button.appendChild(tag);
+                    }
+
+                    const nameContainer = document.createElement("span");
+                    nameContainer.classList.add("name-container");
+
+                    let displayName = candidate.name.startsWith(prefix) ? candidate.name.slice(prefix.length) : candidate.name;
+                    if (candidate.rule?.strip) displayName = displayName.replace(new RegExp(candidate.rule.strip, "ui"), "");
+
+                    const name = document.createElement("span");
+                    name.classList.add("name");
+                    name.textContent = displayName;
+                    nameContainer.appendChild(name);
+
+                    // store-relative path, shown only when it differs from the name
+                    const passdir = (await config).passdir;
+                    const pathSpan = document.createElement("span");
+                    pathSpan.classList.add("path");
+                    if (passdir && candidate.path.startsWith(passdir)) {
+                        pathSpan.textContent = candidate.path.slice(
+                            passdir.length + (candidate.path.charAt(passdir.length) === "/" ? 1 : 0),
+                        );
+                    } else {
+                        pathSpan.textContent = candidate.path;
+                    }
+                    if (pathSpan.textContent.replace(/.gpg$/, "") !== name.textContent) nameContainer.appendChild(pathSpan);
+
+                    button.appendChild(nameContainer);
+
                     // candidate consent signs an assertion for this entry
                     button.addEventListener("click", () => {
                         disableActions();

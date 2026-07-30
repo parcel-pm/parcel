@@ -517,7 +517,7 @@ export class Agent extends EventTarget {
                                 const parts = entry.name.split("/");
                                 return slices.some((s) => parts.includes(s));
                             })
-                            .map((entry) => ({ name: entry.name, path: entry.path }));
+                            .map((entry) => ({ name: entry.name, path: entry.path, rule: entry.rule }));
                         clearStatus();
                         port.postMessage({ action: "passkey-candidates", rpId, candidates });
                     } else if (message.phase === "assert") {

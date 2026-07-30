@@ -252,12 +252,14 @@ body.passkey-popup {
         max-height: 180px;
         overflow-y: auto;
         button {
+            align-items: center;
             background: none;
             border: none;
             border-bottom: 1px solid var(--color-border);
             color: var(--color-text);
             cursor: pointer;
-            display: block;
+            display: flex;
+            gap: 8px;
             padding: 6px 8px;
             text-align: left;
             width: 100%;
@@ -268,6 +270,30 @@ body.passkey-popup {
         }
         li:last-child button {
             border-bottom: none;
+        }
+        .tag {
+            align-self: center;
+            border-radius: 0.5em;
+            display: inline-block;
+            flex-shrink: 0;
+            font-family: "Roboto", Calibri, sans-serif;
+            padding: 0.2em 0.5em;
+        }
+        .name-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            min-width: 0;
+        }
+        .name {
+            margin-right: 0.35em;
+        }
+        .path {
+            color: var(--color-text-muted);
+            font-size: 0.8em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
     }
     #passkey-blob {
