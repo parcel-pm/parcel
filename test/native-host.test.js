@@ -1286,10 +1286,13 @@ VALID_SIGNERS="${env.knownSigner}"
             // Modify config content but reset mtime so a caching host won't reload.
             // A non-caching host rebuilds CONFIG from the same mtime but new content,
             // so its returned rules would differ.
-            writeFileSync(parcelJson, JSON.stringify({
-                rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }],
-                allowLinks: true,
-            }));
+            writeFileSync(
+                parcelJson,
+                JSON.stringify({
+                    rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }],
+                    allowLinks: true,
+                }),
+            );
             utimesSync(parcelJson, new Date(firstModified * 1000), new Date(firstModified * 1000));
 
             send({ action: "configure" });
