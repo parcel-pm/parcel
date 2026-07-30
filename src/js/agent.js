@@ -724,7 +724,7 @@ export class Agent extends EventTarget {
         if (!this.#publicSuffixList) {
             this.#publicSuffixList = fetch(chrome.runtime.getURL("/public_suffix_list.dat"))
                 .then((response) => response.text())
-                .then((text) => text.split("\n").filter((line) => !line.startsWith("//") && line.length))
+                .then((text) => new Set(text.split("\n").filter((line) => !line.startsWith("//") && line.length)))
                 .catch((err) => {
                     this.#publicSuffixList = null;
                     throw err;
@@ -733,9 +733,9 @@ export class Agent extends EventTarget {
 
         const list = await this.#publicSuffixList;
         for (let suffix = hostname; suffix.length; suffix = suffix.slice(suffix.indexOf(".") + 1)) {
-            if (list.includes(`!${suffix}`)) continue;
-            if (list.includes(suffix)) return suffix;
-            if (list.includes(`*.${suffix.slice(suffix.indexOf(".") + 1)}`)) return suffix;
+            if (list.has(`!${suffix}`)) continue;
+            if (list.has(suffix)) return suffix;
+            if (list.has(`*.${suffix.slice(suffix.indexOf(".") + 1)}`)) return suffix;
             if (suffix.indexOf(".") === -1) break;
         }
         return hostname;
