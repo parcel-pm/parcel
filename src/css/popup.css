@@ -296,6 +296,13 @@ body.passkey-popup {
             white-space: nowrap;
         }
     }
+    #passkey-save > p:first-child {
+        margin-bottom: 8px;
+    }
+    #passkey-commit-label {
+        display: block;
+        margin-bottom: 4px;
+    }
     #passkey-blob {
         background-color: var(--color-bg-input);
         border: 1px solid var(--color-border);
