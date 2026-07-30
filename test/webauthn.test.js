@@ -19,7 +19,7 @@ function fromHex(str) {
     return new Uint8Array(str.match(/../g).map((b) => parseInt(b, 16)));
 }
 
-describe("webauthn", () => {
+describe("Webauthn", () => {
     // -----------------------------------------------------------------------
     // b64urlEncode / b64urlDecode
     describe("b64urlEncode / b64urlDecode", () => {
