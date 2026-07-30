@@ -1377,7 +1377,7 @@ describe("Integration script", { concurrency: false }, () => {
             const reply = new Promise((resolve, reject) => {
                 const timer = setTimeout(() => {
                     document.removeEventListener("parcel-webauthn-response", listener);
-                    reject(new Error("Timeout waiting for parcel-webauthn-response"));
+                    reject(new Error(`Timeout waiting for parcel-webauthn-response: ${detail.requestId}`));
                 }, 3000);
                 const listener = (ev) => {
                     const d = JSON.parse(ev.detail);
@@ -1391,6 +1391,51 @@ describe("Integration script", { concurrency: false }, () => {
             });
             document.dispatchEvent(new window.CustomEvent("parcel-webauthn-request", { detail: JSON.stringify(detail) }));
             return reply;
+        }
+
+        /**
+         * Run one complete, consented get ceremony (with its own scripted agent).
+         * Doubles as a reset for the popup-spam guard's dismissal streak between
+         * cancel-based tests, since a consented ceremony clears it. Registers its own
+         * ephemeral fake agent, so callers must have torn theirs down first.
+         * @param {string} requestId - Unique request identifier for this ceremony.
+         * @returns {Promise<object>} The parcel-webauthn-response detail.
+         */
+        async function runSuccessfulAssertion(requestId) {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") {
+                    port.postMessage({
+                        action: "passkey-candidates",
+                        rpId: "example.com",
+                        candidates: [{ name: "passkeys/example.com/alice", path: "/abs/passkeys/example.com/alice.gpg" }],
+                    });
+                } else if (msg.phase === "assert") {
+                    port.postMessage({
+                        action: "passkey-result",
+                        result: {
+                            op: "get",
+                            credentialId: "Y3JlZA",
+                            authenticatorData: Buffer.from([1, 2, 3]).toString("base64"),
+                            signature: Buffer.from([4, 5, 6]).toString("base64"),
+                            userHandle: "dXNlcg",
+                        },
+                    });
+                }
+            });
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({ requestId, op: "get", options: GET_OPTIONS() });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                popup.postMessage({ action: "passkey-assert", path: "/abs/passkeys/example.com/alice.gpg" });
+                const response = await replyPromise;
+                assert.strictEqual(response.type, "response");
+                return response;
+            } finally {
+                teardown();
+            }
         }
 
         test("get with no stored candidates falls back to the browser silently", async () => {
@@ -1678,6 +1723,8 @@ describe("Integration script", { concurrency: false }, () => {
                 assert.ok(first.message.includes("not completed"), `Expected minted-cancel message, got: ${first.message}`);
             } finally {
                 teardown();
+                // consented ceremony resets the dismissal streak the cancel grew
+                await runSuccessfulAssertion("pw-second-created-cleanse");
             }
         });
 
@@ -1771,6 +1818,8 @@ describe("Integration script", { concurrency: false }, () => {
             } finally {
                 delete document.permissionsPolicy;
                 teardown();
+                // consented ceremony resets the dismissal streak the cancel grew
+                await runSuccessfulAssertion(`${requestId}-cleanse`);
             }
         }
 

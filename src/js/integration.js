@@ -9,6 +9,9 @@
     const targetSelectors = import(chrome.runtime.getURL("/js/selectors.js"));
     const targetBindings = {};
     const passkeyBindings = {};
+    // state for the popup-spam guard (see PASSKEY_DISMISS_THRESHOLD)
+    let passkeyDismissStreak = 0;
+    let passkeyLastDismissAt = 0;
 
     /**
      * Post a message, reconnecting once if the post throws. The `post` and
@@ -380,6 +383,15 @@
 
     /** Duration of the passkey ceremony scrim fade, in milliseconds. */
     const CEREMONY_FADE_MS = 350;
+
+    /**
+     * Popup-spam guard: a page can re-raise the consent modal in a tight loop by
+     * calling navigator.credentials again after each dismissal. After this many
+     * consecutive dismissed ceremonies, further requests are refused (popup-free) for
+     * PASSKEY_POPUP_COOLDOWN_MS; a ceremony the user actually completes resets it.
+     */
+    const PASSKEY_DISMISS_THRESHOLD = 2;
+    const PASSKEY_POPUP_COOLDOWN_MS = 1000;
 
     /** Popup modes rendered as a centred card over a fullscreen scrim that fades in and out. */
     const SCRIM_MODES = new Set(["passkey", "passkey-conflict"]);
@@ -857,6 +869,18 @@
             }
             const origin = window.location.origin;
             const rpId = req.op === "get" ? req.options.rpId : req.options.rp?.id;
+            if (passkeyDismissStreak >= PASSKEY_DISMISS_THRESHOLD && Date.now() - passkeyLastDismissAt < PASSKEY_POPUP_COOLDOWN_MS) {
+                // refuse popup-free rather than falling back: handing a spam loop to the
+                // browser's native UI would still interrupt the user, so mirror what
+                // native implementations do for rapid repeats of a dismissed ceremony
+                console.warn("[integration] passkey request refused: ceremony was dismissed too recently");
+                respond({
+                    type: "error",
+                    name: "NotAllowedError",
+                    message: "The operation is not allowed at this time.",
+                });
+                return;
+            }
             const reply = await passkeyRequest({ action: "passkey", phase: "candidates", origin, rpId });
             if (reply.fallback) {
                 // the site opted into browser passkeys via a browser-passkey rule
@@ -1070,6 +1094,13 @@
         const finish = (payload = null) => {
             if (settled) return;
             settled = true;
+            // track dismissals for the popup-spam guard; consented ceremonies clear it
+            if (payload?.type === "response") {
+                passkeyDismissStreak = 0;
+            } else {
+                passkeyDismissStreak += 1;
+                passkeyLastDismissAt = Date.now();
+            }
             if (payload) respond(payload);
             delete passkeyBindings[token];
             try {
