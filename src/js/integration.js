@@ -962,11 +962,6 @@
         if (passkeyConflictShown) return;
         // only the top frame may raise UI
         if (window !== window.top) return;
-        try {
-            if (window.top.location.origin !== window.location.origin) return;
-        } catch (_err) {
-            return;
-        }
         const cfg = await config;
         if (cfg.handlePasskeys === false) return;
         const hostname = window.location.hostname;
