@@ -1373,60 +1373,59 @@ VALID_SIGNERS="${env.knownSigner}"
             env.cleanup();
         }
     });
-});
 
-// ---------------------------------------------------------------------------
-// Passkey (WebAuthn) tests
-// ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
+    // Passkey (WebAuthn) tests
+    // ---------------------------------------------------------------------------
 
-// Static ES256 (P-256) keypair used by the passkey tests.
-const PASSKEY_TEST_PRIV_PEM = `-----BEGIN PRIVATE KEY-----
+    // Static ES256 (P-256) keypair used by the passkey tests.
+    const PASSKEY_TEST_PRIV_PEM = `-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgZqcvRnRuFDLXT64p
 ZfKMZ5IhTbfvj8+n6Pq/5OxeYpGhRANCAAS2xCECWKSyk7itRbPjsrBfLfN6Ix/C
 RTzcu1m2d79bMkdqYyp2NBirQsMFJGrC4Xq3UGxR2Pn6cn+rNWYRjdQ1
 -----END PRIVATE KEY-----`;
-const PASSKEY_TEST_PUB_PEM = `-----BEGIN PUBLIC KEY-----
+    const PASSKEY_TEST_PUB_PEM = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtsQhAlikspO4rUWz47KwXy3zeiMf
 wkU83LtZtne/WzJHamMqdjQYq0LDBSRqwuF6t1BsUdj5+nJ/qzVmEY3UNQ==
 -----END PUBLIC KEY-----`;
 
-/**
- * Build a passkey entry in the `#!parcel-passkey v1` host format.
- */
-function makePasskeyEntry(overrides = {}) {
-    const fields = {
-        rpId: "example.com",
-        credentialId: "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM",
-        algorithm: "ES256",
-        userHandle: "dXNlci1oYW5kbGUtMQ",
-        userName: "alice@example.com",
-        userDisplayName: "Alice",
-        ...overrides,
-    };
-    return [
-        "#!parcel-passkey v1",
-        `rpId: ${fields.rpId}`,
-        `credentialId: ${fields.credentialId}`,
-        `algorithm: ${fields.algorithm}`,
-        `userHandle: ${fields.userHandle}`,
-        `userName: ${fields.userName}`,
-        `userDisplayName: ${fields.userDisplayName}`,
-        "privateKey:",
-        PASSKEY_TEST_PRIV_PEM,
-        "",
-    ].join("\n");
-}
+    /**
+     * Build a passkey entry in the `#!parcel-passkey v1` host format.
+     */
+    function makePasskeyEntry(overrides = {}) {
+        const fields = {
+            rpId: "example.com",
+            credentialId: "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM",
+            algorithm: "ES256",
+            userHandle: "dXNlci1oYW5kbGUtMQ",
+            userName: "alice@example.com",
+            userDisplayName: "Alice",
+            ...overrides,
+        };
+        return [
+            "#!parcel-passkey v1",
+            `rpId: ${fields.rpId}`,
+            `credentialId: ${fields.credentialId}`,
+            `algorithm: ${fields.algorithm}`,
+            `userHandle: ${fields.userHandle}`,
+            `userName: ${fields.userName}`,
+            `userDisplayName: ${fields.userDisplayName}`,
+            "privateKey:",
+            PASSKEY_TEST_PRIV_PEM,
+            "",
+        ].join("\n");
+    }
 
-/**
- * Create a test environment whose mock gpg passes content through
- * (decrypt cats stdin; encrypt wraps stdin in fake armor and records its args).
- */
-function createPasskeyEnv(opts = {}) {
-    const env = createTestEnv(opts);
-    const gpgId = opts.gpgId === undefined ? "TESTKEY-ROOT" : opts.gpgId;
-    writeFileSync(
-        env.mockGpgPath,
-        `#!/bin/bash
+    /**
+     * Create a test environment whose mock gpg passes content through
+     * (decrypt cats stdin; encrypt wraps stdin in fake armor and records its args).
+     */
+    function createPasskeyEnv(opts = {}) {
+        const env = createTestEnv(opts);
+        const gpgId = opts.gpgId === undefined ? "TESTKEY-ROOT" : opts.gpgId;
+        writeFileSync(
+            env.mockGpgPath,
+            `#!/bin/bash
 set -e
 if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
     echo "[GNUPG:] VALIDSIG ${env.knownSigner} 2026-05-01 0 0 4 0 1 8 00 ${env.knownSigner}"
@@ -1449,505 +1448,481 @@ if [[ "$*" == *"--encrypt"* ]]; then
 fi
 exit 1
 `,
-    );
-    chmodSync(env.mockGpgPath, 0o755);
-    if (gpgId !== null) {
-        writeFileSync(join(env.passdir, ".gpg-id"), `# comment line\n${gpgId}\n\n`);
+        );
+        chmodSync(env.mockGpgPath, 0o755);
+        if (gpgId !== null) {
+            writeFileSync(join(env.passdir, ".gpg-id"), `# comment line\n${gpgId}\n\n`);
+        }
+        mkdirSync(join(env.passdir, "passkeys", "example.com"), { recursive: true });
+        writeFileSync(join(env.passdir, "passkeys", "example.com", "alice.gpg"), makePasskeyEntry());
+        if (opts.rules === undefined) {
+            writeFileSync(
+                join(env.passdir, ".parcel.json"),
+                JSON.stringify({ rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }] }),
+            );
+        }
+        return env;
     }
-    mkdirSync(join(env.passdir, "passkeys", "example.com"), { recursive: true });
-    writeFileSync(join(env.passdir, "passkeys", "example.com", "alice.gpg"), makePasskeyEntry());
-    if (opts.rules === undefined) {
-        writeFileSync(
-            join(env.passdir, ".parcel.json"),
-            JSON.stringify({ rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }] }),
-        );
+
+    /**
+     * Send an action_passkey get request for the alice fixture entry.
+     */
+    function passkeyGetRequest(env, overrides = {}) {
+        return {
+            action: "passkey",
+            op: "get",
+            path: join(env.passdir, "passkeys", "example.com", "alice.gpg"),
+            rpId: "example.com",
+            origin: "https://example.com",
+            clientDataJSON: Buffer.from(
+                JSON.stringify({
+                    type: "webauthn.get",
+                    challenge: "Y2hhbGxlbmdl",
+                    origin: "https://example.com",
+                    crossOrigin: false,
+                }),
+            ).toString("base64"),
+            ...overrides,
+        };
     }
-    return env;
-}
 
-/**
- * Send an action_passkey get request for the alice fixture entry.
- */
-function passkeyGetRequest(env, overrides = {}) {
-    return {
-        action: "passkey",
-        op: "get",
-        path: join(env.passdir, "passkeys", "example.com", "alice.gpg"),
-        rpId: "example.com",
-        origin: "https://example.com",
-        clientDataJSON: Buffer.from(
-            JSON.stringify({
-                type: "webauthn.get",
-                challenge: "Y2hhbGxlbmdl",
-                origin: "https://example.com",
-                crossOrigin: false,
-            }),
-        ).toString("base64"),
-        ...overrides,
-    };
-}
+    describe("action_passkey", () => {
+        test("get produces a verifiable assertion with correct authenticatorData", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
 
-describe("action_passkey", () => {
-    test("get produces a verifiable assertion with correct authenticatorData", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
+                send(passkeyGetRequest(env));
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data.op, "get");
+                assert.strictEqual(msg.data.credentialId, "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM");
+                assert.strictEqual(msg.data.userHandle, "dXNlci1oYW5kbGUtMQ");
 
-            send(passkeyGetRequest(env));
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data.op, "get");
-            assert.strictEqual(msg.data.credentialId, "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM");
-            assert.strictEqual(msg.data.userHandle, "dXNlci1oYW5kbGUtMQ");
+                // authenticatorData must be SHA256(rpId) || flags(0x1d) || signCount(0)
+                const authData = Buffer.from(msg.data.authenticatorData, "base64");
+                const rpIdHash = createHash("sha256").update("example.com").digest();
+                const expected = Buffer.concat([rpIdHash, Buffer.from([0x1d, 0, 0, 0, 0])]);
+                assert.ok(authData.equals(expected), "authenticatorData mismatch");
 
-            // authenticatorData must be SHA256(rpId) || flags(0x1d) || signCount(0)
-            const authData = Buffer.from(msg.data.authenticatorData, "base64");
-            const rpIdHash = createHash("sha256").update("example.com").digest();
-            const expected = Buffer.concat([rpIdHash, Buffer.from([0x1d, 0, 0, 0, 0])]);
-            assert.ok(authData.equals(expected), "authenticatorData mismatch");
+                // signature must verify over authenticatorData || SHA256(clientDataJSON)
+                const sig = Buffer.from(msg.data.signature, "base64");
+                assert.strictEqual(sig[0], 0x30, "signature must be DER encoded");
+                const clientHash = createHash("sha256")
+                    .update(Buffer.from(passkeyGetRequest(env).clientDataJSON, "base64"))
+                    .digest();
+                const signed = Buffer.concat([authData, clientHash]);
+                assert.ok(
+                    verify("sha256", signed, { key: PASSKEY_TEST_PUB_PEM, dsaEncoding: "der" }, sig),
+                    "signature verification failed",
+                );
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-            // signature must verify over authenticatorData || SHA256(clientDataJSON)
-            const sig = Buffer.from(msg.data.signature, "base64");
-            assert.strictEqual(sig[0], 0x30, "signature must be DER encoded");
-            const clientHash = createHash("sha256")
-                .update(Buffer.from(passkeyGetRequest(env).clientDataJSON, "base64"))
-                .digest();
-            const signed = Buffer.concat([authData, clientHash]);
-            assert.ok(verify("sha256", signed, { key: PASSKEY_TEST_PUB_PEM, dsaEncoding: "der" }, sig), "signature verification failed");
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get honours allowCredentials when the credential matches", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(
+                    passkeyGetRequest(env, { allowCredentials: ["b3RoZXItY3JlZGVudGlhbA", "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM"] }),
+                );
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data.credentialId, "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM");
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get honours allowCredentials when the credential matches", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env, { allowCredentials: ["b3RoZXItY3JlZGVudGlhbA", "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM"] }));
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data.credentialId, "dGVzdC1jcmVkZW50aWFsLWlkLTEyMzQ1Njc4OTAxMjM");
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get rejects a credential excluded by allowCredentials", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { allowCredentials: ["b3RoZXItY3JlZGVudGlhbA"] }));
+                const msg = await read();
+                assert.ok(msg.error?.includes("Credential not allowed"), `Expected credential not allowed, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get rejects a credential excluded by allowCredentials", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env, { allowCredentials: ["b3RoZXItY3JlZGVudGlhbA"] }));
-            const msg = await read();
-            assert.ok(msg.error?.includes("Credential not allowed"), `Expected credential not allowed, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get ignores a malformed allowCredentials field", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { allowCredentials: "not-an-array" }));
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get ignores a malformed allowCredentials field", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env, { allowCredentials: "not-an-array" }));
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get rejects an rpId that does not match the entry", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { rpId: "different.com" }));
+                const msg = await read();
+                assert.ok(msg.error?.includes("rpId does not match"), `Expected rpId mismatch, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get rejects an rpId that does not match the entry", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env, { rpId: "different.com" }));
-            const msg = await read();
-            assert.ok(msg.error?.includes("rpId does not match"), `Expected rpId mismatch, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get rejects a file that is not a passkey entry", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { path: join(env.passdir, "test-entry.gpg") }));
+                const msg = await read();
+                assert.ok(msg.error?.includes("Not a passkey entry"), `Expected format error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get rejects a file that is not a passkey entry", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env, { path: join(env.passdir, "test-entry.gpg") }));
-            const msg = await read();
-            assert.ok(msg.error?.includes("Not a passkey entry"), `Expected format error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get rejects an out-of-scope path", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { path: "/etc/passwd" }));
+                const msg = await read();
+                assert.ok(msg.error?.includes("Path out of scope"), `Expected scope error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get rejects an out-of-scope path", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env, { path: "/etc/passwd" }));
-            const msg = await read();
-            assert.ok(msg.error?.includes("Path out of scope"), `Expected scope error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("get shares the decrypt rate limiter", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(
+                join(env.passdir, ".parcel.json"),
+                JSON.stringify({
+                    rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }],
+                    decryptBucket: 1,
+                    decryptRate: 0.0000001,
+                }),
+            );
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env));
+                const msg1 = await read();
+                assert.ok(msg1.data?.signature, `First get failed: ${JSON.stringify(msg1)}`);
+                send(passkeyGetRequest(env));
+                const msg2 = await read();
+                assert.ok(msg2.error?.includes("rate limit"), `Expected rate limit error, got: ${JSON.stringify(msg2)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("get shares the decrypt rate limiter", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(
-            join(env.passdir, ".parcel.json"),
-            JSON.stringify({
-                rules: [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }],
-                decryptBucket: 1,
-                decryptRate: 0.0000001,
-            }),
-        );
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send(passkeyGetRequest(env));
-            const msg1 = await read();
-            assert.ok(msg1.data?.signature, `First get failed: ${JSON.stringify(msg1)}`);
-            send(passkeyGetRequest(env));
-            const msg2 = await read();
-            assert.ok(msg2.error?.includes("rate limit"), `Expected rate limit error, got: ${JSON.stringify(msg2)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create returns a valid credential encrypted to the .gpg-id recipient", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlci1oYW5kbGUtMg",
+                    userName: "bob@example.com",
+                    userDisplayName: "Bob",
+                    path: "passkeys/example.com/bob.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data.op, "create");
+                assert.strictEqual(msg.data.path, "passkeys/example.com/bob.gpg");
+                assert.strictEqual(msg.data.file, join(env.passdir, "passkeys", "example.com", "bob.gpg"));
+                assert.match(msg.data.credentialId, /^[A-Za-z0-9_-]{43}$/);
+                assert.match(msg.data.publicKey, /^[0-9a-f]{128}$/);
 
-    test("create returns a valid credential encrypted to the .gpg-id recipient", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlci1oYW5kbGUtMg",
-                userName: "bob@example.com",
-                userDisplayName: "Bob",
-                path: "passkeys/example.com/bob.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data.op, "create");
-            assert.strictEqual(msg.data.path, "passkeys/example.com/bob.gpg");
-            assert.strictEqual(msg.data.file, join(env.passdir, "passkeys", "example.com", "bob.gpg"));
-            assert.match(msg.data.credentialId, /^[A-Za-z0-9_-]{43}$/);
-            assert.match(msg.data.publicKey, /^[0-9a-f]{128}$/);
+                // SPKI must be DER for a P-256 key ending in the x||y coordinates
+                const spki = Buffer.from(msg.data.spki, "base64");
+                assert.strictEqual(spki.length, 91, "unexpected SPKI length");
+                assert.strictEqual(spki.subarray(-64).toString("hex"), msg.data.publicKey, "publicKey does not match SPKI");
 
-            // SPKI must be DER for a P-256 key ending in the x||y coordinates
-            const spki = Buffer.from(msg.data.spki, "base64");
-            assert.strictEqual(spki.length, 91, "unexpected SPKI length");
-            assert.strictEqual(spki.subarray(-64).toString("hex"), msg.data.publicKey, "publicKey does not match SPKI");
+                // fake armor wraps the entry; the plaintext must contain the entry + coordinates + private key
+                assert.ok(msg.data.armored.startsWith("-----BEGIN PGP MESSAGE-----"), "armored output missing armor header");
+                assert.ok(msg.data.armored.includes("-----END PGP MESSAGE-----"), "armored output missing armor footer");
+                assert.ok(msg.data.armored.includes("#!parcel-passkey v1"), "armored output missing entry header");
+                assert.ok(msg.data.armored.includes(`publicKey: ${msg.data.publicKey}`), "armored output missing public key");
+                assert.ok(msg.data.armored.includes("-----BEGIN PRIVATE KEY-----"), "armored output missing private key");
 
-            // fake armor wraps the entry; the plaintext must contain the entry + coordinates + private key
-            assert.ok(msg.data.armored.startsWith("-----BEGIN PGP MESSAGE-----"), "armored output missing armor header");
-            assert.ok(msg.data.armored.includes("-----END PGP MESSAGE-----"), "armored output missing armor footer");
-            assert.ok(msg.data.armored.includes("#!parcel-passkey v1"), "armored output missing entry header");
-            assert.ok(msg.data.armored.includes(`publicKey: ${msg.data.publicKey}`), "armored output missing public key");
-            assert.ok(msg.data.armored.includes("-----BEGIN PRIVATE KEY-----"), "armored output missing private key");
+                // the encrypt call must target the root .gpg-id recipient
+                const args = readFileSync(join(env.home, "gpg-encrypt-args"), "utf8");
+                assert.ok(args.includes("-r TESTKEY-ROOT"), `missing recipient in: ${args}`);
+                assert.ok(args.includes("--armor"), `missing --armor in: ${args}`);
+                assert.ok(args.includes("--trust-model always"), `missing trust model in: ${args}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-            // the encrypt call must target the root .gpg-id recipient
-            const args = readFileSync(join(env.home, "gpg-encrypt-args"), "utf8");
-            assert.ok(args.includes("-r TESTKEY-ROOT"), `missing recipient in: ${args}`);
-            assert.ok(args.includes("--armor"), `missing --armor in: ${args}`);
-            assert.ok(args.includes("--trust-model always"), `missing trust model in: ${args}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create prefers a subdirectory .gpg-id over the store root", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(join(env.passdir, "passkeys", "example.com", ".gpg-id"), "TESTKEY-SUBDIR\n");
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlci1oYW5kbGUtMw",
+                    userName: "carol@example.com",
+                    userDisplayName: "Carol",
+                    path: "passkeys/example.com/carol.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                const args = readFileSync(join(env.home, "gpg-encrypt-args"), "utf8");
+                assert.ok(args.includes("-r TESTKEY-SUBDIR"), `missing subdir recipient in: ${args}`);
+                assert.ok(!args.includes("TESTKEY-ROOT"), `unexpected root recipient in: ${args}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create prefers a subdirectory .gpg-id over the store root", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(join(env.passdir, "passkeys", "example.com", ".gpg-id"), "TESTKEY-SUBDIR\n");
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlci1oYW5kbGUtMw",
-                userName: "carol@example.com",
-                userDisplayName: "Carol",
-                path: "passkeys/example.com/carol.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            const args = readFileSync(join(env.home, "gpg-encrypt-args"), "utf8");
-            assert.ok(args.includes("-r TESTKEY-SUBDIR"), `missing subdir recipient in: ${args}`);
-            assert.ok(!args.includes("TESTKEY-ROOT"), `unexpected root recipient in: ${args}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create preserves interior whitespace in .gpg-id recipients", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(join(env.passdir, ".gpg-id"), "  Test User <test@example.com>  \n\n");
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlci1oYW5kbGUtNA",
+                    userName: "dave@example.com",
+                    userDisplayName: "Dave",
+                    path: "passkeys/example.com/dave.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                const args = readFileSync(join(env.home, "gpg-encrypt-args"), "utf8");
+                assert.ok(args.includes("-r Test User <test@example.com>"), `recipient mangled in: ${args}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create preserves interior whitespace in .gpg-id recipients", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(join(env.passdir, ".gpg-id"), "  Test User <test@example.com>  \n\n");
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlci1oYW5kbGUtNA",
-                userName: "dave@example.com",
-                userDisplayName: "Dave",
-                path: "passkeys/example.com/dave.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            const args = readFileSync(join(env.home, "gpg-encrypt-args"), "utf8");
-            assert.ok(args.includes("-r Test User <test@example.com>"), `recipient mangled in: ${args}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create rejects a suggested path containing traversal", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlcg",
+                    userName: "mallory",
+                    userDisplayName: "Mallory",
+                    path: "passkeys/example.com/../../evil.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.error?.includes("Invalid suggested path"), `Expected path error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create rejects a suggested path containing traversal", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlcg",
-                userName: "mallory",
-                userDisplayName: "Mallory",
-                path: "passkeys/example.com/../../evil.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Invalid suggested path"), `Expected path error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create honors a custom passkeyDir from config", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(
+                join(env.passdir, ".parcel.json"),
+                JSON.stringify({ passkeyDir: "keys", rules: [{ pattern: "^keys/", class: "passkey" }, { pattern: "." }] }),
+            );
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlci1oYW5kbGUtNQ",
+                    userName: "erin@example.com",
+                    userDisplayName: "Erin",
+                    path: "keys/example.com/erin.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data.op, "create");
+                assert.strictEqual(msg.data.path, "keys/example.com/erin.gpg");
+                assert.strictEqual(msg.data.file, join(env.passdir, "keys", "example.com", "erin.gpg"));
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create honors a custom passkeyDir from config", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(
-            join(env.passdir, ".parcel.json"),
-            JSON.stringify({ passkeyDir: "keys", rules: [{ pattern: "^keys/", class: "passkey" }, { pattern: "." }] }),
-        );
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlci1oYW5kbGUtNQ",
-                userName: "erin@example.com",
-                userDisplayName: "Erin",
-                path: "keys/example.com/erin.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data.op, "create");
-            assert.strictEqual(msg.data.path, "keys/example.com/erin.gpg");
-            assert.strictEqual(msg.data.file, join(env.passdir, "keys", "example.com", "erin.gpg"));
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create with a custom passkeyDir rejects the default prefix", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(
+                join(env.passdir, ".parcel.json"),
+                JSON.stringify({ passkeyDir: "keys", rules: [{ pattern: "^keys/", class: "passkey" }, { pattern: "." }] }),
+            );
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlcg",
+                    userName: "mallory",
+                    userDisplayName: "Mallory",
+                    path: "passkeys/example.com/mallory.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.error?.includes("Invalid suggested path"), `Expected path error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create with a custom passkeyDir rejects the default prefix", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(
-            join(env.passdir, ".parcel.json"),
-            JSON.stringify({ passkeyDir: "keys", rules: [{ pattern: "^keys/", class: "passkey" }, { pattern: "." }] }),
-        );
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlcg",
-                userName: "mallory",
-                userDisplayName: "Mallory",
-                path: "passkeys/example.com/mallory.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Invalid suggested path"), `Expected path error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create honors a passkeyDir containing spaces and unicode", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(
+                join(env.passdir, ".parcel.json"),
+                JSON.stringify({ passkeyDir: "我的密钥 dir", rules: [{ pattern: "^我的密钥 dir/", class: "passkey" }, { pattern: "." }] }),
+            );
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlci1oYW5kbGUtNg",
+                    userName: "fang@example.com",
+                    userDisplayName: "Fang",
+                    path: "我的密钥 dir/example.com/fang.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data.op, "create");
+                assert.strictEqual(msg.data.path, "我的密钥 dir/example.com/fang.gpg");
+                assert.strictEqual(msg.data.file, join(env.passdir, "我的密钥 dir", "example.com", "fang.gpg"));
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create honors a passkeyDir containing spaces and unicode", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(
-            join(env.passdir, ".parcel.json"),
-            JSON.stringify({ passkeyDir: "我的密钥 dir", rules: [{ pattern: "^我的密钥 dir/", class: "passkey" }, { pattern: "." }] }),
-        );
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlci1oYW5kbGUtNg",
-                userName: "fang@example.com",
-                userDisplayName: "Fang",
-                path: "我的密钥 dir/example.com/fang.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data.op, "create");
-            assert.strictEqual(msg.data.path, "我的密钥 dir/example.com/fang.gpg");
-            assert.strictEqual(msg.data.file, join(env.passdir, "我的密钥 dir", "example.com", "fang.gpg"));
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create rejects an invalid passkeyDir in config", async () => {
+            const env = createPasskeyEnv();
+            writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ passkeyDir: "keys*", rules: [{ pattern: "." }] }));
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "dXNlcg",
+                    userName: "mallory",
+                    userDisplayName: "Mallory",
+                    path: "keys*/example.com/mallory.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.error?.includes("Invalid passkeyDir in config"), `Expected config error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create rejects an invalid passkeyDir in config", async () => {
-        const env = createPasskeyEnv();
-        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ passkeyDir: "keys*", rules: [{ pattern: "." }] }));
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlcg",
-                userName: "mallory",
-                userDisplayName: "Mallory",
-                path: "keys*/example.com/mallory.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Invalid passkeyDir in config"), `Expected config error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create rejects an invalid userHandle", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({
+                    action: "passkey",
+                    op: "create",
+                    rpId: "example.com",
+                    origin: "https://example.com",
+                    userHandle: "A".repeat(87),
+                    userName: "alice",
+                    userDisplayName: "Alice",
+                    path: "passkeys/example.com/alice2.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.error?.includes("Invalid user handle"), `Expected handle error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create rejects an invalid userHandle", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "A".repeat(87),
-                userName: "alice",
-                userDisplayName: "Alice",
-                path: "passkeys/example.com/alice2.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Invalid user handle"), `Expected handle error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create rejects a request missing an rpId", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({
+                    action: "passkey",
+                    op: "create",
+                    origin: "https://example.com",
+                    userHandle: "dXNlcg",
+                    userName: "mallory",
+                    userDisplayName: "Mallory",
+                    path: "passkeys/null/mallory.gpg",
+                });
+                const msg = await read();
+                assert.ok(msg.error?.includes("Invalid relying party id"), `Expected rpId error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("create rejects a request missing an rpId", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({
-                action: "passkey",
-                op: "create",
-                origin: "https://example.com",
-                userHandle: "dXNlcg",
-                userName: "mallory",
-                userDisplayName: "Mallory",
-                path: "passkeys/null/mallory.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Invalid relying party id"), `Expected rpId error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
-
-    test("create rejects when no .gpg-id exists", async () => {
-        const env = createPasskeyEnv({ gpgId: null });
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({
-                action: "passkey",
-                op: "create",
-                rpId: "example.com",
-                origin: "https://example.com",
-                userHandle: "dXNlcg",
-                userName: "alice",
-                userDisplayName: "Alice",
-                path: "passkeys/example.com/alice2.gpg",
-            });
-            const msg = await read();
-            assert.ok(msg.error?.includes("No .gpg-id found"), `Expected .gpg-id error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
-
-    test("create refuses .gpg-id files outside the store when the store path has a trailing slash", async () => {
-        const env = createPasskeyEnv({ gpgId: null });
-        try {
-            // plant a recipient file above the store — must never be picked up
-            writeFileSync(join(env.home, ".gpg-id"), "OUTSIDE-KEY\n");
-            // configure the store path with a trailing slash
-            const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-            const original = readFileSync(parcelrc, "utf8");
-            writeFileSync(parcelrc, original.replace(`PASSWORD_STORE_DIR="${env.passdir}"`, `PASSWORD_STORE_DIR="${env.passdir}/"`));
+        test("create rejects when no .gpg-id exists", async () => {
+            const env = createPasskeyEnv({ gpgId: null });
             const { proc, read, send } = await installMainScript(env);
             try {
                 send({
@@ -1961,118 +1936,157 @@ describe("action_passkey", () => {
                     path: "passkeys/example.com/alice2.gpg",
                 });
                 const msg = await read();
-                assert.ok(msg.error?.includes("No .gpg-id found"), `Expected .gpg-id containment error, got: ${JSON.stringify(msg)}`);
+                assert.ok(msg.error?.includes("No .gpg-id found"), `Expected .gpg-id error, got: ${JSON.stringify(msg)}`);
             } finally {
                 proc.kill();
+                env.cleanup();
             }
-        } finally {
-            env.cleanup();
-        }
-    });
+        });
 
-    test("rejects an invalid operation", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "passkey", op: "delete", rpId: "example.com", origin: "https://example.com" });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Invalid passkey operation"), `Expected op error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("create refuses .gpg-id files outside the store when the store path has a trailing slash", async () => {
+            const env = createPasskeyEnv({ gpgId: null });
+            try {
+                // plant a recipient file above the store — must never be picked up
+                writeFileSync(join(env.home, ".gpg-id"), "OUTSIDE-KEY\n");
+                // configure the store path with a trailing slash
+                const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+                const original = readFileSync(parcelrc, "utf8");
+                writeFileSync(parcelrc, original.replace(`PASSWORD_STORE_DIR="${env.passdir}"`, `PASSWORD_STORE_DIR="${env.passdir}/"`));
+                const { proc, read, send } = await installMainScript(env);
+                try {
+                    send({
+                        action: "passkey",
+                        op: "create",
+                        rpId: "example.com",
+                        origin: "https://example.com",
+                        userHandle: "dXNlcg",
+                        userName: "alice",
+                        userDisplayName: "Alice",
+                        path: "passkeys/example.com/alice2.gpg",
+                    });
+                    const msg = await read();
+                    assert.ok(msg.error?.includes("No .gpg-id found"), `Expected .gpg-id containment error, got: ${JSON.stringify(msg)}`);
+                } finally {
+                    proc.kill();
+                }
+            } finally {
+                env.cleanup();
+            }
+        });
 
-    test("action_decrypt refuses to decrypt a passkey-class entry", async () => {
-        const env = createPasskeyEnv();
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
-            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("rejects an invalid operation", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "passkey", op: "delete", rpId: "example.com", origin: "https://example.com" });
+                const msg = await read();
+                assert.ok(msg.error?.includes("Invalid passkey operation"), `Expected op error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("default rules classify entries under passkeyDir as passkeys", async () => {
-        const env = createPasskeyEnv();
-        // no "rules" key - the host must synthesize a passkey-class rule for the passkey dir
-        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ handlePasskeys: true }));
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
-            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("action_decrypt refuses to decrypt a passkey-class entry", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
+                send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+                const msg = await read();
+                assert.ok(
+                    msg.error?.includes("Passkey entries may not be decrypted"),
+                    `Expected decrypt denial, got: ${JSON.stringify(msg)}`,
+                );
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("action_decrypt refuses passkey-format plaintext even without a passkey-class rule", async () => {
-        const env = createPasskeyEnv();
-        // every entry is login-classed: neither the rule gate nor default-rule synthesis applies
-        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "." }] }));
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            // alice.gpg is login-classed here, but its decrypted content carries the
-            // parcel-passkey marker - the content check must still deny the decrypt
-            const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
-            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
-            const msg = await read();
-            assert.ok(msg.error?.includes("Passkey entries may not be decrypted"), `Expected decrypt denial, got: ${JSON.stringify(msg)}`);
-            // a hypothetical future format version must be refused by this host version too
-            writeFileSync(keyPath, "#!parcel-passkey v2\nfuture-format-content\n");
-            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
-            const future = await read();
-            assert.ok(
-                future.error?.includes("Passkey entries may not be decrypted"),
-                `Expected decrypt denial, got: ${JSON.stringify(future)}`,
-            );
-            // and removing the marker de-registers the passkey: it decrypts as plain login content
-            writeFileSync(keyPath, "alice-password");
-            send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
-            const dereg = await read();
-            assert.strictEqual(dereg.data?.plaintext, "alice-password");
-            // a regular login entry in the same store must still decrypt normally
-            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "fill", origin: "https://example.com" });
-            const ok = await read();
-            assert.strictEqual(ok.data?.plaintext, "encrypted-a");
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
+        test("default rules classify entries under passkeyDir as passkeys", async () => {
+            const env = createPasskeyEnv();
+            // no "rules" key - the host must synthesize a passkey-class rule for the passkey dir
+            writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ handlePasskeys: true }));
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
+                send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+                const msg = await read();
+                assert.ok(
+                    msg.error?.includes("Passkey entries may not be decrypted"),
+                    `Expected decrypt denial, got: ${JSON.stringify(msg)}`,
+                );
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
 
-    test("action_passkey get rejects entries not classified as passkey", async () => {
-        const env = createPasskeyEnv();
-        // regular login entry (no passkey-class rule matching)
-        writeFileSync(join(env.passdir, "test-entry.gpg"), "encrypted-a");
-        const { proc, read, send } = await installMainScript(env);
-        try {
-            send({ action: "list" });
-            await read();
-            const keyPath = join(env.passdir, "test-entry.gpg");
-            send(
-                Object.assign(passkeyGetRequest(env), {
-                    path: keyPath,
-                }),
-            );
-            const msg = await read();
-            assert.ok(msg.error?.includes("Not a passkey entry"), `Expected not-a-passkey error, got: ${JSON.stringify(msg)}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
+        test("action_decrypt refuses passkey-format plaintext even without a passkey-class rule", async () => {
+            const env = createPasskeyEnv();
+            // every entry is login-classed: neither the rule gate nor default-rule synthesis applies
+            writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "." }] }));
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                // alice.gpg is login-classed here, but its decrypted content carries the
+                // parcel-passkey marker - the content check must still deny the decrypt
+                const keyPath = join(env.passdir, "passkeys", "example.com", "alice.gpg");
+                send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+                const msg = await read();
+                assert.ok(
+                    msg.error?.includes("Passkey entries may not be decrypted"),
+                    `Expected decrypt denial, got: ${JSON.stringify(msg)}`,
+                );
+                // a hypothetical future format version must be refused by this host version too
+                writeFileSync(keyPath, "#!parcel-passkey v2\nfuture-format-content\n");
+                send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+                const future = await read();
+                assert.ok(
+                    future.error?.includes("Passkey entries may not be decrypted"),
+                    `Expected decrypt denial, got: ${JSON.stringify(future)}`,
+                );
+                // and removing the marker de-registers the passkey: it decrypts as plain login content
+                writeFileSync(keyPath, "alice-password");
+                send({ action: "decrypt", path: keyPath, intent: "fill", origin: "https://example.com" });
+                const dereg = await read();
+                assert.strictEqual(dereg.data?.plaintext, "alice-password");
+                // a regular login entry in the same store must still decrypt normally
+                send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "fill", origin: "https://example.com" });
+                const ok = await read();
+                assert.strictEqual(ok.data?.plaintext, "encrypted-a");
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
+
+        test("action_passkey get rejects entries not classified as passkey", async () => {
+            const env = createPasskeyEnv();
+            // regular login entry (no passkey-class rule matching)
+            writeFileSync(join(env.passdir, "test-entry.gpg"), "encrypted-a");
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                const keyPath = join(env.passdir, "test-entry.gpg");
+                send(
+                    Object.assign(passkeyGetRequest(env), {
+                        path: keyPath,
+                    }),
+                );
+                const msg = await read();
+                assert.ok(msg.error?.includes("Not a passkey entry"), `Expected not-a-passkey error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
     });
 });
