@@ -1138,7 +1138,13 @@
                     binding.createClientData = clientDataBytes;
                     binding.minted = result;
                     // present the encrypted entry for out-of-band saving; the ceremony completes only on ack
-                    maybePost(port, { action: "passkey-created", path: result.path, file: result.file, armored: result.armored });
+                    maybePost(port, {
+                        action: "passkey-created",
+                        path: result.path,
+                        file: result.file,
+                        armored: result.armored,
+                        rpId: binding.rpId,
+                    });
                 } else if (msg?.action === "passkey-create-ack") {
                     if (!binding.minted) throw new Error("No credential has been created.");
                     const authData = await webauthn.buildAttestationAuthData(

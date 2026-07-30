@@ -168,6 +168,10 @@
                     Parcel created a new passkey, but cannot store it for you. Run the command below in a terminal &mdash; or download the
                     file and move it to the path in the command &mdash; then confirm here.
                 </p>
+                <label id="passkey-commit-label">
+                    <input type="checkbox" id="passkey-commit" />
+                    Include git commit
+                </label>
                 <textarea id="passkey-blob" rows="12" readonly></textarea>
                 <div class="passkey-buttons">
                     <button id="passkey-copy" type="button">Copy command</button>

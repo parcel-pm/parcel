@@ -719,12 +719,19 @@
      * @since 1.0.4
      * @param {string} file - Absolute path of the entry file to write.
      * @param {string} content - Armored, already-encrypted entry content.
+     * @param {string} [rpId] - Relying party ID, used for the git commit message when included.
+     * @param {string} [passdir] - Absolute path of the password store root, used as git -C target.
      * @returns {string} The shell command.
      */
-    function buildPasskeySaveCommand(file, content) {
+    function buildPasskeySaveCommand(file, content, rpId, passdir) {
         const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
         const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : ".";
-        return `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${content}\nEOF\n`;
+        let cmd = `mkdir -p ${q(dir)} && cat > ${q(file)} <<'EOF'\n${content}\nEOF\n`;
+        if (rpId) {
+            const gitDir = passdir && file.startsWith(passdir) ? passdir : dir;
+            cmd += `git -C ${q(gitDir)} add ${q(file)} && git -C ${q(gitDir)} commit -m "Added passkey for ${rpId} to store."\n`;
+        }
+        return cmd;
     }
 
     /**
@@ -748,10 +755,32 @@
         const elCreate = document.getElementById("passkey-create");
         const elFallback = document.getElementById("passkey-fallback");
         const elCopy = document.getElementById("passkey-copy");
-        // the raw armored entry and its target path, kept separately from the textarea
-        // (which shows the full shell command) so downloads stay pristine
+        // the raw armored entry, its target path, and the ceremony rpId, kept
+        // separately from the textarea (which shows the full shell command) so
+        // downloads stay pristine
         let passkeySaveFile = "";
         let passkeySaveContent = "";
+        let passkeyRpId = "";
+        let passkeyPassdir = "";
+
+        const elCommitToggle = document.getElementById("passkey-commit");
+        const elBlob = document.getElementById("passkey-blob");
+
+        /**
+         * Rebuild the textarea command from the cached save data and checkbox state.
+         * @since 1.0.4
+         * @returns {void}
+         */
+        function refreshSaveCommand() {
+            elBlob.value = buildPasskeySaveCommand(
+                passkeySaveFile,
+                passkeySaveContent,
+                elCommitToggle.checked ? passkeyRpId : undefined,
+                passkeyPassdir,
+            );
+        }
+
+        elCommitToggle.addEventListener("change", refreshSaveCommand);
 
         document.body.classList.add("passkey-popup");
         elRoot.classList.remove("hidden");
@@ -885,7 +914,13 @@
                 elActions.classList.add("hidden");
                 passkeySaveFile = msg.file || msg.path;
                 passkeySaveContent = msg.armored || "";
-                document.getElementById("passkey-blob").value = buildPasskeySaveCommand(passkeySaveFile, passkeySaveContent);
+                passkeyRpId = msg.rpId || "";
+                config.then((c) => {
+                    passkeyPassdir = c.passdir;
+                    refreshSaveCommand();
+                });
+                elCommitToggle.checked = false;
+                refreshSaveCommand();
                 document.querySelector("#status").textContent = "Save the new passkey entry to continue";
                 elSave.classList.remove("hidden");
                 elCopy.focus();
