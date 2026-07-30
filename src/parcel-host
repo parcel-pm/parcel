@@ -445,7 +445,7 @@ function action_decrypt() {
             ;;
     esac
     audit_decrypt "$FILE_PATH" "Success" "$INTENT" "$ORIGIN"
-    parcel_send "$(jq -n --arg path "$FILE_PATH" --arg plaintext "$OUT" '{path: $path, plaintext: $plaintext}')"
+    parcel_send "$(jq -n --arg path "$FILE_PATH" --rawfile plaintext <(printf '%s' "$OUT") '{path: $path, plaintext: $plaintext}')"
 }
 
 # audit a passkey operation which does not itself decrypt an entry
