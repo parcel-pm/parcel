@@ -216,7 +216,7 @@ export const ConfigSchema = {
             type: "string",
             required: true,
             minLength: 1,
-            pattern: "^[^\\x00-\\x1f\\x7f*?[\\\\]+$",
+            pattern: "^[^\\p{Cc}*?[\\\\]+$", // Excludes control chars (\p{Cc}) and the glob metacharacters * ? [ \
             default: "passkeys",
         },
         handlePasskeys: { type: "boolean", required: true, default: true },
