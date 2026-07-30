@@ -32,6 +32,10 @@
     const nativeGet = rawGet.bind(navigator.credentials);
     const pending = new Map();
     let requestCounter = 0;
+    // hints only feed the consent-popup warning about transports Parcel cannot
+    // satisfy, so a page must not be able to push an unbounded list across the
+    // bridge; anything past this cap is dropped before serialisation
+    const MAX_PASSKEY_HINTS = 16;
 
     /**
      * Encode bytes as base64url (no padding).
@@ -91,7 +95,7 @@
             }),
             timeout: pk.timeout,
             attestation: pk.attestation || "none",
-            hints: pk.hints || [],
+            hints: serializeHints(pk.hints),
         };
         if (pk.authenticatorSelection) {
             out.authenticatorSelection = {
@@ -121,7 +125,7 @@
             rpId: pk.rpId,
             timeout: pk.timeout,
             userVerification: pk.userVerification,
-            hints: pk.hints || [],
+            hints: serializeHints(pk.hints),
         };
         if (pk.allowCredentials) {
             out.allowCredentials = pk.allowCredentials.map(function (c) {
@@ -129,6 +133,20 @@
             });
         }
         return out;
+    }
+
+    /**
+     * Serialise RP-supplied passkey hints, capping the count.
+     *
+     * Parcel installs its wrappers ahead of the browser's WebIDL coercion, so
+     * pk.hints is a raw page-controlled value and may be a string, an object,
+     * or a huge array; anything other than an array is dropped entirely.
+     *
+     * @param {*} hints - page-supplied pk.hints value
+     * @returns {Array} at most MAX_PASSKEY_HINTS entries, or an empty list
+     */
+    function serializeHints(hints) {
+        return Array.isArray(hints) ? hints.slice(0, MAX_PASSKEY_HINTS) : [];
     }
 
     /**
@@ -142,9 +160,12 @@
         const rawId = b64urlDecode(id);
         let response;
         let userHandle = null;
+        // function scope so the toJSON() closure below can serialise them
+        let authData = null;
+        let spki = null;
         if (data.op === "create") {
-            const authData = b64urlDecode(data.response.authData);
-            const spki = b64urlDecode(data.response.spki);
+            authData = b64urlDecode(data.response.authData);
+            spki = b64urlDecode(data.response.spki);
             response = {
                 clientDataJSON: b64urlDecode(data.response.clientDataJSON),
                 attestationObject: b64urlDecode(data.response.attestationObject),
