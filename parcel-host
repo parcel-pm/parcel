@@ -132,7 +132,16 @@ function action_install() {
         return 0
     fi
     local OUT
-    if ! OUT="$(gpg --status-fd=1 --quiet --verify --trust-model always --auto-key-import --no-default-keyring --keyring "$KEYRING" <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>/dev/null)"; then
+    # GNUPGHOME=/dev/null prevents keyboxd (GnuPG 2.4+) from intercepting --keyring:
+    # GPG tries to read /dev/null/common.conf, which fails (ENOTDIR), so use-keyboxd
+    # is never set and --keyring is respected. --no-autostart prevents gpg-agent
+    # from trying to create lock files in /dev/null/ (ENOTDIR), which would cause
+    # a non-zero exit despite valid verification. --no-options skips gpg.conf.
+    # See issue #107.
+    if ! OUT="$(GNUPGHOME=/dev/null gpg --no-options --no-autostart --status-fd=1 --quiet --verify --trust-model always --auto-key-import --no-default-keyring --keyring "$KEYRING" <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>&1)"; then
+        # Log the full GPG output for debugging; do not leak it to the extension.
+        printf '[%s] Signature verification failed: GPG error:\n%s\n' \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$OUT" >&5
         rm -f "$KEYRING" "$KEYRING"~
         parcel_error "Signature verification failed"
         return 0
@@ -216,7 +225,7 @@ fi
 if ! command -v gpg &> /dev/null; then
     parcel_error "Cannot find gpg (${GPG:-gpg}): Please configure the correct path for it in parcelrc" 1
 fi
-if ! gpg --version &> /dev/null; then
+if ! GNUPGHOME=/dev/null gpg --version &> /dev/null; then
     parcel_error "gpg is not executable: ${GPG:-gpg}" 1
 fi
 

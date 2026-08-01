@@ -342,6 +342,41 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
+    test("logs gpg output when signature verification fails", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            // Override mock gpg to simulate a verification failure with a diagnostic message
+            writeFileSync(
+                env.mockGpgPath,
+                `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    echo "[GNUPG:] FAILURE verify 4294967295" >&1
+    echo "gpg: verify signatures failed: Unknown system error" >&2
+    exit 1
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exit 1
+`,
+            );
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Signature verification failed"), `Expected signature error, got: ${JSON.stringify(msg)}`);
+
+            // Check that the gpg output was written to the log file
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("FAILURE verify"), `Expected GPG error in log, got: ${logContent}`);
+            assert.ok(logContent.includes("Unknown system error"), `Expected gpg diagnostic in log, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("accepts install with valid signer and no hash", async () => {
         const env = createTestEnv();
         const { proc, read, send } = spawnBootstrap(env);
