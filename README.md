@@ -120,7 +120,7 @@ Example host manifests for both browsers are provided in the `example/` director
 
 The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
 
-> **Note:** If your browser is installed via **Snap** or **Flatpak**, the standard setup above will not work because the browser runs in a sandbox. See [Using Parcel with snap & flatpak browsers](#using-parcel-with-snap--flatpak-browsers) for container-specific instructions.
+> **Note:** If you use **Chromium Snap** or a **Flatpak** browser, the standard setup above will not work because the browser runs in a sandbox. See [Using Parcel with Chromium Snap & Flatpak browsers](#using-parcel-with-chromium-snap--flatpak-browsers) for container-specific instructions. Firefox Snap works with the standard setup.
 
 ### Configure entry visibility
 
@@ -243,37 +243,11 @@ Example `.parcel.json`:
 
 ---
 
-## Using Parcel with snap & flatpak browsers
+## Using Parcel with Chromium Snap & Flatpak browsers
 
-Browsers installed via **Snap** (Ubuntu's default packaging for Firefox and Chromium) or **Flatpak** run in isolated containers. This means the browser cannot directly see or execute the native host binary, your `~/.password-store` directory, or `gpg` on the host system.
+Chromium installed via **Snap** and browsers installed via **Flatpak** run in isolated containers. This means the browser cannot directly see or execute the native host binary, your `~/.password-store` directory, or `gpg` on the host system.
 
-The solutions below use container escape mechanisms (`flatpak-spawn` for Flatpak, the xdg-desktop-portal WebExtensions portal for Firefox Snap) that cause `parcel-host` to run **on the host system** — not inside the sandbox. This means all of Parcel's existing security protections (GPG signature verification, whitelist enforcement, rate limiting, audit logging) apply unchanged.
-
-### Firefox Snap (Ubuntu 22.04+, Firefox 121+)
-
-The Firefox Snap now supports native messaging via the [xdg-desktop-portal](https://flatpak.github.io/xdg-desktop-portal/) WebExtensions portal. When the browser needs to launch a native host, the portal starts it on the host system, giving `parcel-host` full access to `gpg` and your password store.
-
-**Setup steps:**
-
-1. Install `parcel-host` on the host system as per the [standard instructions](#install-the-native-host) (e.g. copy it to `/usr/local/bin/`).
-
-2. Create the native messaging manifest in the standard Firefox location:
-
-   ```bash
-   mkdir -p ~/.mozilla/native-messaging-hosts
-   cp example/com.github.erayd.parcel.firefox.json \
-       ~/.mozilla/native-messaging-hosts/com.github.erayd.parcel.json
-   ```
-
-3. Edit the manifest and adjust the `path` field to point to your installed `parcel-host` binary (e.g. `/usr/local/bin/parcel-host`).
-
-4. Grant the Firefox Snap permission to call the native host:
-
-   ```bash
-   flatpak permission-set webextensions com.github.erayd.parcel snap.firefox yes
-   ```
-
-5. Restart Firefox and install the Parcel extension from the [Firefox Add-ons store](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/).
+The Flatpak solution below uses `flatpak-spawn` to cause `parcel-host` to run **on the host system** — not inside the sandbox. This means all of Parcel's existing security protections (GPG signature verification, whitelist enforcement, rate limiting, audit logging) apply unchanged.
 
 ### Flatpak browsers (Firefox, ungoogled-chromium, Brave, etc.)
 
