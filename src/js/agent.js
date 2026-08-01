@@ -376,10 +376,8 @@ export class Agent extends EventTarget {
         let authorised = false;
         let tabId = null;
         let token = null;
-        let portAlive = true;
 
         port.onDisconnect.addListener(() => {
-            portAlive = false;
             // ignore global disconnect errors (expected from bfcache)
             chrome.runtime.lastError;
         });
@@ -602,12 +600,21 @@ export class Agent extends EventTarget {
                     const hash = await Helpers.sha256(message.value);
                     port.postMessage({ action: "sha256-digest", value: message.value, hash });
                 }
-                if (Object.prototype.hasOwnProperty.call(message, "action") && portAlive) clearErrors(message.action);
+                if (Object.prototype.hasOwnProperty.call(message, "action")) {
+                    try {
+                        clearErrors(message.action);
+                    } catch (_err) {
+                        chrome.runtime.lastError;
+                    }
+                }
             } catch (err) {
                 if (Object.prototype.hasOwnProperty.call(err, "logAs")) console[err.logAs](err);
                 else console.error(err);
-                if (portAlive)
+                try {
                     port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
+                } catch (_err) {
+                    chrome.runtime.lastError;
+                }
             }
         });
     }
