@@ -305,7 +305,7 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
 
 ### Chromium Snap
 
-The Chromium Snap does **not** support native messaging — it does not implement the xdg-desktop-portal WebExtensions portal, and there is no mechanism for the browser to launch the host binary on the system outside the sandbox.
+The Chromium Snap does **not** support native messaging — it does not implement the xdg-desktop-portal WebExtensions portal, and there is no mechanism for the browser to launch the host binary on the system outside the sandbox ([Launchpad bug 1741074](https://bugs.launchpad.net/ubuntu/+source/chromium-browser/+bug/1741074)).
 
 Until Snap upstream adds native messaging support for Chromium, the recommended alternatives are:
 
