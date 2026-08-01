@@ -137,6 +137,8 @@ function action_install() {
     # is never set and --keyring is respected. --no-autostart prevents gpg-agent
     # from trying to create lock files in /dev/null/ (ENOTDIR), which would cause
     # a non-zero exit despite valid verification. --no-options skips gpg.conf.
+    # Note that a use-keyboxd setting in the system-wide common.conf (sysconfdir)
+    # would still apply, as it is read independently of the homedir.
     # See issue #107.
     if ! OUT="$(GNUPGHOME=/dev/null gpg --no-options --no-autostart --status-fd=1 --quiet --verify --trust-model always --auto-key-import --no-default-keyring --keyring "$KEYRING" <(echo "$SIGNATURE") <(echo "$SCRIPT") 2>&1)"; then
         # Log the full GPG output for debugging; do not leak it to the extension.
