@@ -24,6 +24,7 @@ export class Agent extends EventTarget {
     #pathHashes = new WeakMap();
     #initError;
     #currentNativeCall = null;
+    #pendingCall = null;
     #authorisedTokens = new Set();
     #publicSuffixList = null;
     #refreshingEntries = null;
@@ -155,11 +156,16 @@ export class Agent extends EventTarget {
                 reject(new Error("Not connected to native host"));
                 return true;
             }
-            const timer = setTimeout(() => reject(new Error(`Native host call timed out: ${action}`)), timeout);
+            const timer = setTimeout(() => {
+                this.#pendingCall = null;
+                reject(new Error(`Native host call timed out: ${action}`));
+            }, timeout);
+            this.#pendingCall = { reject, timer };
             this.addEventListener(
                 token,
                 (ev) => {
-                    clearTimeout(timer);
+                    clearTimeout(this.#pendingCall?.timer);
+                    this.#pendingCall = null;
                     if (ev.detail?.error) reject(new Error(ev.detail.error));
                     else resolve(ev.detail.data);
                 },
@@ -175,6 +181,23 @@ export class Agent extends EventTarget {
     }
 
     /**
+     * Reject any pending native call with the given error message.
+     *
+     * This is used when the host sends a broadcast error or disconnects
+     * unexpectedly — the pending call (if any) should receive the actual
+     * error immediately rather than waiting for the timeout to fire.
+     * @param {string} message - The error message.
+     * @since 1.0.4
+     * @returns {void}
+     */
+    #rejectPendingCall(message) {
+        if (!this.#pendingCall) return;
+        clearTimeout(this.#pendingCall.timer);
+        this.#pendingCall.reject(new Error(message));
+        this.#pendingCall = null;
+    }
+
+    /**
      * Handle messages from the native host.
      * @since 1.0.0
      * @param {object} message - The message from the native host.
@@ -186,6 +209,7 @@ export class Agent extends EventTarget {
                 this.#initError = new Error(message.error);
                 console.error(this.#initError);
                 this.dispatchEvent(new CustomEvent("initFailed", { detail: message.error }));
+                this.#rejectPendingCall(message.error);
             }
             if (message?.data?.action) {
                 this.dispatchEvent(new CustomEvent(`parcel::native::${message.data.action}`, { detail: message.data }));
@@ -208,6 +232,7 @@ export class Agent extends EventTarget {
         if (chrome.runtime.lastError) {
             console.error(new Error(chrome.runtime.lastError.message));
         }
+        this.#rejectPendingCall("Native host disconnected unexpectedly");
         if (!this.#initError) {
             console.error("Native host disconnected unexpectedly - reinitialising...");
             // Reconnect on the next tick. Under MV3 the service worker may be
