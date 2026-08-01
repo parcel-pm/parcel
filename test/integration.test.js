@@ -956,6 +956,79 @@ describe("Integration script", { concurrency: false }, () => {
         assert.strictEqual(input.value, "broadcast-user");
     });
 
+    test("broadcast fill drops the credential when the intended origin does not match", async () => {
+        // The agent's fire-and-forget fallback carries the origin the decrypt was
+        // requested for. When this page's origin differs (a mid-decrypt navigation),
+        // the credential must be dropped rather than filled into the wrong origin.
+        clearBody();
+        const input = makeInput({ type: "email", name: "user" });
+
+        const port = mock.chrome.runtime.connect({ name: "broadcast" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        const errPromise = nextMessage(port, "error", 3000);
+        port.postMessage({
+            action: "fill",
+            origin: "https://attacker.example",
+            config: makeValidConfig({
+                targets: [
+                    {
+                        name: "login",
+                        pattern: "^(user|username|login|email):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                ],
+            }),
+            plaintext: "login: broadcast-user",
+        });
+        const err = await errPromise;
+        assert.ok(err.error.includes("Origin mismatch"), "a mismatch must be rejected, not filled");
+        assert.strictEqual(input.value, "", "the credential must not be filled into a mismatched origin");
+    });
+
+    test("broadcast fill succeeds when the intended origin matches", async () => {
+        // A matching origin is a no-op for the guard: the credential must still fill.
+        clearBody();
+        const input = makeInput({ type: "email", name: "user" });
+
+        const port = mock.chrome.runtime.connect({ name: "broadcast" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        const closePromise = nextMessage(port, "close", 3000);
+        port.postMessage({
+            action: "fill",
+            origin: window.location.origin,
+            config: makeValidConfig({
+                targets: [
+                    {
+                        name: "login",
+                        pattern: "^(user|username|login|email):",
+                        related: [],
+                        onMissing: "null",
+                        strip: true,
+                        transform: [],
+                        trim: true,
+                    },
+                ],
+            }),
+            plaintext: "login: broadcast-user",
+        });
+        await closePromise;
+        assert.strictEqual(input.value, "broadcast-user");
+    });
+
     test("broadcast errors when no fillable target exists", async () => {
         clearBody();
         const port = mock.chrome.runtime.connect({ name: "broadcast" });

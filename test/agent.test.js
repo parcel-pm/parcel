@@ -197,6 +197,50 @@ describe("Agent", () => {
         assert.deepStrictEqual(pt.plaintext, { password: "hunter2" });
     });
 
+    test("broadcast fill fallback carries the intended origin", async () => {
+        // Simulate a slow decrypt (deferred native reply) with the popup port
+        // disconnecting mid-decrypt, forcing the agent's fire-and-forget fallback.
+        uninstallNativeHandler(mock, handler);
+        let resolveDecrypt;
+        let signalStarted;
+        const decryptStarted = new Promise((r) => {
+            signalStarted = r;
+        });
+        const decryptDelay = new Promise((r) => {
+            resolveDecrypt = r;
+        });
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") {
+                signalStarted();
+                return decryptDelay.then(() => ({ plaintext: { password: "hunter2" } }));
+            }
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1, url: "https://example.com" } });
+        await settleAsync();
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        // Wait until the decrypt is in-flight (native decrypt invoked, port still
+        // connected) before disconnecting the popup mid-decrypt.
+        await decryptStarted;
+        popup.disconnect();
+        resolveDecrypt();
+        // Give the agent's async handler time to run the fallback and its trailing
+        // bookkeeping, which must not error now that posting to a disconnected port is
+        // skipped.
+        await new Promise((r) => setTimeout(r, 20));
+
+        const tabPort = mock.findTabPort(1, 0);
+        assert.ok(tabPort, "agent connected a broadcast tab port for the fallback");
+        const delivered = await nextMessage(tabPort, "fill");
+        assert.strictEqual(delivered.origin, "https://example.com", "fallback carries the intended origin");
+        assert.deepStrictEqual(delivered.plaintext, { password: "hunter2" }, "plaintext delivered");
+    });
+
     test("concurrent searches debounce action_list calls", async () => {
         // Replace the default handler with one that delays the list response
         // so multiple match requests can arrive before the first returns.

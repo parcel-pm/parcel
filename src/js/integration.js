@@ -1410,6 +1410,11 @@
                     updateStatus("Filling values...");
                     if (!Object.prototype.hasOwnProperty.call(msg, "config")) throw new Error("Config is missing.");
                     if (!Object.prototype.hasOwnProperty.call(msg, "plaintext")) throw new Error("Plaintext is missing.");
+                    if (Object.prototype.hasOwnProperty.call(msg, "origin") && msg.origin !== window.location.origin) {
+                        throw new Error(
+                            `Origin mismatch: refusing to fill a credential intended for ${msg.origin} into ${window.location.origin}.`,
+                        );
+                    }
                     await fillBoundField(msg.plaintext, msg.config);
                     if (msg.config.fillRelated) {
                         for (const rel of await getRelatedFields(el)) {
