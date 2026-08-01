@@ -28,7 +28,7 @@
 # -----
 # 1. Copy this script to a location inside your browser's Flatpak-visible
 #    config directory, e.g.:
-#      ~/.var/app/org.mozilla.firefox/.config/parcel/parcel-flatpak-wrapper.sh
+#      ~/.var/app/org.mozilla.firefox/config/parcel/parcel-flatpak-wrapper.sh
 # 2. Make it executable:
 #      chmod +x <path>/parcel-flatpak-wrapper.sh
 # 3. Grant the Flatpak app permission to talk to the host via flatpak-spawn:

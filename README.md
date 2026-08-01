@@ -262,15 +262,15 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
    ```bash
    # Example for Firefox Flatpak — replace the app ID for other browsers
    APP_ID="org.mozilla.firefox"
-   mkdir -p ~/.var/app/$APP_ID/.config/parcel
+   mkdir -p ~/.var/app/$APP_ID/config/parcel
    ```
 
 3. Copy the wrapper script into this directory and make it executable:
 
    ```bash
    cp example/parcel-flatpak-wrapper.sh \
-       ~/.var/app/$APP_ID/.config/parcel/parcel-flatpak-wrapper.sh
-   chmod +x ~/.var/app/$APP_ID/.config/parcel/parcel-flatpak-wrapper.sh
+       ~/.var/app/$APP_ID/config/parcel/parcel-flatpak-wrapper.sh
+   chmod +x ~/.var/app/$APP_ID/config/parcel/parcel-flatpak-wrapper.sh
    ```
 
    If `parcel-host` is not in the default `PATH` on your host, edit the wrapper and set `PARCEL_HOST_PATH` to the full path (e.g. `/usr/local/bin/parcel-host`).
@@ -283,21 +283,23 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
 
    You can also do this graphically using [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) — add `org.freedesktop.Flatpak` to the **Session Bus Talk Names** list (there is no need to enable the D-Bus session bus socket itself).
 
-5. Create the native messaging manifest in the browser's config directory. The location depends on the browser:
+5. Create the native messaging manifest in the browser's config directory. The location and template file depend on the browser:
 
    ```bash
    # Firefox Flatpak:
    MANIFEST_DIR=~/.var/app/$APP_ID/.mozilla/native-messaging-hosts
+   MANIFEST_TEMPLATE=example/com.github.erayd.parcel.flatpak.firefox.json
 
    # Chromium-based Flatpak (ungoogled-chromium, Brave, etc.):
    # MANIFEST_DIR=~/.var/app/$APP_ID/config/chromium/NativeMessagingHosts
+   # MANIFEST_TEMPLATE=example/com.github.erayd.parcel.flatpak.chrome.json
 
    mkdir -p "$MANIFEST_DIR"
-   cp example/com.github.erayd.parcel.flatpak.json \
+   cp "$MANIFEST_TEMPLATE" \
        "$MANIFEST_DIR/com.github.erayd.parcel.json"
    ```
 
-6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. The manifest includes both `allowed_origins` (used by Chrome-based browsers) and `allowed_extensions` (used by Firefox); each browser ignores the key it does not use, so both can be left in place.
+6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. Separate manifest templates are provided for Firefox and Chrome.
 
 7. Restart the browser and install the Parcel extension.
 

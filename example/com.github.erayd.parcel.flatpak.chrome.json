@@ -1,0 +1,7 @@
+{
+    "name": "com.github.erayd.parcel",
+    "description": "Native host component for the Parcel extension (Flatpak wrapper)",
+    "path": "/home/USER/.var/app/BROWSER_APP_ID/config/parcel/parcel-flatpak-wrapper.sh",
+    "type": "stdio",
+    "allowed_origins": ["chrome-extension://ciifpadakeohfnnneflckhojbldkkllp/"]
+}
