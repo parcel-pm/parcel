@@ -2,6 +2,24 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
+## [security-review-glm_5.2-20250715-v1.0.2.md](reviews/security-review-glm_5.2-20250715-v1.0.2.md)
+
+Automated security review using GLM 5.2, conducted on July 15, 2026 against Parcel v1.0.2 (commit 4d4bbc9).
+
+No CRITICAL or HIGH vulnerabilities were identified. The review records two findings: one MEDIUM (F2) and one LOW (F1).
+
+### F1 — `config` endpoint leaks the full config (incl. password-store home path) to unauthenticated integration ports (LOW)
+
+**Description:** The agent's `config` handler returns the entire config object — including the host-injected `passdir` / `realPassdir` (revealing the OS home path / username) — to unauthenticated `integration` ports that never consume those fields. Reachable only under the compromised-extension threat model; information disclosure only, no credential exposure.
+
+**Response:** Noted, and accepted as-is. Passdir can be inferred from entry locations anyway, and stripping this isn't worth the maintenance burden.
+
+### F2 — Broadcast fill path performs no destination-origin validation; mid-decrypt navigation can exfiltrate a credential to a different origin (MEDIUM)
+
+**Description:** The broadcast fill fallback delivers a decrypted credential to whichever content script is resident in the tab's root frame, with no destination-origin validation. Mid-decrypt cross-origin navigation could route a credential intended for origin A to a different origin B; the popup path's origin check is advisory-only.
+
+**Response:** Addressed in #106 by verifying the current origin against the intended origin supplied by the popup.
+
 ## [security-review-glm_5.2-20260625-9278905.md](reviews/security-review-glm_5.2-20260625-9278905.md)
 
 Automated security review using GLM 5.2, conducted on June 25, 2026 against commit 9278905.
