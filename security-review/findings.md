@@ -2,6 +2,42 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
+## [security-review-kimi_k3-20250801-v1.0.4.md](reviews/security-review-kimi_k3-20250801-v1.0.4.md)
+
+Automated security review using Copilot / Kimi K3, conducted on August 1, 2026 against Parcel v1.0.4 (commit 9df096d).
+
+No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDIUM finding (F-1) and one LOW finding (F-2), plus informational items (F-3a, F-3b, F-4). F-1 was verified dynamically with a native-messaging harness driving the real host scripts.
+
+### F-1 — Decryption rate limiter is per-process; trivially reset by a compromised extension context (MEDIUM)
+
+**Description:** The host's decryption token bucket is per-process: repeating the `install` action on a live connection re-`eval`s the host script and resets the bucket, and fresh `connectNative()` processes each start with a full bucket. Both vectors were dynamically verified, so a compromised extension context can exfiltrate at spawn-rate × bucket-size, defeating even hardened bucket configurations. Suggested fixes: refuse re-install once installed (per-process `INSTALL_DONE` guard — trades away the tested hot-update capability) and/or persist bucket state across processes.
+
+**Response:** <pending>
+
+### F-2 — Popup-driven `fill` / `fill-value` messages omit `origin`, so the #106 destination-origin guard never applies to the primary fill path (LOW)
+
+**Description:** The #106 destination-origin check only runs when the message carries an `origin` property; only the broadcast fallback supplies it, while the primary popup path's `fill` and `fill-value` messages do not, so the guard silently never runs there. No active exfiltration path exists (popups are destroyed on navigation; bfcache preserves origin) — this is a defense-in-depth gap. Fix: add `origin` to both message types and apply the check to `fill-value` too.
+
+**Response:** <pending>
+
+### F-3a — `scripts/pre-commit-gitleaks` downloads and executes the latest unpinned gitleaks binary (INFO/LOW)
+
+**Description:** The opt-in developer pre-commit hook pipes the latest gitleaks release tarball straight into `tar -xz` with no version pin, checksum, or signature verification — on machines holding release-signing material, which is inconsistent with the project's supply-chain posture. Not part of the shipped product or CI; impact requires a compromised upstream gitleaks release. Suggested fix: pin a version and SHA-256, or document the hook as convenience-only.
+
+**Response:** <pending>
+
+### F-3b — Stale port-action comment in `agent.js` (INFO)
+
+**Description:** The comment above `PORT_ACTIONS` says integration ports may request `config`/`sha256`, but the map grants `config` only. The code is the stricter of the two; the comment should be aligned.
+
+**Response:** <pending>
+
+### F-4 — In-page popup host element is fully page-stylable/removable (INFO; inherent)
+
+**Description:** The inline popups are appended to page DOM, so a page can remove, hide, or overlay the host element with a spoofed look-alike UI, deceiving even users who verify the displayed origin. Inherent limitation of in-page credential UX rather than an implementation bug — fill and passkey signing still require clicks inside genuine Parcel UI. Suggested fix: document the residual UI-spoofing consideration in the SECURITY.md tradeoffs table.
+
+**Response:** <pending>
+
 ## [security-review-glm_5.2-20250715-v1.0.2.md](reviews/security-review-glm_5.2-20250715-v1.0.2.md)
 
 Automated security review using GLM 5.2, conducted on July 15, 2026 against Parcel v1.0.2 (commit 4d4bbc9).
