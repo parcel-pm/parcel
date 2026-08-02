@@ -91,6 +91,11 @@ The only exceptions to this rule are:
    information. This log file must never, under any circumstances, contain any
    part of the user's decrypted credential files.
 
+ - The native host may create, read, and update a single dedicated state file
+   for persisting *non-sensitive* runtime state between invocations of the host.
+   This state file must never, under any circumstances, contain any part of the
+   user's decrypted credential files.
+
  - The native host bootstrap script may create a temporary gpg keyring for the
    purpose of verifying the signature of the bundled native host, in order to
    avoid polluting the user's existing gpg keyring with the release signing keys.
@@ -100,8 +105,9 @@ configuration.
 
 #### 1.3.4 No arbitrary file access
 
-Other than its own configuration and logs, Parcel must not have access to any
-files on the user's filesystem that the user has not explicitly whitelisted.
+Other than its own configuration, logs, and dedicated state file, Parcel must
+not have access to any files on the user's filesystem that the user has not
+explicitly whitelisted.
 This restriction must be enforced by the native host script, such that the
 browser extension is *incapable* of accessing any non-whitelisted files, even
 in the event of a full compromise.
