@@ -1113,13 +1113,12 @@ describe("Integration script", { concurrency: false }, () => {
 
     test("login field inside shadow host is detected as login type", async () => {
         clearBody();
-        // The host attribute is decorative: getTargetInfo classifies the
-        // clicked element via el.matches(target.selector) only — it never
-        // consults target.shadow (which is a rootSelector for related-field
-        // and submit-button lookups, not type detection). A bare
-        // input[type=text] matches the shadow login selector whose `selector`
-        // field is "input[type=text i]".
-        const { root } = makeShadowHost();
+        // getTargetInfo validates target.shadow against the enclosing shadow
+        // host: a shadow-scoped login descriptor requires the host to match
+        // the host selector (e.g. [name*=login i]). A bare input[type=text]
+        // inside a host that doesn't satisfy target.shadow is not classified
+        // as a login field.
+        const { root } = makeShadowHost({ name: "login" });
         const input = document.createElement("input");
         input.setAttribute("type", "text");
         root.appendChild(input);
@@ -1132,10 +1131,29 @@ describe("Integration script", { concurrency: false }, () => {
         assert.strictEqual(input.getAttribute("parcel-type"), "login");
     });
 
+    test("bare text input in shadow host without matching host selector is not classified", async () => {
+        clearBody();
+        // A bare input[type=text] inside a shadow host whose attributes don't
+        // satisfy any shadow login descriptor should not be detected as a
+        // login target.
+        const { root } = makeShadowHost();
+        const input = document.createElement("input");
+        input.setAttribute("type", "text");
+        root.appendChild(input);
+
+        const triggerReceiver = portReceivers["trigger"];
+        await clickShadow(input);
+
+        // No trigger-popup should be emitted because getTargetInfo rejects
+        // the element.
+        await assert.rejects(nextMessage(triggerReceiver, "trigger-popup", 500), /timeout/i);
+    });
+
     test("shadow login target is filled via fill message", async () => {
         clearBody();
-        // As above, the host attribute is not consulted for classification.
-        const { root } = makeShadowHost();
+        // The shadow host must satisfy target.shadow for the login descriptor
+        // to apply.
+        const { root } = makeShadowHost({ name: "login" });
         const input = document.createElement("input");
         input.setAttribute("type", "text");
         root.appendChild(input);
@@ -1192,7 +1210,7 @@ describe("Integration script", { concurrency: false }, () => {
         clearBody();
         const form = document.createElement("form");
         form.setAttribute("class", "login-form");
-        const { root, host } = makeShadowHost();
+        const { root, host } = makeShadowHost({ name: "username" });
         const user = document.createElement("input");
         user.setAttribute("type", "text");
         user.setAttribute("name", "username");
@@ -1262,7 +1280,7 @@ describe("Integration script", { concurrency: false }, () => {
         // Structure:
         //   document
         //     └ outerHost (div, is-shadow) — outerShadow
-        //         └ innerHost (div, is-shadow) — innerShadow
+        //         └ innerHost (div, is-shadow, name=username) — innerShadow
         //             ├ input[type=text name=username]  (login, filled)
         //         └ input[type=password name=password]  (related secret)
         //
@@ -1278,6 +1296,7 @@ describe("Integration script", { concurrency: false }, () => {
         outerHost.setAttribute("is-shadow", "");
 
         const innerHost = document.createElement("div");
+        innerHost.setAttribute("name", "username");
         outerShadow.appendChild(innerHost);
         const innerShadow = innerHost.attachShadow({ mode: "open" });
         innerHost.setAttribute("is-shadow", "");
@@ -1349,7 +1368,7 @@ describe("Integration script", { concurrency: false }, () => {
         clearBody();
         const form = document.createElement("form");
         form.setAttribute("class", "login-form");
-        const { root, host } = makeShadowHost();
+        const { root, host } = makeShadowHost({ name: "username" });
         const user = document.createElement("input");
         user.setAttribute("type", "text");
         user.setAttribute("name", "username");
