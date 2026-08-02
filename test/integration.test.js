@@ -1210,7 +1210,7 @@ describe("Integration script", { concurrency: false }, () => {
         clearBody();
         const form = document.createElement("form");
         form.setAttribute("class", "login-form");
-        const { root, host } = makeShadowHost({ name: "username" });
+        const { root, host } = makeShadowHost();
         const user = document.createElement("input");
         user.setAttribute("type", "text");
         user.setAttribute("name", "username");
@@ -1280,7 +1280,7 @@ describe("Integration script", { concurrency: false }, () => {
         // Structure:
         //   document
         //     └ outerHost (div, is-shadow) — outerShadow
-        //         └ innerHost (div, is-shadow, name=username) — innerShadow
+        //         └ innerHost (div, is-shadow) — innerShadow
         //             ├ input[type=text name=username]  (login, filled)
         //         └ input[type=password name=password]  (related secret)
         //
@@ -1296,7 +1296,6 @@ describe("Integration script", { concurrency: false }, () => {
         outerHost.setAttribute("is-shadow", "");
 
         const innerHost = document.createElement("div");
-        innerHost.setAttribute("name", "username");
         outerShadow.appendChild(innerHost);
         const innerShadow = innerHost.attachShadow({ mode: "open" });
         innerHost.setAttribute("is-shadow", "");
@@ -1368,7 +1367,7 @@ describe("Integration script", { concurrency: false }, () => {
         clearBody();
         const form = document.createElement("form");
         form.setAttribute("class", "login-form");
-        const { root, host } = makeShadowHost({ name: "username" });
+        const { root, host } = makeShadowHost();
         const user = document.createElement("input");
         user.setAttribute("type", "text");
         user.setAttribute("name", "username");
