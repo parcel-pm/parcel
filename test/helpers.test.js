@@ -94,6 +94,22 @@ describe("Helpers", () => {
         }
     });
 
+    test("generateTOTP normalises mixed case and whitespace in the secret", async () => {
+        // Patch Date.now to a known timestamp so the token is deterministic.
+        const realNow = Date.now;
+        const fixedTs = 30_000; // exactly epoch 1 boundary
+        Date.now = () => fixedTs;
+        try {
+            const canonical = await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", 30, 6);
+            const spacedMixed = await Helpers.generateTOTP("jbsw y3dp ehpk 3pxp", 30, 6);
+            const newlineMixed = await Helpers.generateTOTP("JBSW\nY3DP\tEHPK\n3PXP", 30, 6);
+            assert.strictEqual(spacedMixed.value, canonical.value);
+            assert.strictEqual(newlineMixed.value, canonical.value);
+        } finally {
+            Date.now = realNow;
+        }
+    });
+
     // -----------------------------------------------------------------------
     // getValue
     // -----------------------------------------------------------------------

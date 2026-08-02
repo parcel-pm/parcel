@@ -41,6 +41,10 @@ export class Helpers {
      * @throws {TypeError|DOMException} If the SubtleCrypto interface is unavailable or `importKey`/`sign` rejects (propagated from the underlying WebCrypto calls).
      */
     static async generateTOTP(secret, step = 30, digits = 6) {
+        // Normalise the secret: strip whitespace and convert to uppercase so that
+        // mixed-case and space-grouped base32 keys decode correctly.
+        secret = secret.replace(/\s+/g, "").toUpperCase();
+
         const counter = new Uint8Array(8);
         const now = Date.now();
         let epoch = Math.floor(now / (step * 1000));
