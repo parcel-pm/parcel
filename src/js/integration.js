@@ -187,7 +187,7 @@
      * @param {HTMLElement} el - The element to check.
      * @param {boolean} [related=false] - Whether to include selectors flagged `relatedOnly` (and exclude those flagged `relatedNever`) in the candidate pool.
      * @returns {Promise<?object>} The matching target descriptor (`{type, selector, related, ...}`).
-     * @throws {Error} If the element is not visible, has an unsupported input type, doesn't match a selector, or matches a blacklist selector.
+     * @throws {Error} If the element is not visible, has an unsupported input type, doesn't match a selector, matches a blacklist selector, or (for shadow-scoped descriptors) is not enclosed by a shadow host that satisfies the descriptor's `shadow` field.
      */
     async function getTargetInfo(el, related = false) {
         try {
@@ -199,6 +199,10 @@
             let finalTarget = null;
             for (const target of (await validTargets).filter((t) => (related ? !t.relatedNever : !t.relatedOnly))) {
                 if (el.matches(target.selector) && !el.readOnly && !el.disabled) {
+                    if (target.shadow) {
+                        const host = el.getRootNode()?.host;
+                        if (!host || !host.matches(target.shadow)) continue;
+                    }
                     finalTarget = target;
 
                     finalTarget.related =

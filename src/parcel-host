@@ -38,6 +38,9 @@ CONFIG="{}"
 CONFIG_MODIFIED=-1
 REPORT_MODIFIED=0
 
+# dedicated state file for persisting non-sensitive runtime state between host invocations
+STATEFILE="${STATEFILE:-$HOME/.config/parcel/state}"
+
 function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1"
 }
@@ -51,6 +54,38 @@ function get_timestamp_ms() {
     else
         date +%s000
     fi
+}
+
+# load persisted state; sourced directly, so require 0600 as per parcelrc. Bad permissions or
+# corrupt values reset the bucket to defaults — a deliberate fail-open for robustness.
+function load_state() {
+    mkdir -p "$(dirname "$STATEFILE")"
+    if [ ! -f "$STATEFILE" ]; then
+        touch "$STATEFILE"
+        chmod 0600 "$STATEFILE"
+        return 0
+    fi
+    if [ "$STATEFILE" != "$(find "$STATEFILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ]; then
+        printf '[%s] state file %s must have permissions 0600; refusing to load state\n' \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+        return 0
+    fi
+    . "$STATEFILE" 2>/dev/null
+    # discard loaded values if they are non-numeric
+    if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^[0-9]+$ ]]; then
+        DECRYPT_BUCKET_TOKENS=""
+    fi
+    if [[ ! "$DECRYPT_BUCKET_LAST" =~ ^[0-9]+$ ]]; then
+        DECRYPT_BUCKET_LAST=""
+    fi
+}
+
+# save current state variables to the state file (clobbers).
+# only non-sensitive numeric values are written.
+function save_state() {
+    printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\n' \
+        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" > "$STATEFILE"
+    chmod 0600 "$STATEFILE"
 }
 
 # load the configuration
@@ -321,6 +356,9 @@ function check_decrypt_rate_limit() {
         return 0
     fi
 
+    # load persisted state before computing (best-effort only — load/compute/save is deliberately not atomic)
+    load_state
+
     local NOW
     NOW="$(get_timestamp_ms)"
 
@@ -342,10 +380,12 @@ function check_decrypt_rate_limit() {
     DECRYPT_BUCKET_LAST="$NOW"
 
     if [ "$DECRYPT_BUCKET_TOKENS" -lt 1000 ]; then
+        save_state
         return 1
     fi
 
     DECRYPT_BUCKET_TOKENS=$((DECRYPT_BUCKET_TOKENS - 1000))
+    save_state
     return 0
 }
 

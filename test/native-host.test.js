@@ -11,7 +11,19 @@ import { test, describe } from "node:test";
 import assert from "node:assert";
 import { createHash, verify } from "node:crypto";
 import { spawn, execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync, readFileSync, readdirSync, symlinkSync, utimesSync } from "node:fs";
+import {
+    mkdtempSync,
+    writeFileSync,
+    mkdirSync,
+    rmSync,
+    chmodSync,
+    readFileSync,
+    readdirSync,
+    symlinkSync,
+    utimesSync,
+    statSync,
+    existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1420,6 +1432,70 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
             const msg2 = await read();
             assert.strictEqual(msg2.data?.plaintext, "test-decrypted-content", `Second decrypt failed: ${JSON.stringify(msg2)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_decrypt rate limit persists across host restarts", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        // Use a very slow refill rate so tokens don't recover between hosts
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
+
+        const testPath = join(env.passdir, "test-entry.gpg");
+
+        // First host: exhaust the single-token bucket
+        const host1 = await installMainScript(env);
+        try {
+            host1.send({ action: "list" });
+            await host1.read();
+
+            host1.send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg1 = await host1.read();
+            assert.strictEqual(msg1.data?.plaintext, "test-decrypted-content", `First decrypt failed: ${JSON.stringify(msg1)}`);
+        } finally {
+            host1.proc.kill();
+        }
+
+        // Second host: rate limit should still be exhausted
+        const host2 = await installMainScript(env);
+        try {
+            host2.send({ action: "list" });
+            await host2.read();
+
+            host2.send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg2 = await host2.read();
+            assert.ok(
+                msg2.error?.toLowerCase().includes("rate limit"),
+                `Expected rate limit error after restart, got: ${JSON.stringify(msg2)}`,
+            );
+        } finally {
+            host2.proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rate limit state file is created with 0600 permissions", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            await read();
+
+            assert.ok(existsSync(stateFile), `State file not created at ${stateFile}`);
+            const mode = statSync(stateFile).mode & 0o777;
+            assert.strictEqual(mode, 0o600, `State file permissions should be 0600, got 0${mode.toString(8)}`);
         } finally {
             proc.kill();
             env.cleanup();
