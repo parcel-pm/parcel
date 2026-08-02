@@ -56,10 +56,8 @@ function get_timestamp_ms() {
     fi
 }
 
-# load persisted state from the dedicated state file.
-# the file is directly sourced, so verify 0600 permissions first (same as parcelrc).
-# if the file is missing it is created with 0600; if permissions are wrong, it is
-# refused and state variables stay unset.
+# load persisted state; sourced directly, so require 0600 as per parcelrc. Bad permissions or
+# corrupt values reset the bucket to defaults — a deliberate fail-open for robustness.
 function load_state() {
     mkdir -p "$(dirname "$STATEFILE")"
     if [ ! -f "$STATEFILE" ]; then
@@ -74,10 +72,10 @@ function load_state() {
     fi
     . "$STATEFILE" 2>/dev/null
     # discard loaded values if they are non-numeric
-    if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^-?[0-9]+$ ]]; then
+    if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^[0-9]+$ ]]; then
         DECRYPT_BUCKET_TOKENS=""
     fi
-    if [[ ! "$DECRYPT_BUCKET_LAST" =~ ^-?[0-9]+$ ]]; then
+    if [[ ! "$DECRYPT_BUCKET_LAST" =~ ^[0-9]+$ ]]; then
         DECRYPT_BUCKET_LAST=""
     fi
 }
@@ -358,7 +356,7 @@ function check_decrypt_rate_limit() {
         return 0
     fi
 
-    # load persisted state — another host instance may have changed it since we last read the file
+    # load persisted state before computing (best-effort only — load/compute/save is deliberately not atomic)
     load_state
 
     local NOW

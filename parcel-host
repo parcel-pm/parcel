@@ -61,6 +61,9 @@ if [ ! -e "$PARCELRC" ]; then
 # Where to write the log file
 #LOGFILE="\$HOME/.local/log/parcel-host.log"
 
+# Where to persist non-sensitive runtime state (e.g. rate-limiter bucket state)
+#STATEFILE="\$HOME/.config/parcel/state"
+
 # The password store directory
 #PASSWORD_STORE_DIR="\$HOME/.password-store"
 
