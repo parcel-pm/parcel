@@ -92,13 +92,19 @@
     // process and are not subject to service worker suspension, so this timer
     // keeps firing as long as the tab is open. Each message resets the worker's
     // inactivity timer, which in turn keeps the native host ping interval alive.
-    setInterval(() => {
-        try {
-            chrome.runtime.sendMessage({ type: "keepalive" });
-        } catch (_err) {
-            // Service worker may be temporarily unavailable; ignore.
-        }
-    }, 25_000);
+    //
+    // Only the top frame needs to send keepalives — integration.js runs with
+    // all_frames: true, but a single timer per tab is sufficient since any
+    // keepalive resets the shared service worker inactivity timer.
+    if (window === window.top) {
+        setInterval(() => {
+            try {
+                chrome.runtime.sendMessage({ type: "keepalive" });
+            } catch (_err) {
+                // Service worker may be temporarily unavailable; ignore.
+            }
+        }, 25_000);
+    }
 
     /**
      * Handle incoming "trigger" port connections (popup open/close, resize, and untargeted-click routing).
