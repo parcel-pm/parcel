@@ -29,6 +29,7 @@ export class Agent extends EventTarget {
     #publicSuffixList = null;
     #refreshingEntries = null;
     #nativePingInterval = null;
+    #nativePingFailures = 0;
 
     /**
      * Construct a new Agent instance.
@@ -143,6 +144,13 @@ export class Agent extends EventTarget {
      * (in src/parcel-host's dd() shadow) from killing the host during normal
      * idle periods. The interval is well within the host's 300s timeout.
      *
+     * A ping timeout does not necessarily mean the host is dead — the ping's
+     * 5s window can lapse while the host is legitimately busy (e.g. a long
+     * pinentry wait inside a decrypt). But if several pings fail in a row the
+     * host is assumed wedged with its pipe still open (where the watchdog
+     * cannot help), so the port is disconnected, which routes through
+     * #onNativeDisconnect and reconnects with a fresh host.
+     *
      * @since 1.0.5
      * @returns {void}
      */
@@ -150,7 +158,18 @@ export class Agent extends EventTarget {
         if (this.#nativePingInterval) this.#stopNativePing();
         this.#nativePingInterval = setInterval(() => {
             if (!this.#connectedNative) return;
-            this.#callNative("ping", {}, 5000).catch((err) => console.error(`Native host ping failed: ${err.message}`));
+            this.#callNative("ping", {}, 5000)
+                .then(() => {
+                    this.#nativePingFailures = 0;
+                })
+                .catch((err) => {
+                    console.error(`Native host ping failed: ${err.message}`);
+                    if (++this.#nativePingFailures >= 3 && this.#connectedNative) {
+                        console.error("Native host unresponsive after 3 consecutive pings - reconnecting");
+                        this.#nativePingFailures = 0;
+                        this.#host.disconnect();
+                    }
+                });
         }, 60_000);
     }
 

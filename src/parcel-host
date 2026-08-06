@@ -829,6 +829,9 @@ $PRIV_PEM"
 # @returns {void}
 function dd() {
     local TIMEOUT="${PARCEL_IDLE_TIMEOUT:-300}"
+    # Validate the timeout: a non-numeric or zero value would make sleep fail
+    # instantly, killing dd immediately and wedging main()'s read loop.
+    [[ "$TIMEOUT" =~ ^[1-9][0-9]*$ ]] || TIMEOUT=300
     # Bash redirects stdin to /dev/null for backgrounded processes when job
     # control is off (non-interactive scripts). Save fd 0 to fd 3 and redirect
     # dd's stdin from there so the backgrounded dd can still read the pipe.
@@ -836,10 +839,22 @@ function dd() {
     command dd "$@" <&3 &
     local PID=$!
     exec 3<&-
+    # The watchdog kills dd if no data arrives within TIMEOUT seconds. Its
+    # sleep runs as a captured child ($SLEEP_PID) beneath a TERM trap: when
+    # this function kills the watchdog after dd finishes normally, the trap
+    # forwards the signal so the sleep is reaped too. An untrapped subshell
+    # would leave the sleep orphaned on every message received, leaking one
+    # stray process per message for up to TIMEOUT seconds.
     # All of the watchdog's fds must be redirected so it holds neither the
     # write end of the dd | od pipe (which would delay od's EOF until the
     # sleep finishes) nor any other inherited descriptor.
-    ( sleep "$TIMEOUT"; kill "$PID" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+    (
+        trap 'kill "$SLEEP_PID" 2>/dev/null; exit' TERM
+        sleep "$TIMEOUT" &
+        SLEEP_PID=$!
+        wait "$SLEEP_PID" 2>/dev/null
+        kill "$PID" 2>/dev/null
+    ) </dev/null >/dev/null 2>&1 &
     local WATCHDOG=$!
     wait "$PID" 2>/dev/null
     local RETURN_CODE=$?
