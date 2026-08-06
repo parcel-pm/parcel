@@ -147,6 +147,7 @@ export class Agent extends EventTarget {
      * @returns {void}
      */
     #startNativePing() {
+        if (this.#nativePingInterval) this.#stopNativePing();
         this.#nativePingInterval = setInterval(() => {
             if (!this.#connectedNative) return;
             this.#callNative("ping", {}, 5000).catch((err) => console.error(`Native host ping failed: ${err.message}`));
