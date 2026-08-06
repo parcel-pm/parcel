@@ -836,9 +836,9 @@ function dd() {
     command dd "$@" <&3 &
     local PID=$!
     exec 3<&-
-    # The watchdog's stdin must be redirected from /dev/null (not just stdout/stderr)
-    # so it doesn't inherit the write end of the pipe to od — otherwise od would
-    # never see EOF until the sleep finishes, making every read take the full timeout.
+    # All of the watchdog's fds must be redirected so it holds neither the
+    # write end of the dd | od pipe (which would delay od's EOF until the
+    # sleep finishes) nor any other inherited descriptor.
     ( sleep "$TIMEOUT"; kill "$PID" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
     local WATCHDOG=$!
     wait "$PID" 2>/dev/null
