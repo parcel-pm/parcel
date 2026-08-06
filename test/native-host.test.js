@@ -710,6 +710,19 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("action_ping responds with ok", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "ping" });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_list returns filtered entries sorted by name", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");

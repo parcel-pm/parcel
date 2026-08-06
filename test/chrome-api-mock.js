@@ -189,6 +189,9 @@ export function createChromeMock(opts = {}) {
                 nativePorts.set(hostName, pair);
                 return pair.caller;
             },
+            sendMessage(msg) {
+                runtimeOnMessage._fire(msg);
+            },
         },
         storage: {
             local: storageLocal,

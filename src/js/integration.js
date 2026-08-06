@@ -87,6 +87,19 @@
     });
     let frameId = 0;
 
+    // Send a periodic keepalive message to the service worker so that MV3
+    // doesn't suspend it during idle periods. Content scripts run in the tab's
+    // process and are not subject to service worker suspension, so this timer
+    // keeps firing as long as the tab is open. Each message resets the worker's
+    // inactivity timer, which in turn keeps the native host ping interval alive.
+    setInterval(() => {
+        try {
+            chrome.runtime.sendMessage({ type: "keepalive" });
+        } catch (_err) {
+            // Service worker may be temporarily unavailable; ignore.
+        }
+    }, 25_000);
+
     /**
      * Handle incoming "trigger" port connections (popup open/close, resize, and untargeted-click routing).
      * @since 1.0.0

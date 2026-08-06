@@ -1,6 +1,6 @@
 "use strict";
 
-import { test, describe, before } from "node:test";
+import { test, describe, before, after } from "node:test";
 import assert from "node:assert";
 import { JSDOM } from "jsdom";
 import { createChromeMock } from "./chrome-api-mock.js";
@@ -86,7 +86,19 @@ function makeValidConfig(overrides = {}) {
 
 let dom, document, window, mock, portReceivers, portCallers;
 
+// Track timers created by integration.js so they can be cleared in after().
+const trackedTimers = [];
+
 before(async () => {
+    // Wrap setInterval to track handles created by integration.js, so they
+    // can be cleaned up after tests and don't keep the process alive.
+    const origSetInterval = globalThis.setInterval;
+    globalThis.setInterval = function (...args) {
+        const id = origSetInterval.apply(this, args);
+        trackedTimers.push(id);
+        return id;
+    };
+
     // Keep console stubbed during tests — integration.js logs elements and
     // warnings on routine error paths (blacklist, missing config, etc.) that
     // we don't want polluting test output.  Node's runner still reports
@@ -167,6 +179,10 @@ before(async () => {
         portReceivers["integration"].postMessage({ action: "config", config: makeValidConfig(), frameId: 0 });
     }
     await settleAsync();
+});
+
+after(() => {
+    trackedTimers.forEach((id) => clearInterval(id));
 });
 
 describe("Integration script", { concurrency: false }, () => {

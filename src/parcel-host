@@ -187,6 +187,11 @@ function action_configure() {
     parcel_send "$CONFIG"
 }
 
+# respond to a keepalive ping from the extension
+function action_ping() {
+    parcel_send '{"ok": true}'
+}
+
 # check whether there have been any changes to the password store since the last time the list was generated
 function action_changes_since() {
     update_config
@@ -809,4 +814,36 @@ $PRIV_PEM"
         --arg file "$SUGGESTED_FULL" \
         --arg armored "$ARMORED" \
         '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, file: $file, armored: $armored}')"
+}
+
+# Shadow the dd command with a version that has an idle timeout.
+#
+# The bootstrap host's main() loop calls dd to read 4-byte length prefixes
+# from stdin. When Chrome's MV3 service worker is terminated, the native
+# messaging pipe may stay open, so dd blocks forever and the host lingers as
+# a zombie. By defining dd() as a function, we intercept the call and wrap it
+# with a watchdog that kills dd if no data arrives within PARCEL_IDLE_TIMEOUT
+# seconds (default: 300), causing main()'s while loop to exit normally.
+#
+# @since 1.0.5
+# @returns {void}
+function dd() {
+    local TIMEOUT="${PARCEL_IDLE_TIMEOUT:-300}"
+    # Bash redirects stdin to /dev/null for backgrounded processes when job
+    # control is off (non-interactive scripts). Save fd 0 to fd 3 and redirect
+    # dd's stdin from there so the backgrounded dd can still read the pipe.
+    exec 3<&0
+    command dd "$@" <&3 &
+    local PID=$!
+    exec 3<&-
+    # The watchdog's stdin must be redirected from /dev/null (not just stdout/stderr)
+    # so it doesn't inherit the write end of the pipe to od — otherwise od would
+    # never see EOF until the sleep finishes, making every read take the full timeout.
+    ( sleep "$TIMEOUT"; kill "$PID" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+    local WATCHDOG=$!
+    wait "$PID" 2>/dev/null
+    local RETURN_CODE=$?
+    kill "$WATCHDOG" 2>/dev/null || true
+    wait "$WATCHDOG" 2>/dev/null || true
+    return $RETURN_CODE
 }
