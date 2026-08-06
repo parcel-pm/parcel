@@ -89,10 +89,14 @@ let dom, document, window, mock, portReceivers, portCallers;
 // Track timers created by integration.js so they can be cleared in after().
 const trackedTimers = [];
 
+// The original setInterval is captured before before() wraps it, so after()
+// can restore it.
+let origSetInterval;
+
 before(async () => {
     // Wrap setInterval to track handles created by integration.js, so they
     // can be cleaned up after tests and don't keep the process alive.
-    const origSetInterval = globalThis.setInterval;
+    origSetInterval = globalThis.setInterval;
     globalThis.setInterval = function (...args) {
         const id = origSetInterval.apply(this, args);
         trackedTimers.push(id);
@@ -183,6 +187,7 @@ before(async () => {
 
 after(() => {
     trackedTimers.forEach((id) => clearInterval(id));
+    globalThis.setInterval = origSetInterval;
 });
 
 describe("Integration script", { concurrency: false }, () => {

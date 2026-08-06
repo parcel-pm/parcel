@@ -689,6 +689,9 @@ describe("Agent initialisation failures", () => {
         // The keepalive listener should be registered and silently handle
         // keepalive messages from integration.js without throwing.
         mock.chrome.runtime.onMessage._fire({ type: "keepalive" });
-        assert.ok(true, "keepalive onMessage listener handled without error");
+        assert.ok(
+            mock.chrome.runtime.onMessage._count() >= 1,
+            "agent should register a runtime.onMessage listener for content-script keepalive pings",
+        );
     });
 });
