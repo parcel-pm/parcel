@@ -98,11 +98,7 @@
     // keepalive resets the shared service worker inactivity timer.
     if (window === window.top) {
         setInterval(() => {
-            try {
-                chrome.runtime.sendMessage({ type: "keepalive" });
-            } catch (_err) {
-                // Service worker may be temporarily unavailable; ignore.
-            }
+            chrome.runtime.sendMessage({ type: "keepalive" }, () => void chrome.runtime.lastError);
         }, 25_000);
     }
 
