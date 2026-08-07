@@ -2,6 +2,84 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
+## [v1.0.5 / kimi-k3 + deepseek-v4](reviews/v1.0.5/merged-glm-5.2.md)
+
+Two-model security review using kimi-k3 and deepseek-v4, conducted on August 8, 2026 against Parcel v1.0.5 (commit `6b0f1a7`). Both models independently completed the two-phase review protocol including cross-verification.
+
+No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDIUM, seven LOW, and four INFORMATIONAL findings. Both models independently confirmed every finding from the other's exchange file (with two severity disagreements and one disputed-finding-vs-residual classification, recorded in the merged report). No regressions of prior fixes were found; `make test` passes 407/407.
+
+### F40M — Popup authorisation gate bypassable by any extension context via the `"broadcast"` / self-issued `auth` token (MEDIUM)
+
+**Description:** The F20M fix (#69) gate is silently bypassable: the literal string `"broadcast"` authenticates a `popup`-named port without token issuance, and any context can push self-chosen tokens into `#authorisedTokens` via an `auth`-named port with no `port.sender` validation. A compromised content script (TM2) can drive silent, UI-less `decrypt`/`match` of whitelisted entries with an attacker-chosen audit `origin`. The host whitelist and rate limiter still bound the blast radius. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F41L — Multi-signer signature blob: signer extraction relies on fail-closed regex accident (LOW)
+
+**Description:** If a detached-signature blob contains two signatures, `grep VALIDSIG`/`cut` yields a multi-line string that fails the textual containment check only because of the embedded newline. The control works today (fails closed) but rests on an emergent property rather than an explicit single-signer assertion; a refactor could change this silently. TM5. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F42L — `passkeyDir` lacks `..`/absolute-path validation, weakening textual `.gpg-id` store containment (LOW)
+
+**Description:** `passkey_op_create` rejects control characters and glob metacharacters in `passkeyDir` but not `..` or leading `/`. The `.gpg-id` walk reads out-of-store files because the containment test is purely textual (a `../`-containing path textually starts with `$STORE_ROOT/`). Recipient selection for a generated passkey can be taken from an out-of-store `.gpg-id`. Config-controlled precondition; narrow chain — hence LOW. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F43L — Firefox lacks `ancestorOrigins`: frame-id broadcast falls back to `"*"`, receiver applies no origin check (LOW)
+
+**Description:** The F28T narrowing uses `location.ancestorOrigins` (Chrome-only). On Firefox the broadcast target falls back to `"*"`, and the receive handler checks only `ev.source` with no `ev.origin` validation, allowing a cross-origin embedder to forge/relabel iframe `_parcelFrameId`. Impact limited to popup-position confusion; fill delivery is token-bound. Coverage gap in F28T's mitigation, not a contradiction of the accepted core. TM1. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F44L — Page-forged `parcel-webauthn-conflict` event surfaces a false conflict modal; can suppress genuine notices (LOW)
+
+**Description:** `handlePasskeyConflict` trusts a forgeable DOM `CustomEvent`. A page can surface a false "another extension controls passkeys" modal and, on user dismissal, persist a per-origin `passkeyConflictDismissed` entry that suppresses genuine later conflict notices. No signature/decryption consequence — the ceremony path re-derives everything isolated-side. TM1. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F45L — Packaging `rsync` lacks `--delete`; stale files ship on ad-hoc builds (LOW)
+
+**Description:** `make chrome`/`make firefox` sync with `rsync -av` (no `--delete`) and no destination pre-clean. Files removed/renamed in `src/` between manual builds persist in the output tree, weakening source↔distribution parity. The `release` target is safe (depends on `clean`), but the coupling is implicit. TM5. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F46L — State-file fail-open lets a same-user process reset the rate-limiter bucket; writes follow symlinks (LOW)
+
+**Description:** `load_state` returns an empty bucket on any unloadable state (missing, wrong permissions, invalid content, or symlink detection), and `check_decrypt_rate_limit` seeds a full 24-token burst. A same-UID hostile process (TM4) can trivially reset the rate limiter, softening the F35M persistence guarantee. Writes follow symlinks. No browser-reachable path; the actor already holds stronger primitives. Both models confirmed the behaviour; severity disputed — kimi-k3 rated INFO, deepseek-v4 rated LOW; canonical severity is LOW (both positions recorded in the merged report).
+
+**Response:** — _(maintainer to respond)_
+
+### F47L — `action_changes_since` does not abort after rejecting an invalid `.since` (LOW)
+
+**Description:** On an invalid `.since` timestamp, `action_changes_since` calls `parcel_error` but does not `return`, continuing into `date -d`/`find -newermt` with the unvalidated value. No injection (the value is a quoted argument); the malformed `find` fails closed (no changes reported). Best-effort robustness defect. Disputed: deepseek-v4 filed as LOW; kimi-k3 classified as non-security (residual) and disputed its LOW label. Canonical severity is LOW (both positions recorded in the merged report).
+
+**Response:** — _(maintainer to respond)_
+
+### F48I — Unescaped `entry.path` in `querySelector` — store-controlled selector render break (INFORMATIONAL)
+
+**Description:** `popup.js:1066` interpolates store-controlled `entry.path` into `querySelector` without `CSS.escape`. A pathological filename throws `SyntaxError`, breaking popup rendering for that origin. No code execution (querySelector cannot execute code); all other rendering sinks use `textContent`/`createTextNode`. TM4 (store-write access required). Both models confirmed the mechanics; severity disputed — kimi-k3 rated INFO, deepseek-v4 rated LOW; canonical severity is INFORMATIONAL.
+
+**Response:** — _(maintainer to respond)_
+
+### F49I — Unbounded `#authorisedTokens` / `targetBindings` growth via synthetic clicks (INFORMATIONAL)
+
+**Description:** Each synthetic `click()` mints a UUID token into `#authorisedTokens`; bindings survive disconnect. A hostile page can grow these without bound (transient memory pressure; no disclosure). Bounded by per-frame lifetime. TM1. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F50I — Regression-test gaps over fixed security gates (INFORMATIONAL)
+
+**Description:** Four fixed gates lack adversarial regression coverage: audit-field truncation assertions, hostile action-string dispatch tests, popup-side fill-`origin` field assertion, and per-container history isolation. Additionally, state-file symlink/fail-open paths are unexercised. All are defence-regression detectors, not live holes. Found independently by both models.
+
+**Response:** — _(maintainer to respond)_
+
+### F51I — `fill-value` and `frameOrigin`-undefined edge skip the destination-origin guard (INFORMATIONAL)
+
+**Description:** The origin guard only fires when the message carries an `origin` key. The `fill-value` action never carries `origin`, and an undefined `frameOrigin` is dropped by structured-clone. No reachable exploit: `fill-value` values come from already-decrypted plaintext; the `frameOrigin`-undefined edge resolves before any real fill. The maintainer-rejected half of F36L. Found by deepseek-v4 only; kimi-k3 acknowledged the mechanics as benign and did not file separately.
+
+**Response:** — _(maintainer to respond)_
+
 ## [v1.0.4 / kimi-k3](reviews/v1.0.4/kimi-k3.md)
 
 Automated security review using Copilot / Kimi K3, conducted on August 1, 2026 against Parcel v1.0.4 (commit 9df096d).
