@@ -1516,6 +1516,125 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("state file with malicious content is rejected", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        const markerFile = join(env.home, "pwned");
+
+        // Write a malicious state file that attempts command substitution
+        // Using a whitelisted variable name so the regex must reject the value
+        writeFileSync(
+            stateFile,
+            `DECRYPT_BUCKET_TOKENS=$(touch ${markerFile})
+`,
+        );
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            // The malicious content should have been rejected — marker file must not exist
+            assert.ok(!existsSync(markerFile), "Command substitution in state file was executed");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("state file with backtick substitution is rejected", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        const markerFile = join(env.home, "pwned");
+
+        writeFileSync(
+            stateFile,
+            `DECRYPT_BUCKET_TOKENS=\`touch ${markerFile}\`
+`,
+        );
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            assert.ok(!existsSync(markerFile), "Backtick substitution in state file was executed");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("state file with subshell is rejected", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        const markerFile = join(env.home, "pwned");
+
+        writeFileSync(
+            stateFile,
+            `DECRYPT_BUCKET_TOKENS=0
+DECRYPT_BUCKET_LAST=0
+$(touch ${markerFile})
+`,
+        );
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            assert.ok(!existsSync(markerFile), "Subshell in state file was executed");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("state file with pipe and redirection operators is rejected", async () => {
+        // Whitelisted variable names so the regex must reject the operators in the value.
+        // Covers pipe (|), output redirection (>), input redirection (<), and append (>>).
+        const payloads = [
+            `DECRYPT_BUCKET_TOKENS=0 | touch {marker}\n`,
+            `DECRYPT_BUCKET_TOKENS=0 > {marker}\n`,
+            `DECRYPT_BUCKET_TOKENS=0 < {marker}\n`,
+            `DECRYPT_BUCKET_TOKENS=0 >> {marker}\n`,
+        ];
+
+        for (const template of payloads) {
+            const env = createTestEnv();
+            const parcelJson = join(env.passdir, ".parcel.json");
+            writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 1, decryptRate: 0.001 }));
+            const stateFile = join(env.home, ".config", "parcel", "state");
+            const markerFile = join(env.home, "pwned");
+
+            writeFileSync(stateFile, template.replace("{marker}", markerFile));
+            chmodSync(stateFile, 0o600);
+
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+
+                assert.ok(!existsSync(markerFile), `Redirection was executed for payload: ${template.trim()}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        }
+    });
+
     // ---------------------------------------------------------------------------
     // Passkey (WebAuthn) tests
     // ---------------------------------------------------------------------------

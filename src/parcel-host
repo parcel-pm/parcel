@@ -56,8 +56,31 @@ function get_timestamp_ms() {
     fi
 }
 
-# load persisted state; sourced directly, so require 0600 as per parcelrc. Bad permissions or
-# corrupt values reset the bucket to defaults — a deliberate fail-open for robustness.
+# Validate state file contents against a strict whitelist before sourcing.
+# Only simple VAR=number assignments for known state variables are permitted;
+# anything containing command substitution, subshells, pipes, redirections,
+# or other executable syntax is rejected.
+#
+# @param {string} content - The full text of the state file.
+# @return 0 if all lines are valid, 1 otherwise.
+# @since 1.0.5
+function validate_state_content() {
+    local CONTENT="$1"
+    local LINE
+    while IFS= read -r LINE || [[ -n "$LINE" ]]; do
+        # Skip empty and whitespace-only lines
+        [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
+        # Each non-empty line must be a simple assignment of digits to a
+        # whitelisted variable name — nothing else is allowed.
+        [[ "$LINE" =~ ^(DECRYPT_BUCKET_TOKENS|DECRYPT_BUCKET_LAST)=[0-9]+$ ]] || return 1
+    done <<< "$CONTENT"
+    return 0
+}
+
+# Load persisted state; require 0600 on the file, then read it into memory and
+# validate against a whitelist before evaluating, to prevent TOCTOU. Bad
+# permissions or corrupt values reset the bucket to defaults — a deliberate
+# fail-open for robustness.
 function load_state() {
     mkdir -p "$(dirname "$STATEFILE")"
     if [ ! -f "$STATEFILE" ]; then
@@ -70,7 +93,14 @@ function load_state() {
             "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
         return 0
     fi
-    . "$STATEFILE" 2>/dev/null
+    local CONTENT
+    CONTENT="$(cat "$STATEFILE" 2>/dev/null)" || return 0
+    if ! validate_state_content "$CONTENT"; then
+        printf '[%s] state file %s contains invalid content; refusing to load state\n' \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+        return 0
+    fi
+    eval "$CONTENT"
     # discard loaded values if they are non-numeric
     if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^[0-9]+$ ]]; then
         DECRYPT_BUCKET_TOKENS=""
