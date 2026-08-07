@@ -225,7 +225,7 @@ function createMessageReader(stream) {
 /**
  * Spawn the bootstrap script with a test environment.
  */
-function spawnBootstrap(env) {
+function spawnBootstrap(env, extraEnv = {}) {
     const proc = spawn("bash", ["./parcel-host"], {
         cwd: process.cwd(),
         stdio: ["pipe", "pipe", "pipe"],
@@ -233,6 +233,7 @@ function spawnBootstrap(env) {
             ...process.env,
             HOME: env.home,
             PATH: `${env.bin}:${process.env.PATH}`,
+            ...extraEnv,
         },
     });
 
@@ -254,8 +255,8 @@ function spawnBootstrap(env) {
  * Install the main host script via the bootstrap, returning the connected
  * process and message reader ready for main-script actions.
  */
-async function installMainScript(env) {
-    const { proc, read, send } = spawnBootstrap(env);
+async function installMainScript(env, extraEnv = {}) {
+    const { proc, read, send } = spawnBootstrap(env, extraEnv);
 
     // Consume bootstrap announcement
     const bootstrapMsg = await read();
@@ -704,6 +705,19 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "configure" });
             const msg2 = await read();
             assert.strictEqual(msg2.data?.modified, msg.data?.modified, "modified should be stable across calls");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_ping responds with ok", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "ping" });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
         } finally {
             proc.kill();
             env.cleanup();
@@ -2250,5 +2264,68 @@ exit 1
                 env.cleanup();
             }
         });
+    });
+});
+
+describe("dd() idle watchdog", () => {
+    test("host exits when stdin goes silent for PARCEL_IDLE_TIMEOUT", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = await installMainScript(env, { PARCEL_IDLE_TIMEOUT: "1" });
+        try {
+            // Confirm the host is alive and responsive.
+            send({ action: "ping" });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true });
+            const silentAt = Date.now();
+
+            // Stop sending messages. The dd() watchdog should fire after ~1s
+            // and the host process should exit on its own.
+            const exitCode = await new Promise((resolve) => {
+                proc.on("exit", resolve);
+                // Safety timeout: if the process doesn't exit within 10s,
+                // something is wrong.
+                setTimeout(() => {
+                    if (!proc.killed) proc.kill();
+                    resolve(null);
+                }, 10_000);
+            });
+            const elapsed = Date.now() - silentAt;
+
+            assert.ok(exitCode !== null, "Host did not exit within 10s of stdin going silent");
+            // An instant exit for an unrelated reason (crash after replying)
+            // would also satisfy the check above; require the exit to line up
+            // with the 1s idle watchdog so we test the claimed cause.
+            assert.ok(elapsed >= 800, `Host exited after only ${elapsed}ms — too soon for the 1s idle watchdog`);
+        } finally {
+            if (!proc.killed) proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("message delivered just before timeout is still handled", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = await installMainScript(env, { PARCEL_IDLE_TIMEOUT: "3" });
+        try {
+            // Confirm the host is alive.
+            send({ action: "ping" });
+            await read();
+
+            // Wait for most of the timeout to elapse, then send a message.
+            // The dd() call for this message starts a fresh watchdog, so the
+            // host should stay alive and respond. The ~1s margin absorbs CI
+            // scheduler jitter without letting a stale watchdog fire.
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            send({ action: "ping" });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, "Host should still respond to messages near the timeout boundary");
+
+            // The host should still be alive (not killed by the previous
+            // watchdog). Note: proc.killed only tracks signals *this* process
+            // sent, so check the exit state instead.
+            assert.ok(proc.exitCode === null && proc.signalCode === null, "Host process exited after message near timeout");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
     });
 });

@@ -7,7 +7,9 @@ ESLINT := $(PWD)/node_modules/.bin/eslint
 # Cutoff date for dev-time dependencies. This should be maintained at the oldest date available for
 # which the required dev dependencies can still be resolved, unless security considerations require
 # bumping it forward. The purpose of this cutoff is to reduce the likelihood of supply-chain attacks
-# against a developer machine. If this is changed, the lockfile should also be updated to match.
+# against a developer machine. If this is changed, the lockfile should also be updated to match, and
+# the pinned gitleaks version in scripts/pre-commit-gitleaks should be updated to the latest release
+# at or before the new cutoff.
 DEPS_INSTALL_CUTOFF := 2026-06-10
 
 .PHONY: all

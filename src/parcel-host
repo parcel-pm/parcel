@@ -187,6 +187,11 @@ function action_configure() {
     parcel_send "$CONFIG"
 }
 
+# respond to a keepalive ping from the extension
+function action_ping() {
+    parcel_send '{"ok": true}'
+}
+
 # check whether there have been any changes to the password store since the last time the list was generated
 function action_changes_since() {
     update_config
@@ -250,6 +255,10 @@ function action_list() {
     fi
 
     local REAL_OUT="$(printf '%s' "$FIND_OUT" | tr '\n' '\0' | xargs -0 -n100 readlink -f || true)"
+    if [ "$(printf '%s' "$FIND_OUT" | grep -c '')" -ne "$(printf '%s' "$REAL_OUT" | grep -c '')" ]; then
+        parcel_error "Entry list desync: find and readlink returned different line counts (possible TOCTOU race)"
+        return 0
+    fi
 
     local SYMLINKS=()
     while IFS= read -r link; do
@@ -348,9 +357,11 @@ function check_decrypt_rate_limit() {
     if [ "$BUCKET_SIZE" == "null" ]; then
         BUCKET_SIZE=$DECRYPT_BUCKET_SIZE_DEFAULT
     fi
+    [[ "$BUCKET_SIZE" =~ ^[0-9]+$ ]] || BUCKET_SIZE=$DECRYPT_BUCKET_SIZE_DEFAULT
     if [ "$RATE" == "null" ]; then
         RATE=$DECRYPT_BUCKET_RATE_DEFAULT
     fi
+    [[ "$RATE" =~ ^[0-9.]+$ ]] || RATE=$DECRYPT_BUCKET_RATE_DEFAULT
     # rate limiting disabled when bucket or rate is zero
     if [ "$BUCKET_SIZE" -eq 0 ] || awk -v rate="$RATE" 'BEGIN { exit !(rate == 0) }'; then
         return 0
@@ -435,6 +446,7 @@ function action_decrypt() {
     local INTENT="$(jq -r '.intent' <<< "$1")"
     local ORIGIN="$(jq -r '.origin' <<< "$1")"
     if ! check_decrypt_rate_limit; then
+        # note that the rate limiter intentionally limits *attempts*, not just allowable requests
         audit_decrypt "$FILE_PATH" "Denied (rate limit)" "$INTENT" "$ORIGIN"
         parcel_error "Decryption rate limit exceeded"
         return 0
@@ -534,6 +546,7 @@ function passkey_op_get() {
     local ORIGIN="$2"
     local CLIENT_DATA="$(jq -r '.clientDataJSON' <<< "$1")"
     if ! check_decrypt_rate_limit; then
+        # note that the rate limiter intentionally limits *attempts*, not just allowable requests
         audit_decrypt "$FILE_PATH" "Denied (rate limit)" "passkey" "$ORIGIN"
         parcel_error "Decryption rate limit exceeded"
         return 0
@@ -809,4 +822,51 @@ $PRIV_PEM"
         --arg file "$SUGGESTED_FULL" \
         --arg armored "$ARMORED" \
         '{op: "create", credentialId: $credentialId, publicKey: $publicKey, spki: $spki, path: $path, file: $file, armored: $armored}')"
+}
+
+# Shadow the dd command with a version that has an idle timeout.
+#
+# The bootstrap host's main() loop calls dd to read 4-byte length prefixes
+# from stdin. When Chrome's MV3 service worker is terminated, the native
+# messaging pipe may stay open, so dd blocks forever and the host lingers as
+# a zombie. By defining dd() as a function, we intercept the call and wrap it
+# with a watchdog that kills dd if no data arrives within PARCEL_IDLE_TIMEOUT
+# seconds (default: 300), causing main()'s while loop to exit normally.
+#
+# @since 1.0.5
+# @returns {void}
+function dd() {
+    local TIMEOUT="${PARCEL_IDLE_TIMEOUT:-300}"
+    # Validate the timeout: a non-numeric or zero value would make sleep fail
+    # instantly, killing dd immediately and wedging main()'s read loop.
+    [[ "$TIMEOUT" =~ ^[1-9][0-9]*$ ]] || TIMEOUT=300
+    # Bash redirects stdin to /dev/null for backgrounded processes when job
+    # control is off (non-interactive scripts). Save fd 0 to fd 3 and redirect
+    # dd's stdin from there so the backgrounded dd can still read the pipe.
+    exec 3<&0
+    command dd "$@" <&3 &
+    local PID=$!
+    exec 3<&-
+    # The watchdog kills dd if no data arrives within TIMEOUT seconds. Its
+    # sleep runs as a captured child ($SLEEP_PID) beneath a TERM trap: when
+    # this function kills the watchdog after dd finishes normally, the trap
+    # forwards the signal so the sleep is reaped too. An untrapped subshell
+    # would leave the sleep orphaned on every message received, leaking one
+    # stray process per message for up to TIMEOUT seconds.
+    # All of the watchdog's fds must be redirected so it holds neither the
+    # write end of the dd | od pipe (which would delay od's EOF until the
+    # sleep finishes) nor any other inherited descriptor.
+    (
+        trap 'kill "$SLEEP_PID" 2>/dev/null; exit' TERM
+        sleep "$TIMEOUT" &
+        SLEEP_PID=$!
+        wait "$SLEEP_PID" 2>/dev/null
+        kill "$PID" 2>/dev/null
+    ) </dev/null >/dev/null 2>&1 &
+    local WATCHDOG=$!
+    wait "$PID" 2>/dev/null
+    local RETURN_CODE=$?
+    kill "$WATCHDOG" 2>/dev/null || true
+    wait "$WATCHDOG" 2>/dev/null || true
+    return $RETURN_CODE
 }

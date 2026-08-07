@@ -6,6 +6,7 @@
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const frameId = parseInt(new URLSearchParams(window.location.search).get("frameId"), 10) || 0;
     const mode = new URLSearchParams(window.location.search).get("mode");
+    let frameOrigin; // intended origin for the actual fill operation
     if (token === "broadcast" && window !== window.top) {
         const msg =
             "Parcel may not be independently embedded in a frame. If you are seeing this message, it means that a website " +
@@ -665,6 +666,7 @@
             }, 5000);
         } else if (msg?.action === "origin") {
             if (tab.url) {
+                frameOrigin = msg.origin;
                 const tabURL = new URL(tab.url);
                 if (msg.origin !== tabURL.origin) {
                     tabPort.postMessage({ action: "focus-suspend" });
@@ -1148,6 +1150,8 @@
                 li.appendChild(button);
 
                 li.addEventListener("click", async () => {
+                    // The origin here is the *top-level* origin in the tab; this indicates which page the user was on when they triggered
+                    // the fill request, for easier audit correlation - we aren't trying to keep track of the specific frame origin here.
                     port.postMessage({ action: "decrypt", intent: "fill", origin: url.origin, path: entry.path });
                     if (history?.[0]?.path === (await sha256(entry.path))) {
                         history[0].when = Date.now();
@@ -1163,7 +1167,13 @@
             });
         } else if (msg.action === "plaintext") {
             if (msg.intent === "fill") {
-                const delivered = tabPort.postMessage({ action: "fill", token, plaintext: msg.plaintext, config: await config });
+                const delivered = tabPort.postMessage({
+                    action: "fill",
+                    token,
+                    plaintext: msg.plaintext,
+                    config: await config,
+                    origin: frameOrigin,
+                });
                 // Only record history when the fill was actually delivered to the content
                 // script; otherwise we would log a fill against a stale tab that never happened.
                 if (delivered && tab.url && (await config).saveHistory) {

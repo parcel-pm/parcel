@@ -1,6 +1,6 @@
 "use strict";
 
-import { test, describe, before } from "node:test";
+import { test, describe, before, after } from "node:test";
 import assert from "node:assert";
 import { JSDOM } from "jsdom";
 import { createChromeMock } from "./chrome-api-mock.js";
@@ -86,7 +86,25 @@ function makeValidConfig(overrides = {}) {
 
 let dom, document, window, mock, portReceivers, portCallers;
 
+// Track timers created by integration.js so they can be cleared in after().
+const trackedTimers = [];
+
+// The original setInterval is captured before before() wraps it, so after()
+// can restore it.
+let origSetInterval;
+
 before(async () => {
+    // Wrap setInterval to track handles created by integration.js, so they
+    // can be cleaned up after tests and don't keep the process alive. The
+    // callback and delay are retained so tests can also inspect what was
+    // scheduled (e.g. the 25s worker keepalive).
+    origSetInterval = globalThis.setInterval;
+    globalThis.setInterval = function (...args) {
+        const id = origSetInterval.apply(this, args);
+        trackedTimers.push({ id, cb: args[0], delay: args[1] });
+        return id;
+    };
+
     // Keep console stubbed during tests — integration.js logs elements and
     // warnings on routine error paths (blacklist, missing config, etc.) that
     // we don't want polluting test output.  Node's runner still reports
@@ -169,7 +187,31 @@ before(async () => {
     await settleAsync();
 });
 
+after(() => {
+    trackedTimers.forEach((t) => clearInterval(t.id));
+    globalThis.setInterval = origSetInterval;
+});
+
 describe("Integration script", { concurrency: false }, () => {
+    test("keepalive: registers a 25s interval that pings the service worker", () => {
+        const entries = trackedTimers.filter((t) => t.delay === 25_000);
+        assert.ok(entries.length >= 1, "integration.js should register a keepalive interval with a 25s cadence");
+
+        // Invoking the interval callback must send the keepalive message the
+        // service worker's MV3 idle timer depends on.
+        let received = null;
+        const listener = (msg) => {
+            if (msg?.type === "keepalive") received = msg;
+        };
+        mock.chrome.runtime.onMessage.addListener(listener);
+        try {
+            entries[0].cb();
+        } finally {
+            mock.chrome.runtime.onMessage.removeListener(listener);
+        }
+        assert.deepStrictEqual(received, { type: "keepalive" }, "keepalive callback should send {type: 'keepalive'} to the worker");
+    });
+
     function clearBody() {
         document.body.innerHTML = "";
         document.querySelectorAll(".parcel-popup").forEach((el) => el.remove());

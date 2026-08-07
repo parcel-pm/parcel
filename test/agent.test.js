@@ -97,6 +97,10 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+    // Disconnect the native port first (while console is still suppressed)
+    // to trigger #onNativeDisconnect → #stopNativePing, otherwise the 60s
+    // ping interval keeps the process alive.
+    mock.getNativePort("com.github.erayd.parcel")?.caller.disconnect();
     globalThis.console = realConsole;
     uninstallNativeHandler(mock, handler);
 });
@@ -678,6 +682,16 @@ describe("Agent initialisation failures", () => {
         assert.ok(
             err.error?.includes("parcelrc file must have permissions 0600"),
             "popup receives the parcelrc error, not a generic disconnect message",
+        );
+    });
+
+    test("keepalive: onMessage listener registered for content-script pings", async () => {
+        // The keepalive listener should be registered and silently handle
+        // keepalive messages from integration.js without throwing.
+        mock.chrome.runtime.onMessage._fire({ type: "keepalive" });
+        assert.ok(
+            mock.chrome.runtime.onMessage._count() >= 1,
+            "agent should register a runtime.onMessage listener for content-script keepalive pings",
         );
     });
 });
