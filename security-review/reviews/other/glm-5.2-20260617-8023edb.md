@@ -53,7 +53,7 @@ Neither the bootstrap nor the main host writes to user files other than `parcelr
 
 ## Findings
 
-### F1 — Audit-log line assembly is unbounded in the `MESSAGE` slot when decryption fails with a long error
+### F15T — Audit-log line assembly is unbounded in the `MESSAGE` slot when decryption fails with a long error
 
 **Severity:** Low
 **Location:** `src/parcel-host`, `audit_decrypt()` (lines 187–198)
@@ -75,7 +75,7 @@ The timestamp is validated against `^[0-9]{10}$` (requiring a 10-digit Unix epoc
 
 **Recommendation:** No change. If future code paths allow a non-numeric `since`, the existing regex guard should be preserved.
 
-### F3 — `parcelrc` is sourced as executable bash, which is a trusted execution boundary
+### F16T — `parcelrc` is sourced as executable bash, which is a trusted execution boundary
 
 **Severity:** Low (already acknowledged tradeoff)
 **Location:** `parcel-host`, line 82 (`. "$PARCELRC"`)
@@ -161,9 +161,9 @@ One area with thinner coverage: the **`action_$ACTION` dispatch in the bootstrap
 
 | ID | Severity | Action |
 |----|----------|--------|
-| F1 | Low | No change; existing per-field caps are adequate. |
+| F15T | Low | No change; existing per-field caps are adequate. |
 | F2 | Low | No change; regex guard is sufficient. |
-| F3 | Low | Optional: verify parent directory mode of `parcelrc`. |
+| F16T | Low | Optional: verify parent directory mode of `parcelrc`. |
 | F4 | Low | No change; documented UX tradeoff. |
 | F5 | Low | Optional: re-verify whether JS modules need to be in `web_accessible_resources`. |
 | F6 | Low | No change; self-inflicted, accepted by maintainers. |

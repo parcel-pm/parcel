@@ -134,13 +134,13 @@ This review finds **no critical vulnerabilities** in the current codebase. The a
 
 ## Findings
 
-### F1. Log-bloating via unbounded audit-log fields
+### F10L. Log-bloating via unbounded audit-log fields
 **Severity:** Low
 **Location:** `src/parcel-host`, `audit_decrypt()`
 **Description:** The audit log strips control characters but does not limit the length of `FILE_PATH`, `INTENT`, or `ORIGIN`. A compromised extension could submit extremely long strings in these fields, causing unbounded log growth.
 **Recommendation:** Truncate audit fields to a reasonable maximum (e.g., 4,096 bytes) before logging.
 
-### F2. No Content Security Policy declared in manifest
+### F11L. No Content Security Policy declared in manifest
 **Severity:** Low
 **Location:** `src/manifest.json`
 **Description:** The extension relies on the browser's default MV3 CSP. While the codebase contains no eval or inline scripts, an explicit `content_security_policy` declaration would provide a clear, auditable contract and protect against future regressions.
@@ -151,13 +151,13 @@ This review finds **no critical vulnerabilities** in the current codebase. The a
 }
 ```
 
-### F3. Search regex ReDoS risk in service worker
+### F12T. Search regex ReDoS risk in service worker
 **Severity:** Low
 **Location:** `src/js/agent.js`, `search()`
 **Description:** User-provided search terms are compiled as `RegExp(term, "ui")` without length limits or ReDoS checks. A crafted term such as `(a+)+$` against a long entry name could hang the service worker for a noticeable period.
 **Recommendation:** Either limit the search term length (e.g., 200 characters) or use a regex execution timeout (e.g., via `RegExp.prototype.exec` in a separate task, although service workers make this awkward). Given that the extension is local-only and the impact is a transient UI hang, this is not urgent.
 
-### F4. `shadow.js` runs in MAIN world and patches global prototype
+### F13T. `shadow.js` runs in MAIN world and patches global prototype
 **Severity:** Moderate (design-level)
 **Location:** `src/js/shadow.js`
 **Description:** To intercept shadow-root creation, `shadow.js` patches `Element.prototype.attachShadow` in the page's JavaScript realm. This means a malicious page can detect the patch, overwrite it before Parcel loads, or observe the `is-shadow` / `parcel-shadow-host` attributes being added. While Parcel does not rely on this patch for security (it is a convenience feature for UI detection), it increases the extension's detectability and exposes a small interference surface.

@@ -23,11 +23,11 @@ I found **one new low-severity issue**: symlinked directories are still derefere
 | Bootstrap host | Trusts `parcelrc` as executable code, but constrains it with a `0600` mode check, signer allowlist, temporary GPG keyring, and optional `HOST_HASH` pinning before `eval` of the main host. This is a sharp boundary, but a clearly documented one. | `parcel-host:37-91`, `parcel-host:115-160`, `parcel-host:214-228`, `SECURITY.md:39-54`, `README.md:134-160` |
 | Main native host | Correctly keeps whitelist enforcement and decryption on the host side. `action_decrypt` checks the cached allowlist, existence, and link policy again at decrypt time rather than trusting stale list state. | `src/parcel-host:95-183`, `src/parcel-host:261-323` |
 | Browser-to-page boundary | Inline popup/token flow is reasonably careful: tokens are per-field, random, consumed once, and bridged only to the addressed frame. The toolbar "broadcast" path is intentionally broader and treated as a usability tradeoff. | `src/js/agent.js:112-135`, `src/js/agent.js:283-347`, `src/js/agent.js:382-416`, `src/js/integration.js:378-399`, `src/js/integration.js:424-539`, `SECURITY.md:77-88` |
-| Local metadata persistence | History is stored only in `chrome.storage.local`, per-origin and per-container, but is only obscured with unsalted SHA-256 rather than treated as secret. This is deliberate and appropriately documented. | `src/js/popup.js:385-390`, `src/js/popup.js:603-610`, `SECURITY.md:69-76`, `security-review/findings.md:129-136` |
+| Local metadata persistence | History is stored only in `chrome.storage.local`, per-origin and per-container, but is only obscured with unsalted SHA-256 rather than treated as secret. This is deliberate and appropriately documented. | `src/js/popup.js:385-390`, `src/js/popup.js:603-610`, `SECURITY.md:69-76`, `security-review/findings.md` F8T |
 
 ## Findings
 
-### 1. Low: `allowLinks: false` does not stop symlink traversal during host scans
+### F17L: `allowLinks: false` does not stop symlink traversal during host scans
 
 **What happens**
 
@@ -62,12 +62,12 @@ An attacker needs a way to place a symlink inside the password store. That usual
 
 | Tradeoff | Review assessment | Evidence |
 | --- | --- | --- |
-| `parcelrc` is sourced as shell code | Acceptable given the project's "auditable plaintext host" goals, provided users treat `parcelrc` as a full code-execution boundary. The `0600` check, signer allowlist, and optional hash pin materially reduce accidental trust expansion. | `parcel-host:37-91`, `parcel-host:115-160`, `SECURITY.md:39-54`, `security-review/findings.md:105-110` |
-| No network access is a governance rule, not a manifest sandbox | Correctly documented. With `<all_urls>` content scripts and page interaction, this cannot be made a strong technical boundary without giving up core functionality. | `src/manifest.json:8-45`, `SECURITY.md:7-16`, `security-review/findings.md:89-95` |
-| Absent `.parcel.json` exposes all entries | Usability-first but explicitly surfaced to the user: the host injects a default allow-all rule, and the popup warns when default rules are active. | `src/parcel-host:58-64`, `src/js/popup.js:671-678`, `SECURITY.md:55-58`, `security-review/findings.md:97-103` |
-| Cross-origin fill is warning-only | Deliberate power-user tradeoff. The popup does warn when the target frame's origin differs from the visible tab origin, which is the right minimum safeguard for this design. | `src/js/popup.js:461-470`, `security-review/findings.md:112-119` |
-| Detectability / fingerprinting from web-accessible resources and MAIN-world shadow patch | Real but documented and seemingly unavoidable for the chosen UX. The implementation does not turn this into direct plaintext exposure on its own. | `src/manifest.json:14-45`, `src/js/shadow.js:3-30`, `SECURITY.md:84-87`, `security-review/findings.md:121-127` |
-| History hashing is obscurity, not secrecy | Appropriate framing. The project does not pretend this metadata is secret and offers `saveHistory` as an opt-out. | `src/js/popup.js:385-390`, `src/js/popup.js:603-610`, `SECURITY.md:69-76`, `security-review/findings.md:129-136` |
+| `parcelrc` is sourced as shell code | Acceptable given the project's "auditable plaintext host" goals, provided users treat `parcelrc` as a full code-execution boundary. The `0600` check, signer allowlist, and optional hash pin materially reduce accidental trust expansion. | `parcel-host:37-91`, `parcel-host:115-160`, `SECURITY.md:39-54`, `security-review/findings.md` F5T |
+| No network access is a governance rule, not a manifest sandbox | Correctly documented. With `<all_urls>` content scripts and page interaction, this cannot be made a strong technical boundary without giving up core functionality. | `src/manifest.json:8-45`, `SECURITY.md:7-16`, `security-review/findings.md` F3T |
+| Absent `.parcel.json` exposes all entries | Usability-first but explicitly surfaced to the user: the host injects a default allow-all rule, and the popup warns when default rules are active. | `src/parcel-host:58-64`, `src/js/popup.js:671-678`, `SECURITY.md:55-58`, `security-review/findings.md` F4T |
+| Cross-origin fill is warning-only | Deliberate power-user tradeoff. The popup does warn when the target frame's origin differs from the visible tab origin, which is the right minimum safeguard for this design. | `src/js/popup.js:461-470`, `security-review/findings.md` F6T |
+| Detectability / fingerprinting from web-accessible resources and MAIN-world shadow patch | Real but documented and seemingly unavoidable for the chosen UX. The implementation does not turn this into direct plaintext exposure on its own. | `src/manifest.json:14-45`, `src/js/shadow.js:3-30`, `SECURITY.md:84-87`, `security-review/findings.md` F7T |
+| History hashing is obscurity, not secrecy | Appropriate framing. The project does not pretend this metadata is secret and offers `saveHistory` as an opt-out. | `src/js/popup.js:385-390`, `src/js/popup.js:603-610`, `SECURITY.md:69-76`, `security-review/findings.md` F8T |
 
 ## Positive security controls worth preserving
 

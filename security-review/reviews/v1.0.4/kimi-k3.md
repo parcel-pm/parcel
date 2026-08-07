@@ -60,7 +60,7 @@ this review's findings interact with them.
 
 ## 3. Findings
 
-### F-1 — Decryption rate limiter is per-process and per-install; trivially reset by a compromised extension context (MEDIUM)
+### F35M — Decryption rate limiter is per-process and per-install; trivially reset by a compromised extension context (MEDIUM)
 
 **Status: new**
 
@@ -98,7 +98,7 @@ and process-spawn speed), and user-noticeable side effects that would otherwise 
 passkey-entry protections are unaffected; the class-of-attack this control was created for is exactly
 the class it fails to throttle.
 
-Note this is strictly worse than prior finding "L4 — default burst ≥ typical store size" (accepted,
+Note this is strictly worse than prior finding "F23T — default burst ≥ typical store size" (accepted,
 GLM 5.2 review dated 2026-06-25): even a user who explicitly configures a small bucket or relies on
 the sustained rate gains no durable throttling against extension-context attackers. It also means the control is weaker
 than it appears even in *benign* operation: every MV3 service-worker cold start / native disconnect
@@ -126,11 +126,11 @@ Option 1 is recommended as a minimum; option 2 for full closure. Either way, `SE
 description of the rate limiter should state its actual boundary (per native-host process) if
 maintainers decide the residual risk is acceptable.
 
-### F-2 — Popup-driven `fill` message omits `origin`; the #106 destination-origin guard never applies to the primary fill path (LOW, defense-in-depth gap)
+### F36L — Popup-driven `fill` message omits `origin`; the #106 destination-origin guard never applies to the primary fill path (LOW, defense-in-depth gap)
 
 **Status: new**
 
-**Description.** The fix for the previous F2 finding (mid-decrypt navigation exfiltrating a credential
+**Description.** The fix for the previous F34M finding (mid-decrypt navigation exfiltrating a credential
 to a different origin; PR #106) added a destination-origin check to the content script's `fill`
 handler, gated on the message carrying an `origin` property:
 
@@ -165,7 +165,7 @@ too (it has no origin concept today because the value has already been decrypted
 risk profile differs, but the same "mid-flight re-targeting" argument applies). One-line-ish change;
 existing tests in `test/integration.test.js` around the mismatch guard give the harness pattern.
 
-### F-3a — Dev-tooling supply-chain nit: `scripts/pre-commit-gitleaks` downloads and executes the *latest* unpinned gitleaks binary (INFO/LOW)
+### F37L — Dev-tooling supply-chain nit: `scripts/pre-commit-gitleaks` downloads and executes the *latest* unpinned gitleaks binary (INFO/LOW)
 
 Opt-in (developer-installed) pre-commit hook, so not part of the shipped product — but it fetches
 "latest release" from the GitHub API and pipes a tarball straight into `tar -xz` with no version
@@ -175,14 +175,14 @@ material and GPG keys. This sits uneasily with the project's strong anti-supply-
 version + SHA-256 in the script, or documenting that the hook is convenience-only. Impact requires a
 compromised GitHub release/tag of gitleaks, and is confined to dev machines that install the hook.
 
-### F-3b — Documentation nit: stale port-action comment in `agent.js` (INFO)
+### F38I — Documentation nit: stale port-action comment in `agent.js` (INFO)
 
 The comment above `PORT_ACTIONS` says integration ports may request "`config`/`sha256`", but the map
 grants integration ports `config` only. Code is the stricter of the two; aligning the comment removes
 ambiguity for future readers of an auth-relevant allow-list. (`sha256` remains available to popup
 ports, which is harmless: it is a hash oracle over attacker-known strings, no secrets.)
 
-### F-4 — In-page popup host element is fully page-stylable/removable (INFO, inherent; worth one line in SECURITY.md)
+### F39T — In-page popup host element is fully page-stylable/removable (INFO, inherent; worth one line in SECURITY.md)
 
 The inline popups (fill and passkey consent) are appended to the page's DOM; the shadow roots are
 closed, but the page retains complete control over the host element: it can delete it (cancels the
@@ -255,7 +255,7 @@ The following candidate findings were investigated and discarded, with rationale
 ## 5. Verification summary
 
 - `make test` (full suite incl. native-host integration with mocked GPG): **394/394 pass**.
-- Dynamic PoC for F-1: harness spawns the real `parcel-host` bootstrap with an isolated HOME and a
+- Dynamic PoC for F35M: harness spawns the real `parcel-host` bootstrap with an isolated HOME and a
   mock `gpg` (replicating the test-suite's approach); `decryptBucket: 2`, refill≈0. Transcript:
   `decrypt a → OK`, `decrypt b → OK`, `decrypt c → rate limit exceeded`, `install (repeat, same
   connection) → success`, `decrypt a → OK`, `decrypt b → OK`, `decrypt c → rate limit exceeded`,
@@ -278,16 +278,16 @@ The following candidate findings were investigated and discarded, with rationale
 After drafting §3–§5, the whole draft was re-read against the code, hunting for misinterpretations,
 missed areas, and over/under-claimed severity. Corrections made as a result:
 
-1. **F-4 factual fix.** The first draft claimed the page could reuse a *web-accessible* Parcel logo
+1. **F39T factual fix.** The first draft claimed the page could reuse a *web-accessible* Parcel logo
    for spoofing. In v1.0.4 the WAR list contains no images (only `html/popup.html` and JS modules),
    and the claim was corrected to observable/reproducible styling generally. No change to the
    conclusion.
-2. **F-1 fairness caveat added.** Re-install on a live connection is an intentionally exercised
+2. **F35M fairness caveat added.** Re-install on a live connection is an intentionally exercised
    capability (hot host-script updates, covered by a native-host test). Recommendation text now
    calls this out so maintainers weigh it explicitly.
 3. **Date/reference fixes.** Prior "burst" finding attribution corrected to the 2026-06-25 GLM 5.2
    review; internal dates normalised to the actual system date (2026-08-01).
-4. **New INFO finding F-3a (gitleaks pre-commit hook)** surfaced — the hook fetches and executes the
+4. **New INFO finding F37L (gitleaks pre-commit hook)** surfaced — the hook fetches and executes the
    latest unpinned gitleaks release, which is inconsistent with the project's own supply-chain
    posture. Missed in the first pass because it is not part of the shipped product; included after a
    tooling sweep.
@@ -302,24 +302,24 @@ Areas specifically re-interrogated for possible misreads, with outcomes:
 
 - *"Does the popup-driven fill path ever outlive a navigation?"* Re-checked: the browser-action popup
   is destroyed on tab navigation; the inline popup iframe is DOM of the navigating page. bfcache
-  restores carry the same origin. F-2 remains LOW (hardening), not an active exfiltration path.
+  restores carry the same origin. F36L remains LOW (hardening), not an active exfiltration path.
 - *"Can a page reach the `passkey`/`popup` ports?"* No: `chrome.runtime.connect` is unreachable from
   page realms; only Parcel's own isolated-world content scripts and extension pages hold it.
   `externally_connectable` is not declared. F-5 bullet retained.
 - *"Does the passkey candidate list cross into the page realm?"* No: candidates travel only
   agent → content script → extension-origin popup iframe; the response CustomEvents to MAIN world
   carry only requestId/type/credential. Confirmed.
-- *"Is F-1 overstated because GPG passphrase entry already gates unattended decrypts?"* GPG-agent
+- *"Is F35M overstated because GPG passphrase entry already gates unattended decrypts?"* GPG-agent
   caching means unattended decrypts *are* the normal warm-cache case; throttling exactly that case is
   the control's stated purpose, so the reset vectors matter. Severity MEDIUM retained.
-- *"Is the F-1 'strictly worse than L4' comparison fair?"* Yes: L4 concerned defaults; F-1 defeats
+- *"Is the F35M 'strictly worse than F23T' comparison fair?"* Yes: F23T concerned defaults; F35M defeats
   even deliberately-hardened configurations (small bucket). Retained.
 
 ## 7. Targeted follow-up reviews (per finding)
 
 Each finding above was subjected to a dedicated second pass with fresh verification work:
 
-### F-1 (rate-limiter reset)
+### F35M (rate-limiter reset)
 
 - Grepped both host scripts: `DECRYPT_BUCKET_*` appears only in `src/parcel-host`; no persistence
   exists anywhere; nothing `unset`s or replaces `action_install` after eval. Confirms both reset
@@ -337,7 +337,7 @@ Each finding above was subjected to a dedicated second pass with fresh verificat
   loop structure: an `INSTALL_DONE` guard in the bootstrap's `action_install` (per-process) closes
   vector 1 without touching the hot-update test's semantics (that test uses one install per process).
 
-### F-2 (popup fill missing `origin`)
+### F36L (popup fill missing `origin`)
 
 - Re-traced the exact message shapes in `src/js/popup.js`: the `plaintext`+`fill` handler and all
   `fill-value` posts omit `origin`; the content-script guard is presence-gated
@@ -347,18 +347,18 @@ Each finding above was subjected to a dedicated second pass with fresh verificat
   defense-in-depth gap at LOW. The fix is mechanical (`origin: new URL(tab.url).origin` on both
   message types + check in the `fill-value` branch).
 
-### F-3a (gitleaks hook)
+### F37L (gitleaks hook)
 
 - Re-read the script end-to-end: no version pin, no checksum/signature verification of the tarball;
   `curl | tar -x` into a directory on PATH; runs per-commit as the developer. Confirmed opt-in
   (manual `ln -sf` install). INFO/LOW stands. Note it is *not* wired into CI or release flow.
 
-### F-3b (stale comment)
+### F38I (stale comment)
 
 - Verified the mismatch persists: comment says "`config`/`sha256`"; `PORT_ACTIONS.integration` is
   `["config"]`. One-line doc fix.
 
-### F-4 (UI spoofing)
+### F39T (UI spoofing)
 
 - No further verification required beyond the corrected framing; remains informational.
 
@@ -366,7 +366,7 @@ Each finding above was subjected to a dedicated second pass with fresh verificat
 
 - Each discarded item was re-checked against the cited acceptance rationale and code. No changes.
 
-*Status of this document: final for v1.0.4. If F-1/F-2 are actioned, the rate-limiter behaviour
+*Status of this document: final for v1.0.4. If F35M/F36L are actioned, the rate-limiter behaviour
 change should be accompanied by a native-host test asserting that a second `install` on one
 connection does not refill the bucket (harness pattern: `test/native-host.test.js`).*
 

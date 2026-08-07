@@ -171,7 +171,7 @@ In the `decrypt` and fill paths, `agent.js` forwards `this.#config` to the conte
 
 In `popup.js`, the detail view calls `this.#plaintext.getPlaintext()` and renders each line. Because the popup is an extension page with a strict CSP and no external scripts, this is safe. The content script never receives the raw plaintext for detail view; only fill-relevant values are sent.
 
-### D. Minor: log line length still unbounded in principle
+### D. F14L: Minor: log line length still unbounded in principle
 
 The audit log strips control characters but does not truncate `ORIGIN` or `INTENT` to a maximum byte length. In practice these are constrained by browser URL limits and the small set of intents (`fill`, `detail`), but a hard cap would add defense in depth. **Suggested hardening** (low priority): cap each audit field to a reasonable length (e.g., 2,048 bytes for `ORIGIN`, 64 bytes for `INTENT`) before writing to the log.
 

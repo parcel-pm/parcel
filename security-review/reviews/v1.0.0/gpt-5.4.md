@@ -82,7 +82,7 @@ Per-origin history is stored in `chrome.storage.local` using SHA-256 hashes of o
 
 ## Findings
 
-## Finding 1: GPG auto-import lets rejected install attempts pollute the user's keyring
+## F1M: GPG auto-import lets rejected install attempts pollute the user's keyring
 
 **Severity:** Medium
 **Type:** Implementation issue
@@ -111,7 +111,7 @@ Nothing in `README.md`, `SECURITY.md`, or `CONSTITUTION.md` frames "import new k
 
 Remove `--auto-key-import` from the verification command. If key distribution is needed, document a one-time manual import step for trusted release keys instead.
 
-## Finding 2: Audit logs can be forged or polluted through unsanitized fields
+## F2M: Audit logs can be forged or polluted through unsanitized fields
 
 **Severity:** Medium
 **Type:** Implementation issue
@@ -140,7 +140,7 @@ This is especially important because audit logging is presented as a security fe
 
 Escape or strip control characters before writing log fields, especially `\r` and `\n`. If practical, log JSON lines instead of free-form text.
 
-## Finding 3: "No network access" is a governance rule, not a technical containment boundary
+## F3T: "No network access" is a governance rule, not a technical containment boundary
 
 **Severity:** Medium
 **Type:** Deliberate tradeoff
@@ -164,7 +164,7 @@ This is not a bug in the code. It is a real and well-documented limitation of th
 
 Keep treating "no network access" as a review and release-discipline requirement, not as a sandbox guarantee. Users who need stronger technical containment should understand that the native host is the real boundary, not the extension runtime.
 
-## Finding 4: Default visibility is intentionally permissive and increases blast radius
+## F4T: Default visibility is intentionally permissive and increases blast radius
 
 **Severity:** Medium
 **Type:** Deliberate tradeoff / secure-default weakness
@@ -197,7 +197,7 @@ If the project wants a stronger default stance without breaking first-run usabil
 
 If the current design stays, this tradeoff should remain prominently documented.
 
-## Finding 5: `parcelrc` is a trusted code-execution boundary and should be treated as such
+## F5T: `parcelrc` is a trusted code-execution boundary and should be treated as such
 
 **Severity:** Medium for local compromise, Low in remote threat models
 **Type:** Deliberate tradeoff
@@ -226,7 +226,7 @@ This is acceptable for a power-user, local-tool design, but it should be treated
 - Document recommended permissions (for example, user-writable only).
 - Consider warning if the file is group/world writable.
 
-## Finding 6: Inline autofill across origin boundaries is warning-only
+## F6T: Inline autofill across origin boundaries is warning-only
 
 **Severity:** Low to Medium, depending on phishing assumptions
 **Type:** Deliberate tradeoff
@@ -249,7 +249,7 @@ Consider making this behavior configurable:
 - require explicit second confirmation
 - block cross-origin frame fills entirely
 
-## Finding 7: `web_accessible_resources` is broader than necessary and enables easy fingerprinting
+## F7T: `web_accessible_resources` is broader than necessary and enables easy fingerprinting
 
 **Severity:** Low
 **Type:** Hardening opportunity
@@ -267,7 +267,7 @@ The risk is partially mitigated by the popup's refusal to run in framed `broadca
 - Reduce `web_accessible_resources` to the minimum required for the inline popup
 - Consider `use_dynamic_url` if supported by the target browsers
 
-## Finding 8: History metadata is obscured, not truly secret
+## F8T: History metadata is obscured, not truly secret
 
 **Severity:** Low
 **Type:** Privacy tradeoff
@@ -282,7 +282,7 @@ A local attacker with access to the browser profile, or malicious extension code
 
 This is probably acceptable as-is. If desired, the project could add a per-profile random salt stored locally, but that would complicate portability and recovery.
 
-## Finding 9: `HOST_HASH` resolution order is fragile on systems that rely on `parcelrc` PATH changes
+## F9L: `HOST_HASH` resolution order is fragile on systems that rely on `parcelrc` PATH changes
 
 **Severity:** Low
 **Type:** Reliability/security-control robustness
