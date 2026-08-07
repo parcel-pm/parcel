@@ -2,7 +2,7 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
-## [security-review-kimi_k3-20250801-v1.0.4.md](reviews/security-review-kimi_k3-20250801-v1.0.4.md)
+## [v1.0.4 / kimi-k3](reviews/v1.0.4/kimi-k3.md)
 
 Automated security review using Copilot / Kimi K3, conducted on August 1, 2026 against Parcel v1.0.4 (commit 9df096d).
 
@@ -38,7 +38,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Response:** Rejected; this is an inherent and obvious limitation of the page controlling its own environment, with no clear viable exploit path.
 
-## [security-review-glm_5.2-20250715-v1.0.2.md](reviews/security-review-glm_5.2-20250715-v1.0.2.md)
+## [v1.0.2 / glm-5.2](reviews/v1.0.2/glm-5.2.md)
 
 Automated security review using GLM 5.2, conducted on July 15, 2026 against Parcel v1.0.2 (commit 4d4bbc9).
 
@@ -56,7 +56,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records two find
 
 **Response:** Addressed in #106 by verifying the current origin against the intended origin supplied by the popup.
 
-## [security-review-glm_5.2-20260625-9278905.md](reviews/security-review-glm_5.2-20260625-9278905.md)
+## [20260625-9278905 / glm-5.2](reviews/other/glm-5.2-20260625-9278905.md)
 
 Automated security review using GLM 5.2, conducted on June 25, 2026 against commit 9278905.
 
@@ -152,7 +152,7 @@ No CRITICAL or HIGH exploitable vulnerabilities were identified. The review surf
 
 **Response:** A constant-time comparison here is unnecessary; a timing attack on the hash is not a practical attack surface.
 
-## [security-review-copilot-gpt_5.4-20260617-8023edb.md](reviews/security-review-copilot-gpt_5.4-20260617-8023edb.md)
+## [20260617-8023edb / gpt-5.4](reviews/other/gpt-5.4-20260617-8023edb.md)
 
 Automated security review using Copilot GPT 5.4, conducted on June 17, 2026 against commit 8023edb68ad9fbf7bb66e90e22f4993168d9664a.
 
@@ -164,7 +164,7 @@ This review idetified one new low-priority hardening opportunity.
 
 **Response:** Addressed in #57 by applying the link policies before running traversal operations, plus a few other tightening measures.
 
-## [security-review-copilot-glm_5.2-20260617-8023edb.md](reviews/security-review-copilot-glm_5.2-20260617-8023edb.md)
+## [20260617-8023edb / glm-5.2](reviews/other/glm-5.2-20260617-8023edb.md)
 
 Automated security review using Copilot GLM 5.2, conducted on June 17, 2026 against commit 8023edb68ad9fbf7bb66e90e22f4993168d9664a.
 
@@ -182,7 +182,7 @@ Existing findings from the previous review are omitted, as they are already list
 
 **Response:** This is a very unlikely scenario. The finding is noted, but the only user who could achieve this and *still pass the 0600 check on `parcelrc` afterwards* is `root` (because chown `parcelrc` to the user is required, which non-`root` users cannot do). The status quo is therefore considered acceptable.
 
-## [security-review-copilot-kimi_K2.7-20260617-d8de751.md](reviews/security-review-copilot-kimi_K2.7-20260617-d8de751.md)
+## [20260617-d8de751 / kimi-k2.7](reviews/other/kimi-k2.7-20260617-d8de751.md)
 
 Automated security review using Copilot / Kimi K2.7, conducted on June 17, 2026 against commit d8de751e4fc4629f2c8e0a2cede24b63e819ade1.
 
@@ -194,7 +194,7 @@ No security vulnerabilities were identified in this review. The review notes one
 
 **Response:** This was already addressed in #56, but GitHub seems to have lost the commit after merging. Have re-merged it manually.
 
-## [security-review-copilot-kimi_K2.6-20260615-293a1b2.md](reviews/security-review-copilot-kimi_K2.6-20260615-293a1b2.md)
+## [20260615-293a1b2 / kimi-k2.6](reviews/other/kimi-k2.6-20260615-293a1b2.md)
 
 Automated security review using Copilot / Kimi K2.6, conducted on June 15, 2026 against commit 293a1b26d76510e53a89608ceb4979c47260f5f9.
 
@@ -229,7 +229,7 @@ exposes a small interference surface.
 **Response:** This is considered an acceptable tradeoff. The patch supports core functionality, and alternatives have significant
 performance penalties.
 
-## [security-review-copilot-gpt_5.4-20260614-v1.0.0.md](reviews/security-review-copilot-gpt_5.4-20260614-v1.0.0.md)
+## [v1.0.0 / gpt-5.4](reviews/v1.0.0/gpt-5.4.md)
 
 Automated security review using Copilot GPT 5.4, conducted on June 14, 2026 against the v1.0.0 release.
 
