@@ -245,11 +245,13 @@ while true; do
         PARCEL_HOST=""
     fi
     # Restart the main loop
-    if ! main; then
-        if [ $? -eq 2 ]; then
-            continue
-        fi
+    rc=0
+    main || rc=$?
+    if [ $rc -eq 0 ]; then
+        break # clean exit
+    elif [ $rc -eq 2 ]; then
+        continue # explicit reload
     else
-        break
+        exit $rc # exit with error code
     fi
 done
