@@ -255,6 +255,10 @@ function action_list() {
     fi
 
     local REAL_OUT="$(printf '%s' "$FIND_OUT" | tr '\n' '\0' | xargs -0 -n100 readlink -f || true)"
+    if [ "$(printf '%s' "$FIND_OUT" | grep -c '')" -ne "$(printf '%s' "$REAL_OUT" | grep -c '')" ]; then
+        parcel_error "Entry list desync: find and readlink returned different line counts (possible TOCTOU race)"
+        return 0
+    fi
 
     local SYMLINKS=()
     while IFS= read -r link; do
