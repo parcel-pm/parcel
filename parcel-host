@@ -193,7 +193,7 @@ function main() {
         fi
         local MESSAGE="$(head -c "$MSG_LEN")"
         local NEW_TOKEN="$(jq -r .token <<< "$MESSAGE")"
-        if [ -n "$NEW_TOKEN" ]; then
+        if [ -n "$NEW_TOKEN" ] && [ "$NEW_TOKEN" != "null" ]; then
             TOKEN="$NEW_TOKEN"
         fi
         local ACTION="$(jq -r .action <<< "$MESSAGE")"
