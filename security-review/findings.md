@@ -36,7 +36,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** `handlePasskeyConflict` trusts a forgeable DOM `CustomEvent`. A page can surface a false "another extension controls passkeys" modal and, on user dismissal, persist a per-origin `passkeyConflictDismissed` entry that suppresses genuine later conflict notices. No signature/decryption consequence — the ceremony path re-derives everything isolated-side. TM1.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Status quo is acceptable. The attacker could just as easily be hooking the *actual* API (producing a *real* conflict) with the same outcome. Either way, it's being tampered with, and we shouldn't touch it.
 
 ### F45L — Packaging `rsync` lacks `--delete`; stale files ship on ad-hoc builds (LOW)
 
