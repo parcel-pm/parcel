@@ -72,7 +72,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** Four fixed gates lack adversarial regression coverage: audit-field truncation assertions, hostile action-string dispatch tests, popup-side fill-`origin` field assertion, and per-container history isolation. Additionally, state-file symlink/fail-open paths are unexercised. All are defence-regression detectors, not live holes.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Noted. Test coverage for non-whitelisted port actions expanded in #132.
 
 ### F51I — `fill-value` and `frameOrigin`-undefined edge skip the destination-origin guard (INFORMATIONAL)
 
