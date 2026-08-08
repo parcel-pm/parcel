@@ -84,6 +84,9 @@ export class Agent extends EventTarget {
 
     /**
      * Initialise the agent & native host.
+     *
+     * Cold-start `install`/`configure` calls get extended timeouts: the
+     * default 2s is too short for GPG verification and the initial store scan.
      * @since 1.0.0
      * @returns {Promise<void>}
      */
@@ -94,14 +97,15 @@ export class Agent extends EventTarget {
                 signatureURL = chrome.runtime.getURL("parcel-host.asc"),
                 signature = await (await fetch(signatureURL)).text();
             try {
-                const result = await this.#callNative("install", { script, signature });
+                const result = await this.#callNative("install", { script, signature }, 30_000);
                 if (!result.success) throw new Error(result.message);
                 console.log(result.message);
             } catch (err) {
                 throw new Error(`Failed to install native host: ${err.message}`);
             }
-            this.#setConfig(await this.#callNative("configure"));
+            this.#setConfig(await this.#callNative("configure", {}, 10_000));
             this.#startNativePing();
+            this.#initError = null;
             this.dispatchEvent(new CustomEvent("ready"));
         } catch (err) {
             this.#initError = err;
@@ -277,6 +281,10 @@ export class Agent extends EventTarget {
 
     /**
      * Handle disconnections from the native host, reinitialising on unexpected disconnects.
+     *
+     * Always reconnect after a disconnect. `#initError` is preserved (and
+     * still surfaced to ports) until the next successful `#init()` clears it —
+     * previously, any init failure permanently disabled reconnection.
      * @since 1.0.0
      * @returns {Promise<void>}
      */
@@ -290,16 +298,12 @@ export class Agent extends EventTarget {
             console.error(new Error(chrome.runtime.lastError.message));
         }
         this.#rejectPendingCall("Native host disconnected unexpectedly");
-        if (!this.#initError) {
-            console.error("Native host disconnected unexpectedly - reinitialising...");
-            // Reconnect on the next tick. Under MV3 the service worker may be
-            // terminated inside this 1s window; on the next cold start the
-            // constructor re-runs #connectNative() anyway, so correctness is
-            // preserved either way.
-            setTimeout(() => this.#ensureNativeConnected(), 1000);
-        } else {
-            console.error("Native host initialisation failed - aborting.");
-        }
+        console.error("Native host disconnected unexpectedly - reinitialising...");
+        // Reconnect on the next tick. Under MV3 the service worker may be
+        // terminated inside this 1s window; on the next cold start the
+        // constructor re-runs #connectNative() anyway, so correctness is
+        // preserved either way.
+        setTimeout(() => this.#ensureNativeConnected(), 1000);
     }
 
     /**
@@ -439,7 +443,7 @@ export class Agent extends EventTarget {
         let needRefresh = !this.#entriesUpdated;
         if (this.#entriesUpdated) {
             // if the cache is valid, check with the native host if there have been any changes since we last updated it
-            const changes = (await this.#callNative("changes_since", { since: Math.floor(this.#entriesUpdated / 1000) }))?.changes;
+            const changes = (await this.#callNative("changes_since", { since: Math.floor(this.#entriesUpdated / 1000) }, 10_000))?.changes;
             if (!changes) {
                 this.#entriesUpdated = Date.now();
                 needRefresh = false;
@@ -464,7 +468,7 @@ export class Agent extends EventTarget {
         if (this.#refreshingEntries) return this.#refreshingEntries;
         this.#refreshingEntries = (async () => {
             try {
-                this.#setEntries(await this.#callNative("list"));
+                this.#setEntries(await this.#callNative("list", {}, 30_000));
             } finally {
                 this.#refreshingEntries = null;
             }
@@ -617,7 +621,7 @@ export class Agent extends EventTarget {
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     updateStatus("Checking for config changes...");
-                    const newConfig = await this.#callNative("configure");
+                    const newConfig = await this.#callNative("configure", {}, 10_000);
                     if (newConfig?.modified > this.#config.modified) {
                         this.#setConfig(newConfig);
                         updateStatus("Refreshing entry list...");
