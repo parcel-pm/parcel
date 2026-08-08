@@ -18,7 +18,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** If a detached-signature blob contains two signatures, `grep VALIDSIG`/`cut` yields a multi-line string that fails the textual containment check only because of the embedded newline. The control works today (fails closed) but rests on an emergent property rather than an explicit single-signer assertion; a refactor could change this silently. TM5.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Rejected; not a valid finding. Only a valid signature from a key listed in `VALID_SIGNERS` can pass this gate. By chance, this finding happened to expose an inability to properly handle multi-sig files (rejects when should approve) - this capability is added in #129.
 
 ### F42L — `passkeyDir` lacks `..`/absolute-path validation, weakening textual `.gpg-id` store containment (LOW)
 
