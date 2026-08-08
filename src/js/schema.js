@@ -217,7 +217,7 @@ export const ConfigSchema = {
             type: "string",
             required: true,
             minLength: 1,
-            pattern: "^[^\\p{Cc}*?[\\\\]+$", // Excludes control chars (\p{Cc}) and the glob metacharacters * ? [ \
+            pattern: "^(?![\\\\/])(?!.*\\.\\.)(?!.*[\\\\/]$)[^\\p{Cc}*?[\\\\]+$", // Relative path; excludes control chars, glob metacharacters * ? [ \, leading/trailing slashes, and .. traversal
             default: "passkeys",
         },
         handlePasskeys: { type: "boolean", required: true, default: true },
