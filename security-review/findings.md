@@ -60,13 +60,13 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** `popup.js:1066` interpolates store-controlled `entry.path` into `querySelector` without `CSS.escape`. A pathological filename throws `SyntaxError`, breaking popup rendering for that origin. No code execution (querySelector cannot execute code); all other rendering sinks use `textContent`/`createTextNode`. TM4 (store-write access required).
 
-**Response:** — _(maintainer to respond)_
+**Response:** — `CSS.escape` added in #132.
 
 ### F49I — Unbounded `#authorisedTokens` / `targetBindings` growth via synthetic clicks (INFORMATIONAL)
 
 **Description:** Each synthetic `click()` mints a UUID token into `#authorisedTokens`; bindings survive disconnect. A hostile page can grow these without bound (transient memory pressure; no disclosure). Bounded by per-frame lifetime. TM1.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Rejected; this isn't a practical attack vector and pages can already do many other things that cause a lot more memory pressure than this.
 
 ### F50I — Regression-test gaps over fixed security gates (INFORMATIONAL)
 
