@@ -339,13 +339,16 @@ describe("Agent", () => {
         }
     });
 
-    test("decrypt rejected from integration port", async () => {
-        const integration = mock.chrome.runtime.connect({ name: "integration" });
-        await settleAsync();
-        const errPromise = nextMessage(integration, "error");
-        integration.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
-        const err = await errPromise;
-        assert.ok(err.error?.includes("not permitted"), "decrypt blocked on integration port");
+    test("non-whitelisted actions rejected from integration port", async () => {
+        for (const action of ["decrypt", "match", "sha256"]) {
+            const integration = mock.chrome.runtime.connect({ name: "integration" });
+            await settleAsync();
+            const errPromise = nextMessage(integration, "error");
+            integration.postMessage({ action });
+            const err = await errPromise;
+            assert.ok(err.error?.includes("not permitted"), `${action} blocked on integration port`);
+            integration.disconnect();
+        }
     });
 
     test("unknown action rejected", async () => {

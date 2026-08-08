@@ -302,6 +302,11 @@ export function createChromeMock(opts = {}) {
 
         /** Install navigator.clipboard and ResizeObserver stubs into `globalThis`. */
         installBrowserPolyfills() {
+            if (!globalThis.CSS) {
+                globalThis.CSS = {
+                    escape: (str) => String(str).replace(/[^\w-]/g, "\\$&"),
+                };
+            }
             if (!globalThis.navigator) globalThis.navigator = {};
             Object.defineProperty(globalThis.navigator, "clipboard", {
                 value: clipboard,
