@@ -24,7 +24,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** `passkey_op_create` rejects control characters and glob metacharacters in `passkeyDir` but not `..` or leading `/`. The `.gpg-id` walk reads out-of-store files because the containment test is purely textual (a `../`-containing path textually starts with `$STORE_ROOT/`). Recipient selection for a generated passkey can be taken from an out-of-store `.gpg-id`. Config-controlled precondition; narrow chain — hence LOW.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Fixed in #130; these are now checked and rejected.
 
 ### F43L — Firefox lacks `ancestorOrigins`: frame-id broadcast falls back to `"*"`, receiver applies no origin check (LOW)
 
