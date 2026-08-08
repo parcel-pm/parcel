@@ -42,7 +42,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** `make chrome`/`make firefox` sync with `rsync -av` (no `--delete`) and no destination pre-clean. Files removed/renamed in `src/` between manual builds persist in the output tree, weakening source↔distribution parity. The `release` target is safe (depends on `clean`), but the coupling is implicit. TM5.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Added `--delete` in #131.
 
 ### F46L — State-file fail-open lets a same-user process reset the rate-limiter bucket; writes follow symlinks (LOW)
 
