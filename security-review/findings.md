@@ -78,7 +78,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** The origin guard only fires when the message carries an `origin` key. The `fill-value` action never carries `origin`, and an undefined `frameOrigin` is dropped by structured-clone. No reachable exploit: `fill-value` values come from already-decrypted plaintext; the `frameOrigin`-undefined edge resolves before any real fill. The maintainer-rejected half of F36L.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Rejected; no practical exploit exists.
 
 ## [v1.0.4 / kimi-k3](reviews/v1.0.4/kimi-k3.md)
 
