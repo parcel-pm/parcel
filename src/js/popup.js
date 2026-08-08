@@ -1063,7 +1063,7 @@
             }
             ul.querySelectorAll(":scope > li").forEach((el) => (el._keep = false));
             for (const entry of msg.entries) {
-                let li = ul.querySelector(`li[data-path="${entry.path}"]`);
+                let li = ul.querySelector(`li[data-path="${CSS.escape(entry.path)}"]`);
                 if (li) {
                     // reuse existing li elements
                     li._keep = true;
