@@ -444,7 +444,7 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("accepts install with one valid and one invalid signer in a multi-sig blob", async () => {
+    test("accepts install with one trusted and one untrusted signer in a multi-sig blob", async () => {
         const env = createTestEnv();
         const { proc, read, send } = spawnBootstrap(env);
         try {
@@ -469,7 +469,7 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             assert.strictEqual(
                 msg.data?.success,
                 true,
-                `Expected success with one valid signer in multi-sig blob, got: ${JSON.stringify(msg)}`,
+                `Expected success with one trusted signer in multi-sig blob, got: ${JSON.stringify(msg)}`,
             );
         } finally {
             proc.kill();
@@ -477,7 +477,7 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("rejects install with multiple invalid signers in a multi-sig blob", async () => {
+    test("rejects install with multiple untrusted signers in a multi-sig blob", async () => {
         const env = createTestEnv();
         const { proc, read, send } = spawnBootstrap(env);
         try {
