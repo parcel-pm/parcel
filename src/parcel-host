@@ -727,8 +727,9 @@ function passkey_op_create() {
     # the passkey directory anchor is user-controlled; control characters would
     # break the single-line audit format, and glob metacharacters must never
     # appear where path prefixes are compared so the checks below stay literal
-    # at every current and future call site
-    if [[ -z "$PASSKEY_DIR" || "$PASSKEY_DIR" =~ [[:cntrl:]] || "$PASSKEY_DIR" =~ [\*\?\[\\] ]]; then
+    # at every current and future call site. Reject `..` and leading `/` to
+    # prevent the .gpg-id walk from escaping the password store.
+    if [[ -z "$PASSKEY_DIR" || "$PASSKEY_DIR" =~ [[:cntrl:]] || "$PASSKEY_DIR" =~ [\*\?\[\\] || "$PASSKEY_DIR" == ..* || "$PASSKEY_DIR" == */..* || "$PASSKEY_DIR" == /* ]]; then
         audit_passkey "Denied (invalid passkeyDir)" "$ORIGIN" ""
         parcel_error "Invalid passkeyDir in config: $PASSKEY_DIR"
         return 0

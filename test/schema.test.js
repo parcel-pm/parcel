@@ -367,10 +367,21 @@ describe("Defined schemas", () => {
         assert.strictEqual(config.passkeyDir, "passkeys");
     });
 
-    test("ConfigSchema: passkeyDir permits unicode, spaces, dots and traversal", () => {
-        for (const passkeyDir of ["我的密钥", "My Keys", "../elsewhere", ".hidden", "a//b", "/abs", "a.b/c"]) {
+    test("ConfigSchema: passkeyDir permits unicode, spaces and dots", () => {
+        for (const passkeyDir of ["我的密钥", "My Keys", ".hidden", "a//b", "a.b/c"]) {
             const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir };
             assert.doesNotThrow(() => Schema.validate(ConfigSchema, config), `expected ${passkeyDir} to be accepted`);
+        }
+    });
+
+    test("ConfigSchema: rejects path traversal and absolute paths in passkeyDir", () => {
+        for (const passkeyDir of ["../elsewhere", "/abs", "foo/../bar", "foo/.."]) {
+            const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir };
+            assert.throws(
+                () => Schema.validate(ConfigSchema, config),
+                /passkeyDir/,
+                `expected ${JSON.stringify(passkeyDir)} to be rejected`,
+            );
         }
     });
 

@@ -40,7 +40,6 @@
             }
         }
     }
-
     /**
      * Create a runtime port that transparently reconnects after disconnection.
      *
@@ -56,17 +55,25 @@
     function reconnectingPort(name) {
         let port = null;
         function open() {
-            const p = chrome.runtime.connect({ name });
-            p.onDisconnect.addListener(() => {
-                chrome.runtime.lastError; // consume the disconnect error
-                if (port === p) port = null;
-            });
-            return p;
+            try {
+                const p = chrome.runtime.connect({ name });
+                p.onDisconnect.addListener(() => {
+                    chrome.runtime.lastError; // consume the disconnect error
+                    if (port === p) port = null;
+                });
+                return p;
+            } catch (_err) {
+                // Extension context invalidated — the content script is stale
+                // and must be reloaded by the user. We return null so callers
+                // don't attempt further posts on a dead port.
+                return null;
+            }
         }
         port = open();
         return {
             postMessage(msg) {
                 if (!port) port = open();
+                if (!port) return false;
                 return postWithRetry(
                     () => port.postMessage(msg),
                     () => {
@@ -103,9 +110,17 @@
     // self-healing: the native host exits via its own idle watchdog, and the
     // next keepalive sendMessage wakes the worker, which reconnects on
     // construction. We degrade to a dormant host, never a zombie one.
+    //
+    // After extension reload, this stale script's context is invalidated and
+    // sendMessage throws; catch it once and stop the timer (a fresh content
+    // script only arrives on page reload).
     if (window === window.top) {
-        setInterval(() => {
-            chrome.runtime.sendMessage({ type: "keepalive" }, () => void chrome.runtime.lastError);
+        const keepalive = setInterval(() => {
+            try {
+                chrome.runtime.sendMessage({ type: "keepalive" }, () => void chrome.runtime.lastError);
+            } catch (_err) {
+                clearInterval(keepalive);
+            }
         }, 25_000);
     }
 
@@ -160,11 +175,57 @@
      * @since 1.0.0
      * @type {Promise<object>}
      */
-    const config = new Promise((resolve) => {
-        const port = chrome.runtime.connect({ name: "integration" });
-        port.onMessage.addListener(async (msg) => {
-            if (msg.action === "config") {
-                port.disconnect();
+    const config = new Promise((resolve, reject) => {
+        const MAX_ATTEMPTS = 5;
+        let attempts = 0;
+        let settled = false;
+
+        // settle-once rejection: the error is logged here, so consumers only
+        // receive it (and gate on configOK) without re-logging
+        const rejectConfig = (err) => {
+            if (settled) return;
+            settled = true;
+            console.error(err);
+            reject(err);
+        };
+
+        /**
+         * Request the config on a fresh "integration" port, retrying on error,
+         * disconnect or timeout. Rejects after MAX_ATTEMPTS failures.
+         * @since 1.0.6
+         * @returns {void}
+         */
+        function requestConfig() {
+            let port;
+            try {
+                port = chrome.runtime.connect({ name: "integration" });
+            } catch (_err) {
+                // Extension context invalidated — the content script is stale and
+                // the page must be reloaded to get a fresh injection.
+                rejectConfig(new Error("Extension context invalidated — please reload the page."));
+                return;
+            }
+            const timer = setTimeout(() => fail("timed out"), 10_000);
+            // retry the request, or give up once attempts are exhausted
+            const fail = (reason) => {
+                if (settled) return;
+                clearTimeout(timer);
+                if (++attempts >= MAX_ATTEMPTS) {
+                    rejectConfig(new Error(`Failed to load configuration after ${MAX_ATTEMPTS} attempts (${reason})`));
+                    return;
+                }
+                setTimeout(requestConfig, 1000);
+            };
+            port.onMessage.addListener((msg) => {
+                if (msg.action === "error") return fail(msg.error);
+                if (msg.action !== "config" || settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try {
+                    port.disconnect();
+                } catch (_err) {
+                    // already disconnected; nothing to clean up
+                }
                 frameId = msg?.frameId || 0;
                 if (window !== window.top) {
                     // Restrict the broadcast to the top-level origin so a
@@ -176,10 +237,26 @@
                     window.top.postMessage({ action: "parcel-frame-id", frameId }, topOrigin);
                 }
                 resolve(msg.config);
-            }
-        });
-        port.postMessage({ action: "config" });
+            });
+            port.onDisconnect.addListener(() => {
+                chrome.runtime.lastError; // consume the disconnect error
+                fail("disconnected");
+            });
+            port.postMessage({ action: "config" });
+        }
+        requestConfig();
     });
+
+    /**
+     * True when the config loaded, false when it failed. Also marks `config` as
+     * handled so its rejection can't surface as "Uncaught (in promise)".
+     * @since 1.0.6
+     * @type {Promise<boolean>}
+     */
+    const configOK = config.then(
+        () => true,
+        () => false,
+    );
 
     /**
      * List of valid focus targets, filtered to the current host.
@@ -733,7 +810,7 @@
         }
     }
 
-    if (!(await config).disableContextPopup) {
+    if ((await configOK) && !(await config).disableContextPopup) {
         document.addEventListener("click", (ev) => handleTriggerClick(ev.target, ev.clientX, ev.clientY), { capture: true, passive: true });
         document.addEventListener("keydown", handleTargetKeydown, { capture: true });
         document.addEventListener(
@@ -795,7 +872,13 @@
     async function passkeyRequest(msg) {
         const timeout = (await config).decryptTimeout * 1000 + 5000;
         return new Promise((resolve, reject) => {
-            const port = chrome.runtime.connect({ name: "passkey" });
+            let port;
+            try {
+                port = chrome.runtime.connect({ name: "passkey" });
+            } catch (_err) {
+                reject(new Error("Extension context invalidated — please reload the page."));
+                return;
+            }
             const timer = setTimeout(() => {
                 port.disconnect();
                 reject(new Error("Passkey request timed out."));
@@ -943,6 +1026,12 @@
                 respond({ type: "fallback" });
                 return;
             }
+            if (!(await configOK)) {
+                // without a config we cannot make passkey decisions — defer to the browser
+                console.debug("[integration] deferring passkey to browser: config unavailable");
+                respond({ type: "fallback" });
+                return;
+            }
             if ((await config).handlePasskeys === false) {
                 console.debug("[integration] deferring passkey to browser: handlePasskeys is disabled");
                 respond({ type: "fallback" });
@@ -1070,6 +1159,7 @@
         if (passkeyConflictShown) return;
         // only the top frame may raise UI
         if (window !== window.top) return;
+        if (!(await configOK)) return;
         const cfg = await config;
         if (cfg.handlePasskeys === false) return;
         const hostname = window.location.hostname;
@@ -1349,6 +1439,11 @@
 
         if (!Object.prototype.hasOwnProperty.call(targetBindings, port.name) && port.name !== "broadcast") {
             maybePost(port, { action: "close" });
+            port.disconnect();
+            return;
+        }
+        if (!(await configOK)) {
+            maybePost(port, { action: "error", error: "Parcel could not load its configuration — try reloading the page." });
             port.disconnect();
             return;
         }

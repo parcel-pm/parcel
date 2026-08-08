@@ -406,6 +406,106 @@ exit 1
         }
     });
 
+    test("accepts install with multiple valid signers in a multi-sig blob", async () => {
+        const env = createTestEnv();
+        const secondSigner = "56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601";
+        // Add a second valid signer to parcelrc
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(
+            parcelrc,
+            existing.replace(`VALID_SIGNERS="${env.knownSigner}"`, `VALID_SIGNERS="${env.knownSigner} ${secondSigner}"`),
+        );
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            // Override mock gpg to return two VALIDSIG lines from two valid signers
+            writeFileSync(
+                env.mockGpgPath,
+                `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    echo "[GNUPG:] VALIDSIG ${env.knownSigner} 2026-05-01 0 0 4 0 1 8 00 ${env.knownSigner}"
+    echo "[GNUPG:] VALIDSIG ${secondSigner} 2026-05-01 0 0 4 0 1 8 00 ${secondSigner}"
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exec $(which gpg || echo /usr/bin/gpg) "$@"
+`,
+            );
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected success, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("accepts install with one trusted and one untrusted signer in a multi-sig blob", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            writeFileSync(
+                env.mockGpgPath,
+                `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    echo "[GNUPG:] VALIDSIG DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF 2026-05-01 0 0 4 0 1 8 00 DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"
+    echo "[GNUPG:] VALIDSIG ${env.knownSigner} 2026-05-01 0 0 4 0 1 8 00 ${env.knownSigner}"
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exec $(which gpg || echo /usr/bin/gpg) "$@"
+`,
+            );
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(
+                msg.data?.success,
+                true,
+                `Expected success with one trusted signer in multi-sig blob, got: ${JSON.stringify(msg)}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects install with multiple untrusted signers in a multi-sig blob", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            writeFileSync(
+                env.mockGpgPath,
+                `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    echo "[GNUPG:] VALIDSIG DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF 2026-05-01 0 0 4 0 1 8 00 DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"
+    echo "[GNUPG:] VALIDSIG CAFEBABECAFEBABECAFEBABECAFEBABECAFEBABE 2026-05-01 0 0 4 0 1 8 00 CAFEBABECAFEBABECAFEBABECAFEBABECAFEBABE"
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exec $(which gpg || echo /usr/bin/gpg) "$@"
+`,
+            );
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("rejects install when HOST_HASH does not match", async () => {
         const env = createTestEnv();
         // Set a HOST_HASH that won't match
