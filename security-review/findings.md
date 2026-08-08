@@ -12,7 +12,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** The F20M fix (#69) gate is silently bypassable: the literal string `"broadcast"` authenticates a `popup`-named port without token issuance, and any context can push self-chosen tokens into `#authorisedTokens` via an `auth`-named port with no `port.sender` validation. A compromised content script (TM2) can drive silent, UI-less `decrypt`/`match` of whitelisted entries with an attacker-chosen audit `origin`. The host whitelist and rate limiter still bound the blast radius. Found independently by both models.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Rejected; not a valid finding. This token is already documented in the code as a *correlation* identifier linking clicked fields to contextual fills; it's not intended as a defence against a compromised isolated-world extension script. The behaviour is precisely as intended and within the documented threat model.
 
 ### F41L — Multi-signer signature blob: signer extraction relies on fail-closed regex accident (LOW)
 
