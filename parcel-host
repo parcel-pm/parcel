@@ -153,20 +153,20 @@ function action_install() {
     fi
     rm -f "$KEYRING" "$KEYRING"~
 
-    # verify signer
+    # verify signer — accept if any signature is from a trusted key
     local SIGNER
-    if ! SIGNER="$(grep VALIDSIG <<< "$OUT" | cut -d' ' -f12)" || [ -z "$SIGNER" ]; then
+    local SIGNER_VALID=false
+    while IFS= read -r SIGNER; do
+        if [[ -n "$SIGNER" && " $VALID_SIGNERS " =~ [[:space:]]$SIGNER[[:space:]] ]]; then
+            SIGNER_VALID=true
+            break
+        fi
+    done < <(grep VALIDSIG <<< "$OUT" | cut -d' ' -f12)
+    if ! $SIGNER_VALID; then
         # Log the full GPG status output for debugging; do not leak it to the extension.
-        printf '[%s] Signature verification failed: No primary fingerprint:\n%s\n' \
+        printf '[%s] Signature verification failed: No valid signer fingerprint:\n%s\n' \
             "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$OUT" >&5
-        parcel_error "Signature verification failed: No primary fingerprint"
-        return 0
-    fi
-    if [[ ! " $VALID_SIGNERS " =~ [[:space:]]$SIGNER[[:space:]] ]]; then
-        # Log the full GPG status output for debugging; do not leak it to the extension.
-        printf '[%s] Signature verification failed: Invalid primary fingerprint:\n%s\n' \
-            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$OUT" >&5
-        parcel_error "Signature verification failed: Invalid primary fingerprint"
+        parcel_error "Signature verification failed: No valid signer fingerprint"
         return 0
     fi
 
