@@ -30,7 +30,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** The F28T narrowing uses `location.ancestorOrigins` (Chrome-only). On Firefox the broadcast target falls back to `"*"`, and the receive handler checks only `ev.source` with no `ev.origin` validation, allowing a cross-origin embedder to forge/relabel iframe `_parcelFrameId`. Impact limited to popup-position confusion; fill delivery is token-bound. Coverage gap in F28T's mitigation, not a contradiction of the accepted core. TM1.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Status quo is acceptable. The only consequence of a successful attack is repositioning the Parcel UI, and Firefox lacks the necessary API surface to lock this down further. Cross-origin support is a legitimate and desired feature.
 
 ### F44L — Page-forged `parcel-webauthn-conflict` event surfaces a false conflict modal; can suppress genuine notices (LOW)
 
