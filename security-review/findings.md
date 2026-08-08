@@ -54,7 +54,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** On an invalid `.since` timestamp, `action_changes_since` calls `parcel_error` but does not `return`, continuing into `date -d`/`find -newermt` with the unvalidated value. No injection (the value is a quoted argument); the malformed `find` fails closed (no changes reported). Best-effort robustness defect.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Rejected; this is cosmetic only. Added a `return 0` anyway for clarity.
 
 ### F48I — Unescaped `entry.path` in `querySelector` — store-controlled selector render break (INFORMATIONAL)
 
