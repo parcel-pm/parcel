@@ -48,7 +48,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** `load_state` returns an empty bucket on any unloadable state (missing, wrong permissions, invalid content, or symlink detection), and `check_decrypt_rate_limit` seeds a full 24-token burst. A same-UID hostile process (TM4) can trivially reset the rate limiter, softening the F35M persistence guarantee. Writes follow symlinks. No browser-reachable path; the actor already holds stronger primitives.
 
-**Response:** — _(maintainer to respond)_
+**Response:** — Rejected; this is out-of-scope for Parcel. The rate-limiter guards against a compromised *extension*. A bad actor with permission to perform this attack is already acting as the user, outside of both the browser and parcel-host's ability to contain.
 
 ### F47L — `action_changes_since` does not abort after rejecting an invalid `.since` (LOW)
 
