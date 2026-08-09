@@ -12,6 +12,7 @@
 | Clean generated artifacts | `make clean` | Removes `src/dist/`, `chrome/`, `firefox/`, and top-level `dist/`. |
 | Run all tests | `make test` | Runs the full test suite with `node --test` across all `test/*.test.js` files (browser mock, helpers, native host, plaintext, schema, selectors, targets). |
 | Run individual test groups | `make test-native`, `make test-browser-mock`, `make test-modules`, `make test-application`, `make test-syntax` | Native-host integration tests; Chrome-API mock tests; shared-module unit tests; application tests; syntax tests respectively. |
+| List outstanding TODO comments | `make todo` | Prints all TODO comments found in `src`, `test`, and root `.md` files, with author and date from git blame. |
 
 Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly targets that vendored subtree.
 
@@ -42,6 +43,9 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Inline closures or anonymous functions should NOT be given a JSDoc comment, but they may have a brief // comment if the purpose is not obvious.
 - When making decisions, consider the long-term implications and maintainability of the code. Avoid short-term fixes that may introduce technical debt or future issues.
 - Never refer to line numbers in comments; they become stale rapidly.
+- Inline TODO comments should be prefixed with uppercase `TODO:`, so that `make todo` will show them.
+- Multiline todo comments should have a first line consisting exclusively of a brief and self-contained description.
+- Do not wrap TODO comment lines with markdown emphasis (_, * etc).
 
 ## Security considerations
 
@@ -67,3 +71,4 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - If tradeoffs are necessary, clearly explain the reasoning behind your recommendations and the potential impact on the project.
 - When considering solutions, remember that security is paramount. More secure solutions are usually preferable unless there is a compelling reason for a tradeoff. If a proposed solution introduces or exacerbates security risks, those risks must be clearly communicated.
 - If a recommended solution mitigates security risks, explain how it does so and why it is a better approach than the alternatives.
+- Run `make todo` to check for any relevant outstanding tasks.

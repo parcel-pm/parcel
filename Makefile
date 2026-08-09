@@ -81,6 +81,10 @@ endif
 	install -m 755 -D -t dist parcel-host
 	for file in dist/*; do gpg --detach-sign --armor "$$file"; done
 
+.PHONY: todo
+todo:
+	@./scripts/todo.sh
+
 .PHONY: test-native
 test-native:
 	node --test $(TEST_FLAGS) test/native-host.test.js
