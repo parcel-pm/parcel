@@ -345,8 +345,10 @@
         } catch {
             // cross-origin iframe — fall through to rpId check below
         }
-        // Defensive defaults: without an rpId, only the top / same-origin path applies
-        const effectiveRpId = rpId || window.location.hostname;
+        // Defensive defaults: without an rpId, only the top / same-origin path applies.
+        // Lowercased because domain comparison is case-insensitive (URL.hostname already
+        // returns lowercase, and the background worker normalises rpId the same way)
+        const effectiveRpId = (rpId || window.location.hostname).toLowerCase();
         const host = window.location.hostname;
         return host === effectiveRpId || host.endsWith("." + effectiveRpId);
     }

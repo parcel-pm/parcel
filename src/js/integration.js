@@ -993,7 +993,8 @@
             // and the downstream security layers (rpId validation, consent, host).
             return true;
         }
-        // The top frame opted into WebAuthn for this iframe via the allow attribute
+        // The default "self" allowlist covers top and same-origin frames; a cross-origin
+        // iframe only passes when the top frame opted it in via the allow attribute
         if (op === "get") return policy.allowsFeature("publickey-credentials-get") || policy.allowsFeature("publickey-credentials");
         return policy.allowsFeature("publickey-credentials-create") || policy.allowsFeature("publickey-credentials");
     }
