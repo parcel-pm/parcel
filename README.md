@@ -143,9 +143,32 @@ Example:
 ## Usage
 
 1. Click the **Parcel toolbar icon** (or press `Ctrl+Shift+F` / `Cmd+Shift+F`) to open the popup.
-2. Search for the credential you want to fill.
+2. Search for the credential you want to fill. The search box is focused automatically when the popup opens, so you can start typing immediately.
 3. Click an entry to trigger **heuristic autofill** into the best-matching form field on the page.
 4. For more precise control, click directly on the field that you wish to fill, and Parcel will display an inline popup to allow you to select the desired credential.
+
+### Search field and origin-scoped matching
+
+When the popup opens on a web page, the search field is **origin-scoped** by default. The hostname of the page you're on is shown as a label to the left of the search box (for example `example.com:`), indicating that only entries matching the current page's origin are visible.
+
+This origin-scoping is the primary anti-phishing safeguard in the popup UI. An entry is included in the origin-scoped results if **any** of the following are true:
+
+- **It matches the current origin** (or a parent domain). An entry for `google.com` will not appear while you're on `attacker-g00gle-login.com`, even if your search term would otherwise match it.
+- **It was previously used on this origin.** Entries you have filled on the current page before are remembered, and are displayed again regardless of whether their path matches the hostname. This means an entry you manually selected once will continue to surface on that origin without needing global search.
+- The hostname label is a visual confirmation of which origin the results are scoped to.
+
+Within the results, **pin-perfect matches** (where the entry path contains the full hostname) are sorted above **partial-domain matches** (where the entry path matches a parent domain of the current host). Previously-used entries are then sorted to the top of the entire list.
+
+### Global search (anti-phishing backspace gesture)
+
+To search your **entire** password store — not just the entries matching the current page's origin — press **Backspace while the search field is empty**. This clears the origin scope and reveals every fill-capable entry that matches your search term.
+
+Visual changes when global search is activated:
+
+- The origin hostname label is hidden, indicating that results are no longer scoped to the page.
+- All fill-capable entries become searchable (not just those matching the current origin).
+
+Origin-scoping cannot be re-enabled within the same popup session — once you switch to global search, close and reopen the popup if you want to return to origin-scoped results.
 
 ---
 
