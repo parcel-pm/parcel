@@ -832,9 +832,9 @@ describe("Agent native call timeout recovery", () => {
         scopedMock.fireRuntimeStartup();
         await settleAsync();
 
-        // Install a handler on the new port that tracks actions and responds
-        // properly (unlike the scan-scoped handler in beforeEach, this one
-        // uses the installNativeHandler pattern so replies are posted back).
+        // Install a handler on the new port that tracks actions. Unlike the
+        // beforeEach handler, this one responds to all actions (the beforeEach
+        // handler intentionally drops decrypt responses for timeout testing).
         const actionsBeforeBootstrap = [];
         const scopedHandler2 = installNativeHandler(scopedMock, (msg) => {
             if (msg.action && msg.action !== "install") {
