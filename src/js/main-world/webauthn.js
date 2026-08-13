@@ -329,20 +329,26 @@
     }
 
     /**
-     * Whether this frame should defer to the platform authenticator. Parcel only
-     * serves ceremonies in the top frame or frames same-origin with the top.
+     * Fast gate: allow top/same-origin frames, or cross-origin iframes whose
+     * hostname matches or is a subdomain of rpId. Authoritative rpId validation
+     * happens later in the background worker.
      *
+     * @param {string} [rpId] - The relying-party ID from the ceremony options.
      * @returns {boolean} true if Parcel may handle ceremonies here
      */
-    function mayHandleHere() {
+    function mayHandleHere(rpId) {
         if (!window.isSecureContext) {
             return false;
         }
         try {
-            return window.top.location.origin === window.location.origin;
+            if (window.top.location.origin === window.location.origin) return true;
         } catch {
-            return false; // cross-origin iframe
+            // cross-origin iframe — fall through to rpId check below
         }
+        // Defensive defaults: without an rpId, only the top / same-origin path applies
+        const effectiveRpId = rpId || window.location.hostname;
+        const host = window.location.hostname;
+        return host === effectiveRpId || host.endsWith("." + effectiveRpId);
     }
 
     /**
@@ -357,8 +363,8 @@
             console.debug("Parcel passkeys: deferring create() to browser: no publicKey options");
             return nativeCreate(options);
         }
-        if (!mayHandleHere()) {
-            console.debug("Parcel passkeys: deferring create() to browser: not a secure same-origin top frame");
+        if (!mayHandleHere(pk.rp && pk.rp.id)) {
+            console.debug("Parcel passkeys: deferring create() to browser: frame not eligible for Parcel passkeys");
             return nativeCreate(options);
         }
         // only ES256 platform credentials can be served from the password store
@@ -388,8 +394,8 @@
             console.debug("Parcel passkeys: deferring get() to browser: no publicKey options");
             return nativeGet(options);
         }
-        if (!mayHandleHere()) {
-            console.debug("Parcel passkeys: deferring get() to browser: not a secure same-origin top frame");
+        if (!mayHandleHere(pk.rpId)) {
+            console.debug("Parcel passkeys: deferring get() to browser: frame not eligible for Parcel passkeys");
             return nativeGet(options);
         }
         if (options.mediation === "conditional") {

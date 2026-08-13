@@ -980,25 +980,20 @@
     }
 
     /**
-     * Decide whether this frame may raise a passkey ceremony. The frame must be the top
-     * frame or same-origin with it (mirroring the MAIN-world interceptor), and the
-     * document must hold the matching WebAuthn permissions policy. Forged
-     * `parcel-webauthn-request` events from embedded cross-origin frames must never be
-     * able to summon a consent ceremony in the top frame.
+     * Gate cross-origin iframe ceremonies via Permissions-Policy when available;
+     * otherwise allow (downstream layers still validate rpId and require consent).
      * @since 1.0.4
      * @param {string} op - The ceremony type ("get" or "create").
      * @returns {boolean} True when the frame is allowed to proceed.
      */
     function mayHandlePasskeyHere(op) {
-        try {
-            if (window.top.location.origin !== window.location.origin) return false;
-        } catch (_err) {
-            return false; // cross-origin iframe
-        }
         const policy = document.permissionsPolicy;
-        if (!policy || typeof policy.allowsFeature !== "function") return true;
-        // unknown feature names evaluate to false, so both ops must consult the modern
-        // split name and the legacy combined name (pre-split browsers only know the latter)
+        if (!policy || typeof policy.allowsFeature !== "function") {
+            // No policy API to consult: allow, deferring to the MAIN-world gate
+            // and the downstream security layers (rpId validation, consent, host).
+            return true;
+        }
+        // The top frame opted into WebAuthn for this iframe via the allow attribute
         if (op === "get") return policy.allowsFeature("publickey-credentials-get") || policy.allowsFeature("publickey-credentials");
         return policy.allowsFeature("publickey-credentials-create") || policy.allowsFeature("publickey-credentials");
     }

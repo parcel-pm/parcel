@@ -1861,16 +1861,14 @@ describe("Integration script", { concurrency: false }, () => {
             }
         });
 
-        test("forged events from cross-origin frames are refused before agent contact", async () => {
+        test("forged events from cross-origin frames with policy denial are refused before agent contact", async () => {
             clearBody();
             let contacted = false;
             const teardown = fakePasskeyAgent(() => {
                 contacted = true;
             });
-            // jsdom's window.top is non-configurable, so simulate the cross-origin iframe by
-            // shadowing the global window with a derived object whose top accessor throws.
-            // mayHandlePasskeyHere refuses before the first await, so swapping it around the
-            // synchronous dispatch is enough.
+            // Simulate a cross-origin iframe: jsdom's window.top is non-configurable,
+            // so shadow the global window with a derived object whose top accessor throws.
             const fakeWindow = Object.create(window);
             Object.defineProperty(fakeWindow, "top", {
                 get() {
@@ -1880,6 +1878,13 @@ describe("Integration script", { concurrency: false }, () => {
                         },
                     });
                 },
+            });
+            // Provide a Permissions-Policy that denies WebAuthn — this is the
+            // ISOLATED-world gate that blocks forged events when the top frame
+            // has not opted in via the allow attribute
+            Object.defineProperty(document, "permissionsPolicy", {
+                value: { allowsFeature: () => false },
+                configurable: true,
             });
             const realWindow = globalThis.window;
             const reply = (() => {
@@ -1895,6 +1900,7 @@ describe("Integration script", { concurrency: false }, () => {
                 assert.strictEqual(response.type, "fallback");
                 assert.strictEqual(contacted, false, "the background worker must not be contacted");
             } finally {
+                delete document.permissionsPolicy;
                 teardown();
             }
         });
@@ -2023,6 +2029,79 @@ describe("Integration script", { concurrency: false }, () => {
         test("create falls back to the legacy publickey-credentials permission name", async () => {
             // pre-split engines only know the combined name
             await assertCreateReachesPopup("pw-policy-legacy", (name) => name === "publickey-credentials");
+        });
+
+        test("cross-origin iframe with permissions-policy allow reaches the popup", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+            });
+            // Simulate a cross-origin iframe: jsdom's window.top is non-configurable,
+            // so shadow the global window with a derived object whose top accessor throws.
+            const fakeWindow = Object.create(window);
+            Object.defineProperty(fakeWindow, "top", {
+                get() {
+                    return Object.defineProperty({}, "location", {
+                        get() {
+                            throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
+                        },
+                    });
+                },
+            });
+            Object.defineProperty(document, "permissionsPolicy", {
+                value: { allowsFeature: () => true },
+                configurable: true,
+            });
+            const realWindow = globalThis.window;
+            globalThis.window = fakeWindow;
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({ requestId: "pw-xorigin-allowed", op: "create", options: CREATE_OPTIONS() });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                const contextPromise = nextMessage(popup, "passkey-context", 3000);
+                popup.postMessage({ action: "ready" });
+                const context = await contextPromise;
+                assert.strictEqual(context.context.op, "create", "ceremony should reach the popup despite cross-origin iframe");
+                popup.postMessage({ action: "passkey-cancel" });
+                const response = await replyPromise;
+                assert.strictEqual(response.name, "NotAllowedError");
+            } finally {
+                globalThis.window = realWindow;
+                delete document.permissionsPolicy;
+                teardown();
+                await runSuccessfulAssertion("pw-xorigin-allowed-cleanse");
+            }
+        });
+
+        test("cross-origin iframe without permissions-policy API proceeds to candidates", async () => {
+            clearBody();
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
+            });
+            // No permissionsPolicy API — ceremony proceeds via the MAIN-world gate and downstream validation.
+            const fakeWindow = Object.create(window);
+            Object.defineProperty(fakeWindow, "top", {
+                get() {
+                    return Object.defineProperty({}, "location", {
+                        get() {
+                            throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
+                        },
+                    });
+                },
+            });
+            const realWindow = globalThis.window;
+            globalThis.window = fakeWindow;
+            try {
+                const response = await dispatchPasskey({ requestId: "pw-xorigin-nopolicy", op: "get", options: GET_OPTIONS() });
+                // get with no candidates still falls back (no stored passkeys),
+                // but the background worker was contacted — that's how it knows
+                assert.strictEqual(response.type, "fallback");
+            } finally {
+                globalThis.window = realWindow;
+                teardown();
+            }
         });
     });
 });

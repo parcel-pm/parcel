@@ -30,7 +30,7 @@ const INTERCEPTOR_SRC = readFileSync(require.resolve("../src/js/main-world/webau
  * @returns {object} `{credentials, warnings, events, documentAttrs, emit, run, nativeFn, foreignFn}`;
  *   `events` records dispatched events and `emit(type, detail)` fires one at registered listeners.
  */
-function makeEnv({ publicKeyCredentialAvailable = true, ceremony = false } = {}) {
+function makeEnv({ publicKeyCredentialAvailable = true, ceremony = false, crossOriginFrame = false } = {}) {
     const warnings = [];
     const events = [];
     const credentials = {};
@@ -66,11 +66,30 @@ function makeEnv({ publicKeyCredentialAvailable = true, ceremony = false } = {})
         sandbox.DOMException = globalThis.DOMException;
         sandbox.AuthenticatorAttestationResponse = class AuthenticatorAttestationResponse {};
         sandbox.AuthenticatorAssertionResponse = class AuthenticatorAssertionResponse {};
-        sandbox.window = {
+        const win = {
             isSecureContext: true,
-            top: { location: { origin: "https://rp.example" } },
-            location: { origin: "https://rp.example" },
+            location: { hostname: "rp.example", origin: "https://rp.example" },
         };
+        if (crossOriginFrame) {
+            // Accessing window.top.location throws SecurityError in a cross-origin iframe;
+            // hostname is "login.example.com" for rpId suffix-matching tests
+            win.location = { hostname: "login.example.com", origin: "https://login.example.com" };
+            Object.defineProperty(win, "top", {
+                configurable: true,
+                get() {
+                    const fakeTop = {};
+                    Object.defineProperty(fakeTop, "location", {
+                        get() {
+                            throw new TypeError("Cannot read properties of cross-origin frame");
+                        },
+                    });
+                    return fakeTop;
+                },
+            });
+        } else {
+            win.top = { location: { origin: "https://rp.example" } };
+        }
+        sandbox.window = win;
     }
     const context = vm.createContext(sandbox);
     return {
@@ -397,5 +416,57 @@ describe("Main-world webauthn ceremonies", () => {
         // Parcel wraps the API ahead of the browser's WebIDL coercion, so a
         // bare string must never reach the isolated world as a truthy value
         assert.deepStrictEqual(request.options.hints, []);
+    });
+
+    test("cross-origin iframe dispatches a request when hostname is a subdomain of rpId", { timeout: 5000 }, async () => {
+        const env = makeEnv({ ceremony: true, crossOriginFrame: true });
+        env.credentials.create = env.nativeFn();
+        env.credentials.get = env.nativeFn();
+        env.run();
+        assert.strictEqual(env.credentials.__parcelWrapped, true);
+
+        // Frame hostname is "login.example.com", rpId is "example.com" → suffix match
+        const { request } = await driveCeremony(
+            env,
+            "get",
+            { publicKey: { challenge: new Uint8Array([10]), rpId: "example.com" } },
+            { op: "get", id: "AQID", response: { clientDataJSON: "Cg", authenticatorData: "BAUG", signature: "DA" } },
+        );
+        assert.strictEqual(request.op, "get", "cross-origin iframe with matching rpId should relay a request");
+    });
+
+    test("cross-origin iframe defers to browser when hostname does not match rpId", { timeout: 5000 }, async () => {
+        const env = makeEnv({ ceremony: true, crossOriginFrame: true });
+        env.credentials.create = env.nativeFn();
+        env.credentials.get = env.nativeFn();
+        env.run();
+        assert.strictEqual(env.credentials.__parcelWrapped, true);
+
+        // Frame hostname is "login.example.com", rpId is "other.com" → no suffix match.
+        // The native fallback is a VM-realm native function that returns undefined.
+        const result = env.credentials.get({ publicKey: { challenge: new Uint8Array([10]), rpId: "other.com" } });
+        assert.strictEqual(result, undefined, "should defer to native (returns undefined, not a Parcel promise)");
+        assert.strictEqual(
+            env.events.find((ev) => ev.type === "parcel-webauthn-request"),
+            undefined,
+            "no request should be relayed",
+        );
+    });
+
+    test("cross-origin iframe dispatches a request when hostname equals rpId", { timeout: 5000 }, async () => {
+        const env = makeEnv({ ceremony: true, crossOriginFrame: true });
+        env.credentials.create = env.nativeFn();
+        env.credentials.get = env.nativeFn();
+        env.run();
+        assert.strictEqual(env.credentials.__parcelWrapped, true);
+
+        // Frame hostname is "login.example.com", rpId is "login.example.com" → exact match
+        const { request } = await driveCeremony(
+            env,
+            "get",
+            { publicKey: { challenge: new Uint8Array([10]), rpId: "login.example.com" } },
+            { op: "get", id: "AQID", response: { clientDataJSON: "Cg", authenticatorData: "BAUG", signature: "DA" } },
+        );
+        assert.strictEqual(request.op, "get", "cross-origin iframe with exact rpId match should relay a request");
     });
 });
