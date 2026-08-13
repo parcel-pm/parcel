@@ -662,7 +662,7 @@ function passkey_op_get() {
     # all-malformed list still constrains the ceremony (privacy: allowCredentials exists to
     # prevent credential enumeration, so a rejected credential must never be signed)
     local HAS_ALLOW_CREDENTIALS
-    HAS_ALLOW_CREDENTIALS="$(jq -r 'if (.allowCredentials | type) == "array" and length > 0 then "yes" else "no" end' <<< "$1" 2>/dev/null)"
+    HAS_ALLOW_CREDENTIALS="$(jq -r 'if (.allowCredentials | type == "array" and length > 0) then "yes" else "no" end' <<< "$1" 2>/dev/null)"
     local ALLOW_CREDENTIALS
     ALLOW_CREDENTIALS="$(jq -r '(if (.allowCredentials | type) == "array" then .allowCredentials else [] end)[] | select(test("^[A-Za-z0-9_-]{1,86}$"))' <<< "$1" 2>/dev/null)"
     if [ "$HAS_ALLOW_CREDENTIALS" == "yes" ]; then

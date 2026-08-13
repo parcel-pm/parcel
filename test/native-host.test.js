@@ -1933,6 +1933,21 @@ exit 1
             }
         });
 
+        test("get ignores an empty allowCredentials list", async () => {
+            const env = createPasskeyEnv();
+            const { proc, read, send } = await installMainScript(env);
+            try {
+                send({ action: "list" });
+                await read();
+                send(passkeyGetRequest(env, { allowCredentials: [] }));
+                const msg = await read();
+                assert.ok(msg.data, `Expected data, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+                env.cleanup();
+            }
+        });
+
         test("get rejects when allowCredentials is provided but all entries are malformed", async () => {
             const env = createPasskeyEnv();
             const { proc, read, send } = await installMainScript(env);
