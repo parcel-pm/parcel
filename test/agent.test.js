@@ -1,5 +1,5 @@
 "use strict";
-import { test, describe, beforeEach, afterEach } from "node:test";
+import { test, describe, beforeEach, afterEach, after } from "node:test";
 import assert from "node:assert";
 import { createChromeMock } from "./chrome-api-mock.js";
 import { Agent } from "../src/js/agent.js";
@@ -97,12 +97,15 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-    // Disconnect the native port first (while console is still suppressed)
-    // to trigger #onNativeDisconnect → #stopNativePing, otherwise the 60s
-    // ping interval keeps the process alive.
-    mock.getNativePort("com.github.erayd.parcel")?.caller.disconnect();
+    // Destroy the agent first to cancel the 1s reconnect timer and stop the
+    // 60s ping interval, both of which would otherwise keep the process alive.
+    agent?.destroy();
     globalThis.console = realConsole;
     uninstallNativeHandler(mock, handler);
+});
+
+after(async () => {
+    await settleAsync(); // drain pending microtasks after destroy()
 });
 
 describe("Agent", () => {
@@ -644,6 +647,7 @@ describe("Agent initialisation failures", () => {
     });
 
     afterEach(() => {
+        scopedAgent?.destroy();
         globalThis.console = realConsole;
         if (scopedHandler) uninstallNativeHandler(scopedMock, scopedHandler);
     });
@@ -696,5 +700,176 @@ describe("Agent initialisation failures", () => {
             mock.chrome.runtime.onMessage._count() >= 1,
             "agent should register a runtime.onMessage listener for content-script keepalive pings",
         );
+    });
+});
+
+describe("Agent native call timeout recovery", () => {
+    let scopedMock;
+    let scopedAgent;
+    let scopedHandler;
+    let decryptTokens;
+
+    beforeEach(async () => {
+        realConsole = globalThis.console;
+        globalThis.console = noopConsole;
+        scopedMock = createChromeMock();
+        scopedMock.installChrome();
+        scopedMock.installFetch();
+        stubInitAssets(scopedMock);
+        scopedAgent = new Agent();
+        await settleAsync();
+
+        decryptTokens = [];
+        scopedHandler = installNativeHandler(scopedMock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return { ...makeValidConfig(), decryptTimeout: 1 };
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") {
+                decryptTokens.push(msg.token);
+                return undefined; // don't respond — let the call time out
+            }
+        });
+
+        scopedAgent.dispatchEvent(new CustomEvent("parcel::native::bootstrap"));
+        await once(scopedAgent, "ready");
+    });
+
+    afterEach(async () => {
+        scopedAgent?.destroy();
+        globalThis.console = realConsole;
+        if (scopedHandler) uninstallNativeHandler(scopedMock, scopedHandler);
+        await settleAsync();
+    });
+
+    test("late native response after timeout does not corrupt subsequent call", async () => {
+        const nativePort = scopedMock.getNativePort("com.github.erayd.parcel");
+        const popup = scopedMock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1, url: "https://example.com" } });
+        await settleAsync();
+
+        // First decrypt call — handler doesn't respond, will time out after 1s.
+        // The event listener for its token MUST be removed on timeout; otherwise
+        // a late response will fire the stale listener and corrupt the next
+        // in-flight call's timer, causing a permanent hang.
+        const err1Promise = nextMessage(popup, "error", 5000);
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        const err1 = await err1Promise;
+        assert.ok(err1.error?.includes("timed out"), "first call should time out");
+
+        // Second decrypt call — also doesn't respond. After settling, its
+        // #pendingCall and timer are in flight.
+        const err2Promise = nextMessage(popup, "error", 5000);
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        await settleAsync();
+
+        // Deliver the late response for the FIRST call's token while the
+        // second call is in flight. With the fix, the stale listener was
+        // removed on timeout so this dispatch is a no-op. Without the fix,
+        // the stale listener fires and clears the second call's timer.
+        assert.ok(decryptTokens.length >= 2, "two decrypt calls should have been captured");
+        nativePort.receiver.postMessage({
+            token: decryptTokens[0],
+            data: { plaintext: { password: "late-response" } },
+        });
+
+        // The second call must still time out on its own. If the timer was
+        // corrupted by the stale listener, this will hang until nextMessage's
+        // own 5s timeout fires, failing the test.
+        const err2 = await err2Promise;
+        assert.ok(err2.error?.includes("timed out"), "second call should time out despite late response for first call");
+    });
+
+    test("subsequent call succeeds after a previous call times out", async () => {
+        // Replace the handler so the first decrypt doesn't respond (times out)
+        // but the second decrypt responds immediately.
+        uninstallNativeHandler(scopedMock, scopedHandler);
+        let firstDecryptSeen = false;
+        scopedHandler = installNativeHandler(scopedMock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return { ...makeValidConfig(), decryptTimeout: 1 };
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") {
+                if (!firstDecryptSeen) {
+                    firstDecryptSeen = true;
+                    return undefined; // first call: no response, let it time out
+                }
+                return { plaintext: { password: "hunter2" } }; // second call: respond
+            }
+        });
+
+        const popup = scopedMock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1, url: "https://example.com" } });
+        await settleAsync();
+
+        // First decrypt — times out after 1s.
+        const errPromise = nextMessage(popup, "error", 5000);
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        const err = await errPromise;
+        assert.ok(err.error?.includes("timed out"), "first call should time out");
+
+        // Second decrypt — handler responds immediately. This must succeed,
+        // proving the semaphore wasn't permanently wedged by the timeout.
+        const plaintextPromise = nextMessage(popup, "plaintext", 5000);
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        const pt = await plaintextPromise;
+        assert.deepStrictEqual(pt.plaintext, { password: "hunter2" }, "second call succeeds after timeout recovery");
+    });
+
+    test("config is cleared on disconnect so waitUntilReady waits for reinit", async () => {
+        // After an unexpected disconnect, #config must be cleared so that
+        // #waitUntilReady() waits for the new host's #init() to complete,
+        // rather than returning immediately with a stale config.
+        const original = scopedMock.getNativePort("com.github.erayd.parcel");
+        original.caller.disconnect();
+        await settleAsync();
+        if (chrome.runtime.lastError) chrome.runtime.lastError = null;
+
+        // Reconnect (simulates onStartup or onInstalled waking the worker).
+        scopedMock.fireRuntimeStartup();
+        await settleAsync();
+
+        // Install a handler on the new port that tracks actions and responds
+        // properly (unlike the scan-scoped handler in beforeEach, this one
+        // uses the installNativeHandler pattern so replies are posted back).
+        const actionsBeforeBootstrap = [];
+        const scopedHandler2 = installNativeHandler(scopedMock, (msg) => {
+            if (msg.action && msg.action !== "install") {
+                actionsBeforeBootstrap.push(msg.action);
+            }
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return { ...makeValidConfig(), decryptTimeout: 1 };
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+        });
+        const newPort = scopedMock.getNativePort("com.github.erayd.parcel");
+
+        // Send a popup auth request + search. With stale #config (the bug),
+        // #waitUntilReady() returns immediately and the "list" action fires
+        // right away. With the fix, it blocks until bootstrap arrives.
+        const popup = scopedMock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1, url: "https://example.com" } });
+        popup.postMessage({ action: "match", url: "https://example.com", search: "example" });
+        await settleAsync();
+
+        // Wait long enough for a synchronous / microtask response to arrive
+        // if the handler had bypassed #waitUntilReady().
+        await new Promise((r) => setTimeout(r, 200));
+        assert.deepStrictEqual(actionsBeforeBootstrap, [], "no actions should reach the native host before bootstrap/init completes");
+
+        // Now send the bootstrap message so #init() runs, which dispatches
+        // "ready", unblocking the queued popup request.
+        newPort.receiver.postMessage({ token: "broadcast", data: { action: "bootstrap" } });
+        await once(scopedAgent, "ready");
+        await settleAsync();
+
+        // After init completes, the queued search should have run.
+        assert.ok(actionsBeforeBootstrap.includes("list"), "queued list action should execute after bootstrap/init completes");
+
+        uninstallNativeHandler(scopedMock, scopedHandler2);
     });
 });

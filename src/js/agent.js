@@ -30,6 +30,8 @@ export class Agent extends EventTarget {
     #refreshingEntries = null;
     #nativePingInterval = null;
     #nativePingFailures = 0;
+    #reconnectTimer = null;
+    #destroyed = false;
 
     /**
      * Construct a new Agent instance.
@@ -67,6 +69,28 @@ export class Agent extends EventTarget {
 
         // open port to native host
         this.#connectNative();
+    }
+
+    /**
+     * Stop all timers and disconnect. No reconnect is attempted after this.
+     * @since 1.0.6
+     * @returns {void}
+     */
+    destroy() {
+        this.#destroyed = true;
+        this.#stopNativePing();
+        if (this.#reconnectTimer) {
+            clearTimeout(this.#reconnectTimer);
+            this.#reconnectTimer = null;
+        }
+        this.#rejectPendingCall?.("Agent destroyed");
+        if (this.#host) {
+            try {
+                this.#host.disconnect();
+            } catch {
+                // already disconnected
+            }
+        }
     }
 
     /**
@@ -137,6 +161,10 @@ export class Agent extends EventTarget {
      * @returns {void}
      */
     #connectNative() {
+        if (this.#reconnectTimer) {
+            clearTimeout(this.#reconnectTimer);
+            this.#reconnectTimer = null;
+        }
         this.#host = chrome.runtime.connectNative("com.github.erayd.parcel");
         this.#connectedNative = true;
         this.#host.onDisconnect.addListener(this.#onNativeDisconnect.bind(this));
@@ -216,21 +244,24 @@ export class Agent extends EventTarget {
                 reject(new Error("Not connected to native host"));
                 return true;
             }
+            // Remove the listener on settle to prevent a late response for a
+            // timed-out call from corrupting a subsequent in-flight call.
+            const onMessage = (ev) => {
+                cleanup();
+                if (ev.detail?.error) reject(new Error(ev.detail.error));
+                else resolve(ev.detail.data);
+            };
             const timer = setTimeout(() => {
-                this.#pendingCall = null;
+                cleanup();
                 reject(new Error(`Native host call timed out: ${action}`));
             }, timeout);
-            this.#pendingCall = { reject, timer };
-            this.addEventListener(
-                token,
-                (ev) => {
-                    clearTimeout(this.#pendingCall?.timer);
-                    this.#pendingCall = null;
-                    if (ev.detail?.error) reject(new Error(ev.detail.error));
-                    else resolve(ev.detail.data);
-                },
-                { once: true },
-            );
+            const cleanup = () => {
+                clearTimeout(timer);
+                this.removeEventListener(token, onMessage);
+                if (this.#pendingCall?.token === token) this.#pendingCall = null;
+            };
+            this.#pendingCall = { reject, cleanup, token };
+            this.addEventListener(token, onMessage, { once: true });
         });
 
         message.token = token;
@@ -252,8 +283,8 @@ export class Agent extends EventTarget {
      */
     #rejectPendingCall(message) {
         if (!this.#pendingCall) return;
-        clearTimeout(this.#pendingCall.timer);
         this.#pendingCall.reject(new Error(message));
+        this.#pendingCall.cleanup();
         this.#pendingCall = null;
     }
 
@@ -282,15 +313,15 @@ export class Agent extends EventTarget {
     /**
      * Handle disconnections from the native host, reinitialising on unexpected disconnects.
      *
-     * Always reconnect after a disconnect. `#initError` is preserved (and
-     * still surfaced to ports) until the next successful `#init()` clears it —
-     * previously, any init failure permanently disabled reconnection.
+     * Clear `#config` so `#waitUntilReady()` waits for the new host's init.
+     * Preserve `#initError` so broadcast errors surface to late popups.
      * @since 1.0.0
      * @returns {Promise<void>}
      */
     async #onNativeDisconnect() {
         this.#connectedNative = false;
         this.#stopNativePing();
+        this.#config = undefined;
         if (this.#host.error) {
             console.error(new Error(this.#host.error.message));
         }
@@ -303,7 +334,12 @@ export class Agent extends EventTarget {
         // terminated inside this 1s window; on the next cold start the
         // constructor re-runs #connectNative() anyway, so correctness is
         // preserved either way.
-        setTimeout(() => this.#ensureNativeConnected(), 1000);
+        if (!this.#destroyed) {
+            this.#reconnectTimer = setTimeout(() => {
+                this.#reconnectTimer = null;
+                this.#ensureNativeConnected();
+            }, 1000);
+        }
     }
 
     /**
