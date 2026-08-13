@@ -664,7 +664,7 @@ function passkey_op_create() {
         return 0
     fi
     local BASENAME="${SUGGESTED##*/}"
-    if [[ ! "$BASENAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.gpg$ ]]; then
+    if [[ ! "$BASENAME" =~ ^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}\.gpg$ ]]; then
         parcel_error "Invalid suggested path: $SUGGESTED"
         return 0
     fi
