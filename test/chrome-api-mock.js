@@ -118,29 +118,33 @@ export function createChromeMock(opts = {}) {
     // --- storage -------------------------------------------------------------
 
     const storageMap = new Map();
+    const sessionStorageMap = new Map();
 
-    const storageLocal = {
+    const makeStorage = (map) => ({
         async get(keys) {
             if (keys === null) {
                 const out = {};
-                for (const [k, v] of storageMap) out[k] = JSON.parse(JSON.stringify(v));
+                for (const [k, v] of map) out[k] = JSON.parse(JSON.stringify(v));
                 return out;
             }
             if (typeof keys === "string") keys = [keys];
             const out = {};
             for (const k of keys) {
-                if (storageMap.has(k)) out[k] = JSON.parse(JSON.stringify(storageMap.get(k)));
+                if (map.has(k)) out[k] = JSON.parse(JSON.stringify(map.get(k)));
             }
             return out;
         },
         async set(items) {
-            for (const [k, v] of Object.entries(items)) storageMap.set(k, JSON.parse(JSON.stringify(v)));
+            for (const [k, v] of Object.entries(items)) map.set(k, JSON.parse(JSON.stringify(v)));
         },
         async remove(keys) {
             if (typeof keys === "string") keys = [keys];
-            for (const k of keys) storageMap.delete(k);
+            for (const k of keys) map.delete(k);
         },
-    };
+    });
+
+    const storageLocal = makeStorage(storageMap);
+    const sessionStorage = makeStorage(sessionStorageMap);
 
     // --- runtime event listeners ---------------------------------------------
 
@@ -149,8 +153,18 @@ export function createChromeMock(opts = {}) {
     const runtimeOnStartup = _makeEvent();
     const runtimeOnInstalled = _makeEvent();
     const contextualIdentitiesOnRemoved = _makeEvent();
+    const webRequestOnAuthRequired = _makeEvent();
 
     let lastError = null;
+
+    // --- tabs.sendMessage mock -----------------------------------------------
+
+    const sentMessages = [];
+    let sendMessageFailure = null;
+
+    // --- windows mock --------------------------------------------------------
+
+    const windowsCreated = [];
 
     // --- mocked chrome object ------------------------------------------------
 
@@ -196,6 +210,7 @@ export function createChromeMock(opts = {}) {
         },
         storage: {
             local: storageLocal,
+            session: sessionStorage,
         },
         tabs: {
             async getCurrent() {
@@ -206,19 +221,41 @@ export function createChromeMock(opts = {}) {
                 if (currentTab) return [currentTab];
                 return [];
             },
+            async get(tabId) {
+                // Return the tab with the given ID, or a default loaded tab
+                // (http URL) so that content-script messaging is used by
+                // default. Tests that need the new-tab path can use
+                // setCurrentTab() with an about:blank or chrome:// URL.
+                if (currentTab && currentTab.id === tabId) return currentTab;
+                return { id: tabId, status: "complete", url: "https://example.com/" };
+            },
             connect(tabId, info = {}) {
                 const name = info.name ?? "";
                 const frameId = info.frameId ?? 0;
                 const pair = _makePortPair(name, { tab: { id: tabId, frameId } });
-                // Unlike runtime.connect, tabs.connect does *not* fire runtime.onConnect.
-                // The receiving content script gets it via runtime.onConnect instead.
-                // For test convenience we store it so tests can wire it manually.
                 tabPorts.push({ tabId, frameId, receiver: pair.receiver });
                 return pair.caller;
+            },
+            async sendMessage(tabId, msg) {
+                sentMessages.push({ tabId, msg });
+                if (sendMessageFailure) throw new Error(sendMessageFailure);
+                return { ok: true };
             },
         },
         contextualIdentities: {
             onRemoved: contextualIdentitiesOnRemoved,
+        },
+        webRequest: {
+            get onAuthRequired() {
+                return webRequestOnAuthRequired;
+            },
+        },
+        windows: {
+            async create({ url: _url, type: _type, width: _width, height: _height }) {
+                const entry = { url: _url, type: _type };
+                windowsCreated.push(entry);
+                return { id: windowsCreated.length, ...entry };
+            },
         },
     };
 
@@ -244,9 +281,29 @@ export function createChromeMock(opts = {}) {
             currentTab = tab;
         },
 
-        /** Direct access to the in-memory storage map for assertions. */
+        /** Direct access to the in-memory storage maps for assertions. */
         get storageMap() {
             return storageMap;
+        },
+
+        /** Direct access to the in-memory session storage map for assertions. */
+        get sessionStorageMap() {
+            return sessionStorageMap;
+        },
+
+        /** Direct access to recorded chrome.tabs.sendMessage calls. */
+        get sentMessages() {
+            return sentMessages;
+        },
+
+        /** Direct access to recorded chrome.windows.create calls. */
+        get windowsCreated() {
+            return windowsCreated;
+        },
+
+        /** Set a failure message to make the next tabs.sendMessage call throw. */
+        setSendMessageFailure(message) {
+            sendMessageFailure = message;
         },
 
         /** Register a fetch response for a given URL. */
@@ -281,6 +338,17 @@ export function createChromeMock(opts = {}) {
         /** Fire the runtime.onInstalled event. */
         fireRuntimeInstalled() {
             runtimeOnInstalled._fire();
+        },
+
+        /** Fire the webRequest.onAuthRequired event. Returns a promise that resolves with the callback result. */
+        fireAuthRequired(details) {
+            return new Promise((resolve) => {
+                if (webRequestOnAuthRequired._count() > 0) {
+                    webRequestOnAuthRequired._fire(details, resolve);
+                } else {
+                    resolve({});
+                }
+            });
         },
 
         /** Install fetch into `globalThis` so imported modules see it. */

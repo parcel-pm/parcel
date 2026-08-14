@@ -220,6 +220,7 @@ export const ConfigSchema = {
             pattern: "^(?![\\\\/])(?!.*\\.\\.)(?!.*[\\\\/]$)[^\\p{Cc}*?[\\\\]+$", // Relative path; excludes control chars, glob metacharacters * ? [ \, leading/trailing slashes, and .. traversal
             default: "passkeys",
         },
+        handleHttpAuth: { type: "boolean", required: true, default: true },
         handlePasskeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },

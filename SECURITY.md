@@ -101,6 +101,22 @@ Additional protections specific to passkeys:
 
 The WebAuthn interception script necessarily runs in each page's JavaScript realm (this is how WebAuthn works for any extension-based authenticator), which means sites can observe that an extension handles passkey requests — an extension of the detectability noted in the tradeoffs below. The events bridging this script to Parcel's isolated content script are ordinary DOM `CustomEvent`s, which page script can forge or observe; no shared secret between the two realms is possible, because anything the page realm can hold, a compromised page can read. Parcel therefore treats the bridge as untrusted: the origin and relying-party ID are re-derived and validated in the isolated world and background worker on every request, and every ceremony requires the consent popup displaying the true origin. A forged bridge message can summon an unwarranted popup, but cannot obtain a signature, decrypt a key, or steer a ceremony toward an origin other than the one displayed.
 
+### HTTP Authentication Interception
+
+When `handleHttpAuth: true` is set in `.parcel.json` (the default), Parcel intercepts browser HTTP authentication challenges (HTTP 401 with `WWW-Authenticate`) for main-frame navigations. Instead of the browser's native auth dialog, the user sees Parcel's credential-selection scrim showing matching entries for the requesting origin. Selecting an entry decrypts it, extracts the `login` and `secret` fields, and supplies them as auth credentials.
+
+This feature is **on by default**, matching `handlePasskeys`. It requires the `webRequest` and `webRequestAuthProvider` permissions, which expand the extension's privilege scope, but no credentials are ever supplied without explicit user selection in the scrim. Users who want to disable it can set `handleHttpAuth: false` in `.parcel.json`. Enabling `auditDecrypt` is recommended for visibility into HTTP auth fills.
+
+Proxy auth (HTTP 407) is **not supported**. Proxy credentials are reused across all sites routed through the proxy, making them a higher-value target and a poor fit for Parcel's origin-based entry matching. 407 challenges are always passed through to the browser's native dialog.
+
+Additional protections specific to HTTP auth:
+
+1. **Interactive consent** — No credentials are supplied without explicit user selection in the scrim, which displays the requesting origin.
+2. **Main-frame only** — Subframe auth challenges are always passed to the browser's native dialog. This is permanent, not a future TODO.
+3. **Rate limiting** — HTTP auth decryptions consume tokens from the same token-bucket rate limiter as all other decryptions.
+4. **No plaintext caching** — Credentials are decrypted fresh each time and never persisted to `chrome.storage.local`.
+5. **Token-restricted decryption** — The http-auth popup uses a dedicated `"http-auth"` token that only permits decryption with `intent: "http-auth"`. Form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
+
 ## Deliberate Tradeoffs
 
 | Tradeoff | Rationale |
@@ -114,6 +130,7 @@ The WebAuthn interception script necessarily runs in each page's JavaScript real
 | **Extension is detectable by websites** | The extension's `web_accessible_resources` and shadow DOM shim are visible to browsed websites, which allows any website to detect the presence of the extension and fingerprint users based on the extension's unique ID. The resulting fingerprint surface is considered an acceptable necessity. |
 | **WebAuthn interception in the page realm** | Passkey support requires intercepting `navigator.credentials` in each page's main JavaScript realm. A malicious page could attempt to fingerprint or interfere with this interception; it cannot, however, extract key material, forge consent, or bypass the host-side relying-party and whitelist checks, because all cryptography and policy enforcement happen in the native host. |
 | **WebAuthn interception is first-come, first-served** | Extensions cannot coordinate who intercepts `navigator.credentials`. If Parcel's interceptor installs first, the shim is installed as non-configurable accessor properties so a later injector (another extension at `document_start`, or hostile page script) cannot silently replace it. If another extension got there first — whether it locked the API or merely wrapped it — Parcel backs off entirely: no polling, no re-definition, no working around a foreign lock. In that case Parcel warns on the page console, and if you hold Parcel passkeys for the site it surfaces a one-time in-page notice (dismissible per origin). |
+| **`webRequest` permission for HTTP auth** | Intercepting browser HTTP authentication challenges (HTTP 401) requires the `webRequest` and `webRequestAuthProvider` permissions. These expand the extension's privilege scope beyond form-fill, but no credentials are ever supplied without explicit user selection in the consent scrim. The feature is enabled by default (`handleHttpAuth: true`), matching `handlePasskeys`; users who want to disable it can set `"handleHttpAuth": false` in `.parcel.json`. |
 
 
 ## Security-Related Configuration
@@ -143,6 +160,7 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `allowExternalLinks` | Include symlinks pointing outside the password store (default: `false`; requires `allowLinks`). |
 | `cacheTTL` | Seconds the extension caches the entry list before re-querying the host (default: `10`). |
 | `handlePasskeys` | Enable WebAuthn passkey ceremonies. When `false`, Parcel does not intercept passkey requests at all (default: `true`). |
+| `handleHttpAuth` | Enable HTTP authentication interception (HTTP 401). When `false`, Parcel does not intercept browser auth challenges (default: `true`). Proxy auth (HTTP 407) is never intercepted. |
 | `decryptTimeout` | Seconds before a decryption request is aborted (default: `60`). |
 | `decryptBucket` | Token-bucket capacity for decryption rate limiting. Each decryption costs one token (default: `24`). |
 | `decryptRate` | Token refill rate in tokens per second for decryption rate limiting (default: `0.006667`; i.e. 24 per hour). |

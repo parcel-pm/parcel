@@ -6,6 +6,8 @@
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const frameId = parseInt(new URLSearchParams(window.location.search).get("frameId"), 10) || 0;
     const mode = new URLSearchParams(window.location.search).get("mode");
+    const isWindowMode = new URLSearchParams(window.location.search).get("window") === "1";
+    const authUrl = new URLSearchParams(window.location.search).get("authUrl");
     let frameOrigin; // intended origin for the actual fill operation
     if (token === "broadcast" && window !== window.top) {
         const msg =
@@ -115,6 +117,24 @@
     }
 
     /**
+     * Dummy tab port for window-mode popups (no content script to talk to).
+     * Only handles `close` / `close-popup` by calling `window.close()`.
+     * @since 1.0.6
+     * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void } }}
+     */
+    function windowTabPort() {
+        return {
+            postMessage(msg) {
+                if (msg?.action === "close" || msg?.action === "close-popup") {
+                    window.close();
+                }
+                return true;
+            },
+            onMessage: { addListener() {} },
+        };
+    }
+
+    /**
      * Connect to the active tab content script, falling back to relay via the background service if necessary.
      * @since 1.0.0
      * @returns {Promise<{tab: chrome.tabs.Tab, tabPort: object}>} `tabPort` is a reconnecting wrapper (see {@link reconnectingTabPort}).
@@ -154,7 +174,11 @@
         return { tab, tabPort: reconnectingTabPort(connect, initialPort) };
     }
 
-    const { tab, tabPort } = await connectToTab();
+    // In window mode (new-tab http-auth), there's no content script to connect
+    // to.  Use a dummy port that handles close via window.close(), and synthesise
+    // a tab object from the authUrl so credential matching uses the correct origin.
+    const { tab, tabPort } =
+        isWindowMode && authUrl ? { tab: { url: authUrl, contextualIdentity: undefined }, tabPort: windowTabPort() } : await connectToTab();
 
     const port = chrome.runtime.connect({ name: "popup" });
     port.postMessage({ action: "auth", token, tab });
@@ -467,7 +491,7 @@
             await new Promise((resolve) => requestAnimationFrame(resolve));
             document.body.style.minHeight = this.scrollHeight + "px";
             document.body.style.minWidth = `min(500px, ${this.scrollWidth}px)`;
-            reportPopupSize();
+            if (!isWindowMode) reportPopupSize();
         }
     }
     customElements.define("parcel-detail", ParcelDetail);
@@ -507,12 +531,17 @@
         });
     } else {
         document.body.classList.add("context-popup");
-        // the iframe is off-limits to the page origin, so need to tell it when we change size
-        new ResizeObserver(reportPopupSize).observe(document.body);
-        reportPopupSize();
+        if (isWindowMode) document.body.classList.add("window-popup");
+        // In window mode the tab port is a no-op dummy — size reporting is
+        // handled by CSS (fixed window size, internal vertical scroll).
+        if (!isWindowMode) {
+            new ResizeObserver(reportPopupSize).observe(document.body);
+            reportPopupSize();
+        }
         window.addEventListener("keydown", (ev) => {
             if (ev.key === "Escape") {
-                tabPort.postMessage({ action: "close" });
+                if (mode === "http-auth") port.postMessage({ action: "http-auth-cancel" });
+                tabPort.postMessage({ action: "close", cancelNavigation: mode === "http-auth" });
             }
         });
 
@@ -1140,23 +1169,25 @@
                 const button = document.createElement("button");
                 button.classList.add("detail");
                 button.setAttribute("title", "Show detailed content");
-                button.addEventListener("click", (ev) => {
-                    ev.stopPropagation();
-                    document.querySelector(".selected")?.classList.remove("selected");
-                    button.closest("li").classList.add("selected");
-                    document.getElementById("modal-shade").classList.remove("hidden");
-                    port.postMessage({ action: "decrypt", intent: "detail", origin: url.origin, path: entry.path });
-                });
+                if (mode === "http-auth") button.disabled = true;
+                else {
+                    button.addEventListener("click", (ev) => {
+                        ev.stopPropagation();
+                        document.querySelector(".selected")?.classList.remove("selected");
+                        button.closest("li").classList.add("selected");
+                        document.getElementById("modal-shade").classList.remove("hidden");
+                        port.postMessage({ action: "decrypt", intent: "detail", origin: url.origin, path: entry.path });
+                    });
+                }
                 li.appendChild(button);
 
                 li.addEventListener("click", async () => {
-                    // The origin here is the *top-level* origin in the tab; this indicates which page the user was on when they triggered
-                    // the fill request, for easier audit correlation - we aren't trying to keep track of the specific frame origin here.
-                    port.postMessage({ action: "decrypt", intent: "fill", origin: url.origin, path: entry.path });
-                    if (history?.[0]?.path === (await sha256(entry.path))) {
-                        history[0].when = Date.now();
-                    } else {
-                        history.unshift({ path: await sha256(entry.path), when: Date.now() });
+                    const intent = mode === "http-auth" ? "http-auth" : "fill";
+                    port.postMessage({ action: "decrypt", intent, origin: url.origin, path: entry.path });
+                    if (mode !== "http-auth") {
+                        const hash = await sha256(entry.path);
+                        if (history?.[0]?.path === hash) history[0].when = Date.now();
+                        else history.unshift({ path: hash, when: Date.now() });
                     }
                 });
 
@@ -1189,6 +1220,10 @@
                 elDetail.setPlaintext(plaintext);
                 document.body.appendChild(elDetail);
             }
+        } else if (msg.action === "http-auth-done") {
+            // HTTP auth resolved — the background has called the blocking callback.
+            // Close the popup via the trigger port.
+            tabPort.postMessage({ action: "close-popup" });
         } else if (msg.action === "error") {
             document.querySelector("#status").textContent = "Error";
             const p = document.createElement("p");
@@ -1222,10 +1257,23 @@
     } else {
         const search = document.getElementById("searchPattern");
 
+        // For http-auth mode, show the action buttons
+        if (mode === "http-auth") {
+            document.getElementById("http-auth-actions").classList.remove("hidden");
+            document.getElementById("http-auth-cancel").addEventListener("click", () => {
+                port.postMessage({ action: "http-auth-cancel" });
+                tabPort.postMessage({ action: "close", cancelNavigation: true });
+            });
+            document.getElementById("http-auth-manual").addEventListener("click", () => {
+                port.postMessage({ action: "http-auth-manual" });
+                tabPort.postMessage({ action: "close" });
+            });
+        }
+
         // re-run the search when the search input changes
         search.addEventListener("input", () => {
             update();
-            document.querySelector(".selected").classList.remove("selected");
+            document.querySelector(".selected")?.classList.remove("selected");
             search.classList.add("selected");
         });
 
@@ -1236,6 +1284,11 @@
 
         // initial search
         update();
+
+        // For http-auth mode, always focus the search input
+        if (mode === "http-auth") {
+            search.focus();
+        }
 
         document.getElementById("searchPattern").addEventListener("keydown", (ev) => {
             if (ev.key === "Backspace" && search.value.length === 0) {
@@ -1252,7 +1305,9 @@
             ? "Parcel passkey consent opened. Press Tab to interact."
             : mode === "passkey-conflict"
               ? "Parcel passkey conflict notice opened. Press Tab to interact."
-              : "Parcel popup opened. Press Tab to interact.";
+              : mode === "http-auth"
+                ? "Parcel authentication required. Press Tab to interact."
+                : "Parcel popup opened. Press Tab to interact.";
 
     // show the default-rules warning
     config.then((config) => {

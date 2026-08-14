@@ -1,6 +1,7 @@
 "use strict";
 import { Schema, ConfigSchema } from "./schema.js";
 import { Helpers } from "./helpers.js";
+import { Plaintext } from "./plaintext.js";
 
 /**
  * Main agent class.
@@ -32,6 +33,7 @@ export class Agent extends EventTarget {
     #nativePingFailures = 0;
     #reconnectTimer = null;
     #destroyed = false;
+    #pendingAuthCallback = null;
 
     /**
      * Construct a new Agent instance.
@@ -67,6 +69,17 @@ export class Agent extends EventTarget {
             chrome.runtime.onInstalled.addListener(() => this.#ensureNativeConnected());
         }
 
+        // Intercept HTTP authentication challenges (401) and present Parcel's
+        // credential-selection popup. Proxy auth (407) and subframe auth are
+        // always passed through to the browser's native dialog.
+        if (chrome.webRequest?.onAuthRequired) {
+            chrome.webRequest.onAuthRequired.addListener(
+                (details, callback) => this.#handleAuthRequired(details, callback),
+                { urls: ["<all_urls>"] },
+                ["asyncBlocking"],
+            );
+        }
+
         // open port to native host
         this.#connectNative();
     }
@@ -84,6 +97,10 @@ export class Agent extends EventTarget {
             this.#reconnectTimer = null;
         }
         this.#rejectPendingCall?.("Agent destroyed");
+        if (this.#pendingAuthCallback) {
+            this.#pendingAuthCallback({});
+            this.#pendingAuthCallback = null;
+        }
         if (this.#host) {
             try {
                 this.#host.disconnect();
@@ -586,7 +603,7 @@ export class Agent extends EventTarget {
         // content-script (`integration`) ports may only request `config`.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
-            popup: ["auth", "config", "decrypt", "match", "sha256"],
+            popup: ["auth", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "match", "sha256"],
             integration: ["config"],
             passkey: ["passkey"],
         };
@@ -596,13 +613,28 @@ export class Agent extends EventTarget {
         port.onMessage.addListener(async (message) => {
             try {
                 if (port.name === "popup") {
-                    if (message?.action === "auth" && (this.#authorisedTokens.has(message.token) || message.token === "broadcast")) {
+                    if (
+                        message?.action === "auth" &&
+                        (this.#authorisedTokens.has(message.token) || message.token === "broadcast" || message.token === "http-auth")
+                    ) {
                         // A broadcast token indicates either the toolbar popup, or the fire-and-forget fallback after a toolbar popup was
                         // closed after initiating a decrypt & fill operation. In latter case, integration.js takes over to finish the job.
-                        if (message.token !== "broadcast") this.#authorisedTokens.delete(message.token);
+                        // An http-auth token indicates the HTTP auth scrim popup, triggered by onAuthRequired. It may only decrypt with
+                        // intent "http-auth" — form fills are not permitted from this token.
                         authorised = true;
                         token = message.token;
                         tabId = message?.tab?.id || null;
+                        // If the popup disconnects without resolving the auth callback,
+                        // fall back to the browser's native auth dialog.
+                        if (token === "http-auth") {
+                            port.onDisconnect.addListener(() => {
+                                chrome.runtime.lastError;
+                                if (this.#pendingAuthCallback) {
+                                    this.#pendingAuthCallback({});
+                                    this.#pendingAuthCallback = null;
+                                }
+                            });
+                        }
                         return;
                     }
                     if (!authorised) throw new Error("Unauthorised port");
@@ -622,13 +654,36 @@ export class Agent extends EventTarget {
                 updateStatus("Waiting for native host startup...");
                 await this.#waitUntilReady();
                 clearStatus();
-                if (message?.action === "match") {
+                if (message?.action === "http-auth-cancel") {
+                    // Cancel the auth request so the browser aborts navigation.
+                    if (token === "http-auth" && this.#pendingAuthCallback) {
+                        this.#pendingAuthCallback({ cancel: true });
+                        this.#pendingAuthCallback = null;
+                    }
+                } else if (message?.action === "http-auth-manual") {
+                    // Fall back to the browser's native auth dialog. Track the tab
+                    // so that if onAuthRequired re-fires (user cancels the native
+                    // dialog), we don't re-intercept and cause a hang. Stored in
+                    // chrome.storage.session to survive service-worker restarts.
+                    if (token === "http-auth" && this.#pendingAuthCallback) {
+                        const manualKey = `http-auth-manual:${tabId}`;
+                        await chrome.storage.session.set({ [manualKey]: Date.now() });
+                        this.#pendingAuthCallback({});
+                        this.#pendingAuthCallback = null;
+                        setTimeout(() => chrome.storage.session.remove(manualKey), 30_000);
+                    }
+                } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
                     // get matching entries
                     const result = await this.search(message.url, message.search || "", message.limit, message.history);
                     clearStatus();
                     port.postMessage({ action: "match", entries: result });
                 } else if (message?.action === "decrypt") {
+                    // The http-auth token may only decrypt with intent "http-auth";
+                    // form fills are not permitted from this token.
+                    if (token === "http-auth" && message.intent !== "http-auth") {
+                        throw new Error("Action not permitted for http-auth token");
+                    }
                     // decrypt the specified entry
                     updateStatus("Decrypting entry...");
                     const result = await this.#callNative(
@@ -637,22 +692,37 @@ export class Agent extends EventTarget {
                         { path: message.path, intent: message.intent, origin: message.origin },
                         this.#config.decryptTimeout * 1000,
                     );
-                    try {
+                    if (message.intent === "http-auth" && token === "http-auth" && this.#pendingAuthCallback) {
                         clearStatus();
-                        port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
-                    } catch (err) {
-                        // the port is disconnected, most likely as a result of https://bugzilla.mozilla.org/show_bug.cgi?id=1292701
-                        if (message?.intent === "fill" && token === "broadcast" && tabId) {
-                            console.warn("Falling back to fire-and-forget fill from agent");
-                            const tabPort = chrome.tabs.connect(tabId, { name: "broadcast", frameId: 0 });
-                            tabPort.onMessage.addListener(() => {}); // ignore responses, because we aren't an actual popup instance
-                            tabPort.postMessage({
-                                action: "fill",
-                                origin: message.origin,
-                                config: this.#config,
-                                plaintext: result.plaintext,
-                            });
-                        } else throw err;
+                        const plaintext = new Plaintext(result.plaintext, this.#config);
+                        const username = await plaintext.getValue("login");
+                        const password = await plaintext.getValue("secret");
+                        const cb = this.#pendingAuthCallback;
+                        this.#pendingAuthCallback = null;
+                        if (username && password) {
+                            cb({ authCredentials: { username, password } });
+                        } else {
+                            cb({}); // missing fields — let browser show native dialog
+                        }
+                        port.postMessage({ action: "http-auth-done" });
+                    } else {
+                        try {
+                            clearStatus();
+                            port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
+                        } catch (err) {
+                            // the port is disconnected, most likely as a result of https://bugzilla.mozilla.org/show_bug.cgi?id=1292701
+                            if (message?.intent === "fill" && token === "broadcast" && tabId) {
+                                console.warn("Falling back to fire-and-forget fill from agent");
+                                const tabPort = chrome.tabs.connect(tabId, { name: "broadcast", frameId: 0 });
+                                tabPort.onMessage.addListener(() => {}); // ignore responses, because we aren't an actual popup instance
+                                tabPort.postMessage({
+                                    action: "fill",
+                                    origin: message.origin,
+                                    config: this.#config,
+                                    plaintext: result.plaintext,
+                                });
+                            } else throw err;
+                        }
                     }
                 } else if (message?.action === "config") {
                     // provide the current configuration
@@ -812,6 +882,93 @@ export class Agent extends EventTarget {
             chrome.runtime.lastError; // suppress content script connect errors
             disconnect();
         });
+    }
+
+    /**
+     * Handle a webRequest auth challenge by opening the credential-selection popup.
+     *
+     * Only main-frame server-auth (401) challenges are handled. Subframe auth and
+     * proxy auth (407) are always passed through to the browser's native dialog.
+     *
+     * The popup communicates via the background's popup port using token
+     * "http-auth", which restricts decryption to intent "http-auth".
+     *
+     * @since 1.0.6
+     * @param {object} details - The onAuthRequired details from chrome.webRequest.
+     * @param {function} callback - The asyncBlocking callback to resolve with credentials.
+     * @returns {Promise<void>}
+     */
+    async #handleAuthRequired(details, callback) {
+        // Guard: proxy auth (407) is never supported
+        if (details.isProxy) return callback({});
+        // Guard: only main-frame navigations (permanent, not a future TODO)
+        if (details.type !== "main_frame") return callback({});
+        // Guard: tab must exist
+        if (details.tabId < 0) return callback({});
+
+        // Guard: config must be loaded and feature enabled
+        const hasConfig = await this.#waitUntilReady()
+            .then(() => true)
+            .catch(() => false);
+        if (!hasConfig || !this.#config?.handleHttpAuth) return callback({});
+
+        // Guard: if the user already chose "Enter manually" for this tab,
+        // skip interception — prevents a hang when Chrome re-fires
+        // onAuthRequired after the user cancels the native dialog.
+        const manualKey = `http-auth-manual:${details.tabId}`;
+        const manualResult = await chrome.storage.session.get(manualKey);
+        if (manualResult[manualKey]) {
+            await chrome.storage.session.remove(manualKey);
+            return callback({});
+        }
+
+        this.#pendingAuthCallback = callback;
+        const timer = setTimeout(
+            () => {
+                if (this.#pendingAuthCallback === callback) {
+                    this.#pendingAuthCallback = null;
+                    callback({});
+                }
+            },
+            this.#config.decryptTimeout * 1000 + 5000,
+        );
+
+        const abort = () => {
+            clearTimeout(timer);
+            if (this.#pendingAuthCallback === callback) {
+                this.#pendingAuthCallback = null;
+                callback({});
+            }
+        };
+
+        // For same-tab navigation the old page's content script is still
+        // present — send a message to trigger the scrim popup. For new tabs
+        // there's no content script, so we open a standalone popup window.
+        const tabInfo = await chrome.tabs.get(details.tabId);
+        const hasContentScript = /^(https?|file):/.test(tabInfo.url || "");
+        const popupBase = "/html/popup.html?token=http-auth&frameId=0&mode=http-auth";
+
+        const openWindow = async () => {
+            const authUrl = encodeURIComponent(details.url);
+            const windowUrl = chrome.runtime.getURL(`${popupBase}&window=1&authUrl=${authUrl}`);
+            try {
+                await chrome.windows.create({ url: windowUrl, type: "popup", width: 400, height: 300 });
+            } catch {
+                abort();
+            }
+        };
+
+        if (hasContentScript) {
+            try {
+                await chrome.tabs.sendMessage(details.tabId, { action: "trigger-http-auth" });
+            } catch {
+                // Content script not present (e.g. extension just installed
+                // on an already-open page) — fall back to a popup window.
+                await openWindow();
+            }
+        } else {
+            await openWindow();
+        }
     }
 
     /**

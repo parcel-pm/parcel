@@ -5,7 +5,7 @@
     "description": "A simple password manager with no third-party dependencies.",
     "homepage_url": "https://github.com/parcel-pm/parcel/",
     "author": "Steve Gilberd <steve@erayd.net>",
-    "permissions": ["nativeMessaging", "storage"],
+    "permissions": ["nativeMessaging", "storage", "webRequest", "webRequestAuthProvider"],
     "host_permissions": ["<all_urls>"],
     "background": {
         "service_worker": "js/agent.js",

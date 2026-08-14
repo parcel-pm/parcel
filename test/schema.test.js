@@ -367,6 +367,18 @@ describe("Defined schemas", () => {
         assert.strictEqual(config.passkeyDir, "passkeys");
     });
 
+    test("ConfigSchema: handleHttpAuth defaults to true", () => {
+        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }] };
+        Schema.validate(ConfigSchema, config);
+        assert.strictEqual(config.handleHttpAuth, true);
+    });
+
+    test("ConfigSchema: handleHttpAuth accepts false", () => {
+        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], handleHttpAuth: false };
+        Schema.validate(ConfigSchema, config);
+        assert.strictEqual(config.handleHttpAuth, false);
+    });
+
     test("ConfigSchema: passkeyDir permits unicode, spaces and dots", () => {
         for (const passkeyDir of ["我的密钥", "My Keys", ".hidden", "a//b", "a.b/c"]) {
             const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir };
