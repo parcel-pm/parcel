@@ -671,7 +671,6 @@ export class Agent extends EventTarget {
                         const manualKey = `http-auth-manual:${authEntry.tabId}`;
                         await chrome.storage.session.set({ [manualKey]: Date.now() });
                         this.#resolveAuthCallback(token, {});
-                        setTimeout(() => chrome.storage.session.remove(manualKey), 30_000);
                     }
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
@@ -932,11 +931,14 @@ export class Agent extends EventTarget {
         // Guard: if the user already chose "Enter manually" for this tab,
         // skip interception — prevents a hang when Chrome re-fires
         // onAuthRequired after the user cancels the native dialog.
+        // The key is consumed (removed) on the next fire regardless; the
+        // timestamp check ensures a stale key surviving a SW restart can't
+        // suppress an unrelated future challenge.
         const manualKey = `http-auth-manual:${details.tabId}`;
         const manualResult = await chrome.storage.session.get(manualKey);
         if (manualResult[manualKey]) {
             await chrome.storage.session.remove(manualKey);
-            return callback({});
+            if (Date.now() - manualResult[manualKey] < 30_000) return callback({});
         }
 
         // Generate a per-challenge token so that only the popup opened for this
