@@ -127,7 +127,8 @@
     // Trigger the http-auth scrim popup from the background worker.
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (msg?.action === "trigger-http-auth") {
-            triggerPopup("http-auth", 0, { centered: true }, "http-auth");
+            httpAuthTokens.add(msg.token);
+            triggerPopup(msg.token, 0, { centered: true }, "http-auth");
             sendResponse({ ok: true });
         }
     });
@@ -513,6 +514,9 @@
 
     /** Popup modes rendered as a centred card over a fullscreen scrim that fades in and out. */
     const SCRIM_MODES = new Set(["passkey", "passkey-conflict", "http-auth"]);
+
+    /** Per-challenge tokens for http-auth scrim popups, so the onConnect handler can identify them. */
+    const httpAuthTokens = new Set();
 
     /**
      * Remove a popup element from the page. Scrim popups (passkey ceremonies and conflict
@@ -1443,7 +1447,8 @@
 
         // http-auth scrim popup: no target binding — only resize and close.
         // Handles both integration.js-created and executeScript-injected scrims.
-        if (port.name === "http-auth") {
+        if (httpAuthTokens.has(port.name)) {
+            httpAuthTokens.delete(port.name);
             port.onMessage.addListener((msg) => {
                 const popup = document.querySelector(".parcel-popup");
                 if (!popup) return;
