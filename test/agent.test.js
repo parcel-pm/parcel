@@ -831,6 +831,108 @@ describe("Agent", () => {
         assert.notStrictEqual(token1, "http-auth", "token is not the fixed string");
     });
 
+    test("http-auth: concurrent 401 challenges don't cross-route credentials", async () => {
+        // Two tabs navigate to 401-protected URLs simultaneously. Each
+        // challenge gets its own token; credentials selected in one
+        // popup must resolve that challenge, not the other.
+        const resultAPromise = mock.fireAuthRequired({
+            isProxy: false,
+            type: "main_frame",
+            tabId: 1,
+            url: "https://bank.example/",
+        });
+        const resultBPromise = mock.fireAuthRequired({
+            isProxy: false,
+            type: "main_frame",
+            tabId: 2,
+            url: "https://mail.example/",
+        });
+        await settleAsync();
+        await settleAsync();
+
+        // Both challenges should have sent trigger messages with distinct tokens
+        const tokenA = mock.sentMessages[mock.sentMessages.length - 2].msg.token;
+        const tokenB = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+        assert.ok(tokenA && tokenB, "both challenges generated tokens");
+        assert.notStrictEqual(tokenA, tokenB, "concurrent challenges get distinct tokens");
+
+        // Resolve tab A's challenge with its own token
+        const popupA = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popupA.postMessage({ action: "auth", token: tokenA, tab: { id: 1, url: "https://bank.example/" } });
+        await settleAsync();
+        const doneAPromise = nextMessage(popupA, "http-auth-done");
+        popupA.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://bank.example/", path: "example.com/admin" });
+        await doneAPromise;
+
+        // Resolve tab B's challenge with its own token
+        const popupB = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popupB.postMessage({ action: "auth", token: tokenB, tab: { id: 2, url: "https://mail.example/" } });
+        await settleAsync();
+        const doneBPromise = nextMessage(popupB, "http-auth-done");
+        popupB.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://mail.example/", path: "example.com/admin" });
+        await doneBPromise;
+
+        const [resultA, resultB] = await Promise.all([resultAPromise, resultBPromise]);
+        assert.ok(resultA.authCredentials, "challenge A resolved with credentials");
+        assert.ok(resultB.authCredentials, "challenge B resolved with credentials");
+        // Both resolve with the same test entry, but each via its own callback — no hang, no cross-route
+        assert.strictEqual(resultA.authCredentials.username, "testuser");
+        assert.strictEqual(resultB.authCredentials.username, "testuser");
+
+        popupA.disconnect();
+        popupB.disconnect();
+    });
+
+    test("http-auth: window-mode end-to-end credential resolution", async () => {
+        // New tab with no content script → popup opens as a window.
+        // Simulate the popup connecting with the token from the window URL.
+        mock.setCurrentTab({ id: 77, status: "loading", url: "about:blank" });
+
+        const resultPromise = mock.fireAuthRequired({
+            isProxy: false,
+            type: "main_frame",
+            tabId: 77,
+            url: "https://authenticationtest.com/HTTPAuth/",
+        });
+        await settleAsync();
+        await settleAsync();
+
+        // No content-script message should have been sent
+        assert.strictEqual(mock.sentMessages.length, 0, "no trigger message for window mode");
+
+        // The popup window was created with the token in the URL
+        assert.ok(mock.windowsCreated.length > 0, "popup window created");
+        const windowUrl = new URL(mock.windowsCreated[0].url);
+        const token = windowUrl.searchParams.get("token");
+        assert.ok(token, "window URL includes per-challenge token");
+        assert.notStrictEqual(token, "http-auth", "window token is not the fixed string");
+
+        // Simulate the popup connecting with the extracted token
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token, tab: { url: "https://authenticationtest.com/HTTPAuth/" } });
+        await settleAsync();
+
+        // Match + decrypt with intent "http-auth"
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
+        const match = await matchPromise;
+        assert.ok(match.entries.length > 0, "popup received matching entries");
+
+        const donePromise = nextMessage(popup, "http-auth-done");
+        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+        await donePromise;
+
+        const result = await resultPromise;
+        assert.ok(result.authCredentials, "window-mode resolved with credentials");
+        assert.strictEqual(result.authCredentials.username, "testuser");
+        assert.strictEqual(result.authCredentials.password, "hunter2");
+
+        popup.disconnect();
+    });
+
     /**
      * Push a passkey-aware config and entry list into the agent.
      *
