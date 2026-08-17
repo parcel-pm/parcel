@@ -639,6 +639,14 @@ export class Agent extends EventTarget {
                         }
                         return;
                     }
+                    // If the popup is in http-auth mode but the token is no longer
+                    // in #pendingAuthCallbacks (e.g. service worker was terminated
+                    // and restarted), notify the popup so it can show an informative
+                    // message and close itself, rather than silently erroring.
+                    if (!authorised && message?.action === "auth" && message?.mode === "http-auth") {
+                        port.postMessage({ action: "http-auth-expired" });
+                        return;
+                    }
                     if (!authorised) throw new Error("Unauthorised port");
                 }
 

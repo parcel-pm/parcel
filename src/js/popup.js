@@ -179,8 +179,9 @@
     const { tab, tabPort } =
         isWindowMode && mode === "http-auth" ? { tab: { contextualIdentity: undefined }, tabPort: windowTabPort() } : await connectToTab();
 
+    let suppressErrors = false;
     const port = chrome.runtime.connect({ name: "popup" });
-    port.postMessage({ action: "auth", token, tab });
+    port.postMessage({ action: "auth", token, tab, mode });
 
     // For http-auth mode the challenge URL comes from the background, bound to the per-challenge token.
     if (mode === "http-auth") {
@@ -190,13 +191,30 @@
                 if (msg?.action === "http-auth-url") {
                     port.onMessage.removeListener(listener);
                     resolve(msg.url);
+                } else if (msg?.action === "http-auth-expired") {
+                    port.onMessage.removeListener(listener);
+                    resolve(null);
                 }
             };
             port.onMessage.addListener(listener);
         });
         port.postMessage({ action: "http-auth-url" });
         const serverAuthUrl = await authUrlPromise;
-        if (serverAuthUrl) tab.url = serverAuthUrl;
+        if (serverAuthUrl) {
+            tab.url = serverAuthUrl;
+        } else {
+            // The auth session has expired (e.g. service worker was terminated
+            // and restarted). Show an informative message and close the popup.
+            suppressErrors = true;
+            document.querySelector("#status").textContent = "Session expired";
+            const expiredMsg = document.createElement("p");
+            expiredMsg.classList.add("error");
+            expiredMsg.textContent = "This authentication session has expired. Please close this window and retry.";
+            document.body.insertAdjacentElement("afterbegin", expiredMsg);
+            document.getElementById("modal-shade").classList.add("hidden");
+            setTimeout(() => tabPort.postMessage({ action: "close-popup" }), 5000);
+            return;
+        }
     }
     const ul = document.querySelector("ul");
     let limit = true;
@@ -1245,6 +1263,7 @@
             // Close the popup via the trigger port.
             tabPort.postMessage({ action: "close-popup" });
         } else if (msg.action === "error") {
+            if (suppressErrors) return;
             document.querySelector("#status").textContent = "Error";
             const p = document.createElement("p");
             p.classList.add("error");
