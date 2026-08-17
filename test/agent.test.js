@@ -652,7 +652,7 @@ describe("Agent", () => {
         assert.deepStrictEqual(result, {}, "manual resolves with {} for native dialog");
 
         // Verify the manual-mode flag was stored in session storage
-        assert.ok(mock.sessionStorageMap.has("http-auth-manual:1"), "session storage flag set");
+        assert.ok(mock.sessionStorageMap.has("http-auth-manual:1:https://example.com"), "session storage flag set with origin");
 
         popup.disconnect();
     });
