@@ -112,10 +112,11 @@ Proxy auth (HTTP 407) is **not supported**. Proxy credentials are reused across 
 Additional protections specific to HTTP auth:
 
 1. **Interactive consent** — No credentials are supplied without explicit user selection in the scrim, which displays the requesting origin.
-2. **Main-frame only** — Subframe auth challenges are always passed to the browser's native dialog. This is permanent, not a future TODO.
-3. **Rate limiting** — HTTP auth decryptions consume tokens from the same token-bucket rate limiter as all other decryptions.
-4. **No plaintext caching** — Credentials are decrypted fresh each time and never persisted to `chrome.storage.local`.
-5. **Token-restricted decryption** — The http-auth popup uses a dedicated `"http-auth"` token that only permits decryption with `intent: "http-auth"`. Form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
+2. **Server-bound challenge origin** — The challenge URL shown in the scrim and used for entry matching is supplied by the background worker, bound to the per-challenge token; the popup never trusts a URL from its own query string, and no URL is honoured for a token without a live pending challenge.
+3. **Main-frame only** — Subframe auth challenges are always passed to the browser's native dialog. This is permanent, not a future TODO.
+4. **Rate limiting** — HTTP auth decryptions consume tokens from the same token-bucket rate limiter as all other decryptions.
+5. **No plaintext caching** — Credentials are decrypted fresh each time and never persisted to `chrome.storage.local`.
+6. **Token-restricted decryption** — The http-auth popup uses a dedicated `"http-auth"` token that only permits decryption with `intent: "http-auth"`. Form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
 
 ## Deliberate Tradeoffs
 

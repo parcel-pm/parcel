@@ -604,7 +604,7 @@ export class Agent extends EventTarget {
         // content-script (`integration`) ports may only request `config`.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
-            popup: ["auth", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "match", "sha256"],
+            popup: ["auth", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
             integration: ["config"],
             passkey: ["passkey"],
         };
@@ -672,6 +672,10 @@ export class Agent extends EventTarget {
                         await chrome.storage.session.set({ [manualKey]: Date.now() });
                         this.#resolveAuthCallback(token, {});
                     }
+                } else if (message?.action === "http-auth-url") {
+                    // Challenge URL comes from the token-bound background record, never the query string.
+                    const authEntry = this.#pendingAuthCallbacks.get(token);
+                    port.postMessage({ action: "http-auth-url", url: authEntry?.url ?? null });
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
                     // get matching entries
@@ -946,7 +950,7 @@ export class Agent extends EventTarget {
         // from embedding a fake popup that routes credentials to the wrong auth
         // challenge, and ensures concurrent 401 challenges can't cross-route.
         const authToken = crypto.randomUUID();
-        const entry = { callback, timer: null, tabId: details.tabId };
+        const entry = { callback, timer: null, tabId: details.tabId, url: details.url };
         this.#pendingAuthCallbacks.set(authToken, entry);
         entry.timer = setTimeout(() => this.#resolveAuthCallback(authToken, {}), decryptTimeout);
 
@@ -967,8 +971,7 @@ export class Agent extends EventTarget {
         const popupBase = `/html/popup.html?token=${authToken}&frameId=0&mode=http-auth`;
 
         const openWindow = async () => {
-            const authUrl = encodeURIComponent(details.url);
-            const windowUrl = chrome.runtime.getURL(`${popupBase}&window=1&authUrl=${authUrl}`);
+            const windowUrl = chrome.runtime.getURL(`${popupBase}&window=1`);
             try {
                 await chrome.windows.create({ url: windowUrl, type: "popup", width: 400, height: 300 });
             } catch {
@@ -978,7 +981,7 @@ export class Agent extends EventTarget {
 
         if (hasContentScript) {
             try {
-                await chrome.tabs.sendMessage(details.tabId, { action: "trigger-http-auth", token: authToken, authUrl: details.url });
+                await chrome.tabs.sendMessage(details.tabId, { action: "trigger-http-auth", token: authToken });
             } catch {
                 // Content script not present (e.g. extension just installed
                 // on an already-open page) — fall back to a popup window.

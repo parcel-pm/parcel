@@ -525,22 +525,6 @@ describe("Agent", () => {
         assert.ok(mock.sentMessages[0].msg.token, "trigger message includes a per-challenge token");
     });
 
-    test("http-auth: trigger message includes authUrl for correct origin matching", async () => {
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://secure.example.com/login",
-        });
-        await settleAsync();
-        await settleAsync();
-
-        const msg = mock.sentMessages[mock.sentMessages.length - 1].msg;
-        assert.strictEqual(msg.action, "trigger-http-auth", "correct action");
-        assert.ok(msg.token, "includes per-challenge token");
-        assert.strictEqual(msg.authUrl, "https://secure.example.com/login", "includes the 401-challenging URL as authUrl");
-    });
-
     test("http-auth: returns credentials via popup port decrypt", async () => {
         const resultPromise = mock.fireAuthRequired({
             isProxy: false,
@@ -735,7 +719,6 @@ describe("Agent", () => {
         assert.ok(mock.windowsCreated.length > 0, "popup window created");
         const window = mock.windowsCreated[0];
         assert.ok(window.url.includes("window=1"), "popup URL includes window=1");
-        assert.ok(window.url.includes("authUrl="), "popup URL includes authUrl param");
         assert.ok(window.url.includes("token="), "popup URL includes per-challenge token");
         assert.ok(!window.url.includes("token=http-auth"), "popup URL does not use fixed token");
         assert.strictEqual(window.type, "popup", "window type is popup");

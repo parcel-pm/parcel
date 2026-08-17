@@ -7,7 +7,6 @@
     const frameId = parseInt(new URLSearchParams(window.location.search).get("frameId"), 10) || 0;
     const mode = new URLSearchParams(window.location.search).get("mode");
     const isWindowMode = new URLSearchParams(window.location.search).get("window") === "1";
-    const authUrl = new URLSearchParams(window.location.search).get("authUrl");
     let frameOrigin; // intended origin for the actual fill operation
     if (token === "broadcast" && window !== window.top) {
         const msg =
@@ -175,14 +174,30 @@
     }
 
     // In window mode (new-tab http-auth), there's no content script to connect
-    // to.  Use a dummy port that handles close via window.close(), and synthesise
-    // a tab object from the authUrl so credential matching uses the correct origin.
+    // to. Use a dummy port that handles close via window.close(), and synthesise
+    // a tab object; the URL is filled in below from the authoritative background.
     const { tab, tabPort } =
-        isWindowMode && authUrl ? { tab: { url: authUrl, contextualIdentity: undefined }, tabPort: windowTabPort() } : await connectToTab();
-    if (!isWindowMode && authUrl) tab.url = authUrl;
+        isWindowMode && mode === "http-auth" ? { tab: { contextualIdentity: undefined }, tabPort: windowTabPort() } : await connectToTab();
 
     const port = chrome.runtime.connect({ name: "popup" });
     port.postMessage({ action: "auth", token, tab });
+
+    // For http-auth mode the challenge URL comes from the background, bound to the per-challenge token.
+    if (mode === "http-auth") {
+        const authUrlPromise = new Promise((resolve) => {
+            // listen for the http-auth-url response from the background
+            const listener = (msg) => {
+                if (msg?.action === "http-auth-url") {
+                    port.onMessage.removeListener(listener);
+                    resolve(msg.url);
+                }
+            };
+            port.onMessage.addListener(listener);
+        });
+        port.postMessage({ action: "http-auth-url" });
+        const serverAuthUrl = await authUrlPromise;
+        if (serverAuthUrl) tab.url = serverAuthUrl;
+    }
     const ul = document.querySelector("ul");
     let limit = true;
     let history = [];
