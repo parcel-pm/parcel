@@ -1260,10 +1260,16 @@
         // For http-auth mode, show the action buttons
         if (mode === "http-auth") {
             document.getElementById("http-auth-actions").classList.remove("hidden");
-            document.getElementById("http-auth-cancel").addEventListener("click", () => {
-                port.postMessage({ action: "http-auth-cancel" });
-                tabPort.postMessage({ action: "close", cancelNavigation: true });
-            });
+            if (isWindowMode) {
+                // In window mode (new-tab navigation), there's no previous
+                // page to go back to, so "Cancel" is not offered.
+                document.getElementById("http-auth-cancel").classList.add("hidden");
+            } else {
+                document.getElementById("http-auth-cancel").addEventListener("click", () => {
+                    port.postMessage({ action: "http-auth-cancel" });
+                    tabPort.postMessage({ action: "close", cancelNavigation: true });
+                });
+            }
             document.getElementById("http-auth-manual").addEventListener("click", () => {
                 port.postMessage({ action: "http-auth-manual" });
                 tabPort.postMessage({ action: "close" });
