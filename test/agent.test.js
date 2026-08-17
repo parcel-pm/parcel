@@ -587,6 +587,47 @@ describe("Agent", () => {
         popup.disconnect();
     });
 
+    test("http-auth: timer expiry prevents plaintext exposure", async () => {
+        const resultPromise = mock.fireAuthRequired({
+            isProxy: false,
+            type: "main_frame",
+            tabId: 1,
+            url: "https://example.com/",
+        });
+        await settleAsync();
+        await settleAsync();
+
+        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+        await settleAsync();
+
+        // Simulate the timer expiring before the user selects an entry by
+        // sending http-auth-cancel, which calls #resolveAuthCallback and
+        // removes the entry from #pendingAuthCallbacks.
+        popup.postMessage({ action: "http-auth-cancel" });
+        await settleAsync();
+
+        const result = await resultPromise;
+        assert.deepStrictEqual(result, { cancel: true }, "timer expiry cancel resolves callback");
+
+        // Now the user selects an entry and decrypt fires with intent "http-auth".
+        // The popup should receive http-auth-done but NOT a plaintext message.
+        let plaintextReceived = false;
+        popup.onMessage.addListener((msg) => {
+            if (msg.action === "plaintext") plaintextReceived = true;
+        });
+
+        const donePromise = nextMessage(popup, "http-auth-done");
+        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+        await donePromise;
+
+        assert.ok(!plaintextReceived, "plaintext is not posted to popup after timer expiry");
+
+        popup.disconnect();
+    });
+
     test("http-auth: manual fallback shows native dialog", async () => {
         const resultPromise = mock.fireAuthRequired({
             isProxy: false,
@@ -791,6 +832,52 @@ describe("Agent", () => {
 
         const result = await resultPromise;
         assert.deepStrictEqual(result, {}, "missing fields resolves with {} for native dialog");
+
+        popup.disconnect();
+    });
+
+    test("http-auth: malformed decrypt falls back to native dialog", async () => {
+        // Override the native handler to return a malformed decrypt result
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") return { plaintext: null };
+        });
+        const popup0 = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup0.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const cfgPromise = nextMessage(popup0, "config");
+        popup0.postMessage({ action: "config" });
+        await cfgPromise;
+        popup0.disconnect();
+        await settleAsync();
+
+        const resultPromise = mock.fireAuthRequired({
+            isProxy: false,
+            type: "main_frame",
+            tabId: 1,
+            url: "https://example.com/",
+        });
+        await settleAsync();
+        await settleAsync();
+
+        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+        await settleAsync();
+
+        const donePromise = nextMessage(popup, "http-auth-done");
+        popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
+        await nextMessage(popup, "match");
+        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+        await donePromise;
+
+        const result = await resultPromise;
+        assert.deepStrictEqual(result, {}, "malformed decrypt resolves with {} for native dialog");
 
         popup.disconnect();
     });

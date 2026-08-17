@@ -696,15 +696,29 @@ export class Agent extends EventTarget {
                         { path: message.path, intent: message.intent, origin: message.origin },
                         this.#config.decryptTimeout * 1000,
                     );
-                    if (message.intent === "http-auth" && this.#pendingAuthCallbacks.has(token)) {
-                        clearStatus();
-                        const plaintext = new Plaintext(result.plaintext, this.#config);
-                        const username = await plaintext.getValue("login");
-                        const password = await plaintext.getValue("secret");
-                        if (username && password) {
-                            this.#resolveAuthCallback(token, { authCredentials: { username, password } });
+                    if (message.intent === "http-auth") {
+                        if (this.#pendingAuthCallbacks.has(token)) {
+                            try {
+                                clearStatus();
+                                const plaintext = new Plaintext(result.plaintext, this.#config);
+                                const username = await plaintext.getValue("login");
+                                const password = await plaintext.getValue("secret");
+                                if (username && password) {
+                                    this.#resolveAuthCallback(token, { authCredentials: { username, password } });
+                                } else {
+                                    this.#resolveAuthCallback(token, {}); // missing fields — let browser show native dialog
+                                }
+                            } catch (_err) {
+                                // Decryption or plaintext parsing failed — fall back to
+                                // the browser's native auth dialog so navigation isn't blocked.
+                                this.#resolveAuthCallback(token, {});
+                            }
                         } else {
-                            this.#resolveAuthCallback(token, {}); // missing fields — let browser show native dialog
+                            // The auth callback's timer has already expired and the
+                            // entry was removed from #pendingAuthCallbacks. Don't
+                            // expose the decrypted plaintext in the popup — just
+                            // close it.
+                            clearStatus();
                         }
                         port.postMessage({ action: "http-auth-done" });
                     } else {
