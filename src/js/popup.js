@@ -179,6 +179,7 @@
     // a tab object from the authUrl so credential matching uses the correct origin.
     const { tab, tabPort } =
         isWindowMode && authUrl ? { tab: { url: authUrl, contextualIdentity: undefined }, tabPort: windowTabPort() } : await connectToTab();
+    if (!isWindowMode && authUrl) tab.url = authUrl;
 
     const port = chrome.runtime.connect({ name: "popup" });
     port.postMessage({ action: "auth", token, tab });

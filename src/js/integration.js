@@ -128,7 +128,7 @@
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (msg?.action === "trigger-http-auth") {
             httpAuthTokens.add(msg.token);
-            triggerPopup(msg.token, 0, { centered: true }, "http-auth");
+            triggerPopup(msg.token, 0, { centered: true }, "http-auth", msg.authUrl);
             sendResponse({ ok: true });
         }
     });
@@ -559,7 +559,7 @@
      * @param {string} [mode] - Optional popup mode (e.g. "passkey"), passed through to the popup iframe URL.
      * @returns {Promise<void>}
      */
-    async function triggerPopup(token, frameId, position, mode = null) {
+    async function triggerPopup(token, frameId, position, mode = null, authUrl = null) {
         // remove old popups
         for (const popup of [...Helpers.shadowSelectorAll(".parcel-popup")]) {
             removePopup(popup);
@@ -665,7 +665,9 @@
         // extension-origin frame; without it the async Clipboard API is policy-denied)
         const frame = document.createElement("iframe");
         frame.setAttribute("allow", "clipboard-write");
-        frame.src = chrome.runtime.getURL(`/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${mode}` : ""}`);
+        frame.src = chrome.runtime.getURL(
+            `/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${mode}` : ""}${authUrl ? `&authUrl=${encodeURIComponent(authUrl)}` : ""}`,
+        );
         root.appendChild(frame);
         if (scrimMode) {
             // provisional card size until the popup reports its real size via resize-popup

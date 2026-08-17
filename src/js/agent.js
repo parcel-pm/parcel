@@ -978,7 +978,7 @@ export class Agent extends EventTarget {
 
         if (hasContentScript) {
             try {
-                await chrome.tabs.sendMessage(details.tabId, { action: "trigger-http-auth", token: authToken });
+                await chrome.tabs.sendMessage(details.tabId, { action: "trigger-http-auth", token: authToken, authUrl: details.url });
             } catch {
                 // Content script not present (e.g. extension just installed
                 // on an already-open page) — fall back to a popup window.
