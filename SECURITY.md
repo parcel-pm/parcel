@@ -116,7 +116,7 @@ Additional protections specific to HTTP auth:
 3. **Main-frame only** — Subframe auth challenges are always passed to the browser's native dialog. This is permanent, not a future TODO.
 4. **Rate limiting** — HTTP auth decryptions consume tokens from the same token-bucket rate limiter as all other decryptions.
 5. **No plaintext caching** — Credentials are decrypted fresh each time and never persisted to `chrome.storage.local`.
-6. **Token-restricted decryption** — The http-auth popup uses a dedicated `"http-auth"` token that only permits decryption with `intent: "http-auth"`. Form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
+6. **Token-restricted decryption** — The http-auth popup uses a per-challenge random token (UUID) bound to a single pending 401 callback. Decryption is restricted to `intent: "http-auth"`; form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
 
 ## Deliberate Tradeoffs
 
