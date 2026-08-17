@@ -555,9 +555,13 @@
             reportPopupSize();
         }
         window.addEventListener("keydown", (ev) => {
-            if (ev.key === "Escape" && mode === "http-auth" && !isWindowMode) {
+            if (ev.key !== "Escape") return;
+            if (mode === "http-auth") {
+                if (isWindowMode) return;
                 port.postMessage({ action: "http-auth-cancel" });
                 tabPort.postMessage({ action: "close", cancelNavigation: true });
+            } else {
+                tabPort.postMessage({ action: "close" });
             }
         });
 
