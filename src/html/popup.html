@@ -200,6 +200,17 @@
                 <button class="passkey-conflict-close" type="button">Close</button>
             </div>
         </div>
+        <div id="permission-prompt" class="hidden">
+            <p class="permission-title">Permission required</p>
+            <p>
+                Parcel needs to access all websites to intercept login forms and HTTP authentication challenges. Firefox does not grant this
+                automatically &mdash; click below to enable it.
+            </p>
+            <div class="permission-buttons">
+                <button id="permission-grant" type="button">Grant access</button>
+                <button id="permission-dismiss" type="button">Not now</button>
+            </div>
+        </div>
         <p id="status">Status bar</p>
         <div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
     </body>

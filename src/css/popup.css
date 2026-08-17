@@ -418,6 +418,36 @@ body.passkey-popup {
         }
     }
 }
+#permission-prompt {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    gap: 8px;
+    padding: 8px;
+    p {
+        margin: 0;
+    }
+    .permission-title {
+        font-weight: bold;
+    }
+    .permission-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        button {
+            background-color: var(--color-modal-item-bg);
+            border: 1px solid var(--color-border-mid);
+            border-radius: 3px;
+            color: var(--color-text);
+            cursor: pointer;
+            padding: 4px 10px;
+            &:focus,
+            &:hover {
+                background-color: var(--color-modal-item-focus);
+            }
+        }
+    }
+}
 parcel-detail {
     border-left: 1px solid var(--color-border);
     box-shadow: -3px 0 3px -2px var(--color-shadow);

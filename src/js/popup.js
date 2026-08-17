@@ -18,6 +18,32 @@
         throw new Error(msg);
     }
 
+    // Firefox MV3 treats host_permissions as optional — the user must explicitly
+    // grant "Access your data for all websites". Without it, webRequest events
+    // (including onAuthRequired) silently never fire. Chrome auto-grants on
+    // install, so this prompt only appears in Firefox.
+    if (mode !== "passkey-conflict" && chrome.permissions) {
+        const hasHostPermission = await chrome.permissions.contains({
+            origins: ["<all_urls>"],
+        });
+        if (!hasHostPermission) {
+            document.getElementById("search").classList.add("hidden");
+            document.getElementById("entries").classList.add("hidden");
+            document.getElementById("status").classList.add("hidden");
+            document.getElementById("permission-prompt").classList.remove("hidden");
+            document.getElementById("permission-grant").addEventListener("click", async () => {
+                const granted = await chrome.permissions.request({
+                    origins: ["<all_urls>"],
+                });
+                if (granted) window.location.reload();
+            });
+            document.getElementById("permission-dismiss").addEventListener("click", () => {
+                window.close();
+            });
+            return;
+        }
+    }
+
     /**
      * Post a message, reconnecting once if the post throws. The `post` and
      * `reconnect` closures capture the caller's port variable so the retry
