@@ -523,6 +523,7 @@ describe("Agent", () => {
         assert.ok(mock.sentMessages.length > 0, "sendMessage called to trigger scrim");
         assert.strictEqual(mock.sentMessages[0].tabId, 1, "sent to correct tab");
         assert.ok(mock.sentMessages[0].msg.token, "trigger message includes a per-challenge token");
+        assert.strictEqual(mock.sentMessages[0].options?.frameId, 0, "trigger restricted to top frame");
     });
 
     test("http-auth: returns credentials via popup port decrypt", async () => {

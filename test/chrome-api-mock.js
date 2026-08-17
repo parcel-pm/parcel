@@ -236,8 +236,8 @@ export function createChromeMock(opts = {}) {
                 tabPorts.push({ tabId, frameId, receiver: pair.receiver });
                 return pair.caller;
             },
-            async sendMessage(tabId, msg) {
-                sentMessages.push({ tabId, msg });
+            async sendMessage(tabId, msg, options) {
+                sentMessages.push({ tabId, msg, options });
                 if (sendMessageFailure) throw new Error(sendMessageFailure);
                 return { ok: true };
             },

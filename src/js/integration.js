@@ -127,6 +127,7 @@
     // Trigger the http-auth scrim popup from the background worker.
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (msg?.action === "trigger-http-auth") {
+            if (window !== window.top) return;
             httpAuthTokens.add(msg.token);
             triggerPopup(msg.token, 0, { centered: true }, "http-auth");
             sendResponse({ ok: true });
