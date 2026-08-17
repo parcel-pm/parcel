@@ -1170,7 +1170,7 @@
                 const button = document.createElement("button");
                 button.classList.add("detail");
                 button.setAttribute("title", "Show detailed content");
-                if (mode === "http-auth") button.disabled = true;
+                if (mode === "http-auth") button.classList.add("hidden");
                 else {
                     button.addEventListener("click", (ev) => {
                         ev.stopPropagation();
