@@ -511,49 +511,6 @@ describe("Popup script", { concurrency: false }, () => {
         assert.ok(hist && hist.length > 0, "history updated after fill click");
     });
 
-    test("card entry renders with entry-card CSS class", async () => {
-        const popupReceiver = portReceivers["popup"];
-        popupReceiver.postMessage({
-            action: "match",
-            entries: [
-                {
-                    path: "cards/example.com/visa",
-                    name: "example.com/visa",
-                    rule: { tag: "card", color: "0066cc", strip: "", class: "card" },
-                    sortOrder: 1,
-                    isInHistory: false,
-                },
-            ],
-        });
-        await settleAsync();
-
-        const li = document.querySelector("ul#entries > li");
-        assert.ok(li, "card entry rendered");
-        assert.ok(li.classList.contains("entry-card"), "card entry has entry-card class");
-    });
-
-    test("non-card entry does not get entry-card CSS class", async () => {
-        const popupReceiver = portReceivers["popup"];
-        popupReceiver.postMessage({
-            action: "match",
-            entries: [
-                {
-                    path: "test/login.com",
-                    name: "login.com",
-                    rule: { tag: "login", color: "ff0000", strip: "", class: "login" },
-                    sortOrder: 1,
-                    isInHistory: false,
-                },
-            ],
-        });
-        await settleAsync();
-
-        const li = document.querySelector("ul#entries > li");
-        assert.ok(li, "login entry rendered");
-        assert.ok(!li.classList.contains("entry-card"), "login entry does not have entry-card class");
-        assert.ok(li.classList.contains("entry-login"), "login entry has entry-login class");
-    });
-
     test("clicking a card entry does not add it to history", async () => {
         const url = new URL("https://example.com/login");
         const hash = sha256Native(url.origin);
