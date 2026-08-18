@@ -685,6 +685,13 @@
         document.getElementById("origin").classList.add("hidden");
     }
 
+    // Card fields are not origin-specific — a card is used across many sites —
+    // so the popup defaults to global search instead of origin-limited results.
+    if (targetClass === "card") {
+        limit = false;
+        document.getElementById("origin").classList.add("hidden");
+    }
+
     document.getElementById("modal-shade").addEventListener("click", () => {
         document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
         document.getElementById("modal-shade").classList.add("hidden");
