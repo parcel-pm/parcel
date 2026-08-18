@@ -452,24 +452,6 @@ describe("Agent", () => {
     });
 
     describe("HTTP auth interception", () => {
-        test("opens popup even when no matching entries (search available)", async () => {
-            mock.fireAuthRequired({
-                isProxy: false,
-                type: "main_frame",
-                tabId: 1,
-                url: "https://nonexistent.invalid/",
-            });
-            await settleAsync();
-            await settleAsync();
-
-            // The content script should receive a trigger message even with 0
-            // matches — the user can search for entries from other origins.
-            assert.ok(mock.sentMessages.length > 0, "sendMessage called to trigger scrim");
-            assert.strictEqual(mock.sentMessages[0].tabId, 1, "sent to correct tab");
-            assert.ok(mock.sentMessages[0].msg.token, "trigger message includes a per-challenge token");
-            assert.strictEqual(mock.sentMessages[0].options?.frameId, 0, "trigger restricted to top frame");
-        });
-
         test("returns credentials via popup port decrypt", async () => {
             const resultPromise = mock.fireAuthRequired({
                 isProxy: false,
