@@ -23,6 +23,7 @@ Parcel is designed with security as its highest priority: the extension **does n
 - **Read-only by design** — Parcel never creates, edits, or deletes password store files.
 - **TOTP / 2FA autofill** — Generate and fill RFC 6238 TOTP codes from a base32 secret or `otpauth://` URI stored in a pass entry.
 - **Passkey (WebAuthn / FIDO2) support** — Register and authenticate with ES256 passkeys whose private keys live in GPG-encrypted pass entries and never enter the browser.
+- **HTTP authentication interception** — Intercepts HTTP 401 challenges for main-frame navigations, presenting Parcel's credential-selection popup instead of the browser's native auth dialog.
 
 ---
 
@@ -242,6 +243,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `gitInPasskeyCommand` | boolean | `false` | If `true`, the save command shown when creating a passkey includes a `git add` and `git commit` for the new entry. |
 | `historyLength` | integer | `40` | Maximum number of recent entries to keep in per-origin history. |
 | `handlePasskeys` | boolean | `true` | If `false`, disables passkey support entirely. |
+| `handleHttpAuth` | boolean | `true` | If `false`, disables HTTP authentication interception (HTTP 401 challenges are passed to the browser's native dialog instead). |
 | `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (see [Passkey entry format](#passkey-entry-format)), and classed as `passkey` by the default rules. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
