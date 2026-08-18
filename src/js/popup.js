@@ -1248,11 +1248,9 @@
                 li.addEventListener("click", async () => {
                     const intent = mode === "http-auth" ? "http-auth" : "fill";
                     port.postMessage({ action: "decrypt", intent, origin: url.origin, path: entry.path });
-                    if (mode !== "http-auth") {
-                        const hash = await sha256(entry.path);
-                        if (history?.[0]?.path === hash) history[0].when = Date.now();
-                        else history.unshift({ path: hash, when: Date.now() });
-                    }
+                    const hash = await sha256(entry.path);
+                    if (history?.[0]?.path === hash) history[0].when = Date.now();
+                    else history.unshift({ path: hash, when: Date.now() });
                 });
 
                 ul.appendChild(li);
