@@ -103,20 +103,19 @@ The WebAuthn interception script necessarily runs in each page's JavaScript real
 
 ### HTTP Authentication Interception
 
-When `handleHttpAuth: true` is set in `.parcel.json` (the default), Parcel intercepts browser HTTP authentication challenges (HTTP 401 with `WWW-Authenticate`) for main-frame navigations. Instead of the browser's native auth dialog, the user sees Parcel's credential-selection scrim showing matching entries for the requesting origin. Selecting an entry decrypts it, extracts the `login` and `secret` fields, and supplies them as auth credentials.
+When `handleHttpAuth: true` is set in `.parcel.json` (the default), Parcel intercepts browser HTTP authentication challenges (HTTP 401 with `WWW-Authenticate`) for main-frame navigations. Instead of the browser's native auth dialog, the user sees Parcel's credential-selection popup showing matching entries for the requesting origin. Selecting an entry decrypts it, extracts the `login` and `secret` fields, and supplies them as auth credentials.
 
-This feature is **on by default**, matching `handlePasskeys`. It requires the `webRequest` and `webRequestAuthProvider` permissions, which expand the extension's privilege scope, but no credentials are ever supplied without explicit user selection in the scrim. Users who want to disable it can set `handleHttpAuth: false` in `.parcel.json`. Enabling `auditDecrypt` is recommended for visibility into HTTP auth fills.
+This feature is **on by default**, matching `handlePasskeys`. It requires the `webRequest` and `webRequestAuthProvider` permissions, which expand the extension's privilege scope, but no credentials are ever supplied without explicit user selection in the popup. Users who want to disable it can set `handleHttpAuth: false` in `.parcel.json`. Enabling `auditDecrypt` is recommended for visibility into HTTP auth fills.
 
 Proxy auth (HTTP 407) is **not supported**. Proxy credentials are reused across all sites routed through the proxy, making them a higher-value target and a poor fit for Parcel's origin-based entry matching. 407 challenges are always passed through to the browser's native dialog.
 
 Additional protections specific to HTTP auth:
 
-1. **Interactive consent** — No credentials are supplied without explicit user selection in the scrim, which displays the requesting origin.
-2. **Server-bound challenge origin** — The challenge URL shown in the scrim and used for entry matching is supplied by the background worker, bound to the per-challenge token; the popup never trusts a URL from its own query string, and no URL is honoured for a token without a live pending challenge.
-3. **Main-frame only** — Subframe auth challenges are always passed to the browser's native dialog. This is permanent, not a future TODO.
+1. **Interactive consent** — No credentials are supplied without explicit user selection in the popup, which displays the requesting origin.
+2. **Server-bound challenge origin** — The challenge URL shown in the popup and used for entry matching is supplied by the background worker, bound to the per-challenge token, and no URL is honoured for a token without a live pending challenge.
+3. **Main-frame only** — Subframe auth challenges are always passed to the browser's native dialog.
 4. **Rate limiting** — HTTP auth decryptions consume tokens from the same token-bucket rate limiter as all other decryptions.
-5. **No plaintext caching** — Credentials are decrypted fresh each time and never persisted to `chrome.storage.local`.
-6. **Token-restricted decryption** — The http-auth popup uses a per-challenge random token (UUID) bound to a single pending 401 callback. Decryption is restricted to `intent: "http-auth"`; form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
+5. **Token-restricted decryption** — The http-auth popup uses a per-challenge random token (UUID) bound to a single pending 401 callback. Decryption is restricted to `intent: "http-auth"`; form fills are not permitted from this token, so a compromised page cannot use it to exfiltrate plaintext via form-fill even if it obtained the token.
 
 ## Deliberate Tradeoffs
 
