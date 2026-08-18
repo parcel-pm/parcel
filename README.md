@@ -210,9 +210,9 @@ HOST_HASH="b7b76abadd3f13e6bcf554c39547d44ae19a299c8fc2e73ae8cbccd9a34d9b40"
 
 `.parcel.json` is a JSON file read by the main host script (`src/parcel-host`). It controls which password entries are visible to Parcel, how they are displayed, and several extension-level behaviours. The file is reloaded automatically when it changes.
 
-**Location:** `$PASSWORD_STORE_DIR/.parcel.json` If absent, the host treats it as `{}` and injects default rules of `[{ "pattern": "^passkeys/", "class": "passkey" }, { "pattern": "." }]` (passkey entries under the default `passkeyDir` are classed as passkeys; everything else is visible as logins).
+**Location:** `$PASSWORD_STORE_DIR/.parcel.json` If absent, the host treats it as `{}` and injects default rules of `[{ "pattern": "^passkeys/", "class": "passkey" }, { "pattern": "^cards/", "class": "card" }, { "pattern": "." }]` (passkey entries under the default `passkeyDir` are classed as passkeys; entries under `cards/` are classed as cards; everything else is visible as logins).
 
-*Note that if you do not configure a `passkey` rule, you will not be able to log in using passkeys.*
+*Note that if you do not configure a `passkey` rule, you will not be able to log in using passkeys. Similarly, if you do not specify a `card` rule, card-class entries will not appear when filling card form fields.*
 
 #### Rules
 
@@ -257,6 +257,7 @@ Example `.parcel.json`:
   "rules": [
     { "pattern": "websites/.*" },
     { "pattern": "work/.*", "tag": "work", "color": "0055aa" },
+    { "pattern": "cards/.*", "class": "card" },
     { "pattern": "archive/.*", "ignore": true }
   ],
   "auditDecrypt": true,

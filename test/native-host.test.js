@@ -790,7 +790,11 @@ VALID_SIGNERS="${env.knownSigner}"
             const msg = await read();
             assert.strictEqual(msg.data?.passdir, env.passdir);
             assert.ok(Array.isArray(msg.data?.rules), `Expected default rules array, got: ${JSON.stringify(msg)}`);
-            assert.deepStrictEqual(msg.data?.rules, [{ pattern: "^passkeys/", class: "passkey" }, { pattern: "." }]);
+            assert.deepStrictEqual(msg.data?.rules, [
+                { pattern: "^passkeys/", class: "passkey" },
+                { pattern: "^cards/", class: "card" },
+                { pattern: "." },
+            ]);
             assert.strictEqual(msg.data?.defaultRules, true);
             // modified must be >= 1 to pass schema validation (minimum: 1)
             assert.ok(msg.data?.modified >= 1, `Expected modified >= 1, got: ${msg.data?.modified}`);
