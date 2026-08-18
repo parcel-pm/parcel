@@ -639,10 +639,6 @@ export class Agent extends EventTarget {
                         }
                         return;
                     }
-                    // If the popup is in http-auth mode but the token is no longer
-                    // in #pendingAuthCallbacks (e.g. service worker was terminated
-                    // and restarted), notify the popup so it can show an informative
-                    // message and close itself, rather than silently erroring.
                     if (!authorised && message?.action === "auth" && message?.mode === "http-auth") {
                         port.postMessage({ action: "http-auth-expired" });
                         return;
@@ -672,8 +668,7 @@ export class Agent extends EventTarget {
                 } else if (message?.action === "http-auth-manual") {
                     // Fall back to the browser's native auth dialog. Track the tab
                     // so that if onAuthRequired re-fires (user cancels the native
-                    // dialog), we don't re-intercept and cause a hang. Stored in
-                    // chrome.storage.session to survive service-worker restarts.
+                    // dialog), we don't re-intercept and cause a hang.
                     const authEntry = this.#pendingAuthCallbacks.get(token);
                     if (authEntry) {
                         const origin = new URL(authEntry.url).origin;
@@ -724,9 +719,7 @@ export class Agent extends EventTarget {
                             }
                         } else {
                             // The auth callback's timer has already expired and the
-                            // entry was removed from #pendingAuthCallbacks. Don't
-                            // expose the decrypted plaintext in the popup — just
-                            // close it.
+                            // entry was removed from #pendingAuthCallbacks.
                             clearStatus();
                         }
                         port.postMessage({ action: "http-auth-done" });
@@ -943,7 +936,7 @@ export class Agent extends EventTarget {
     async #handleAuthRequired(details, callback) {
         // Guard: proxy auth (407) is never supported
         if (details.isProxy) return callback({});
-        // Guard: only main-frame navigations (permanent, not a future TODO)
+        // Guard: only main-frame navigations
         if (details.type !== "main_frame") return callback({});
         // Guard: tab must exist
         if (details.tabId < 0) return callback({});
@@ -958,10 +951,6 @@ export class Agent extends EventTarget {
         // Guard: if the user already chose "Enter manually" for this tab+origin,
         // skip interception — prevents a hang when Chrome re-fires
         // onAuthRequired after the user cancels the native dialog.
-        // The key is consumed (removed) on the next fire regardless; the
-        // timestamp check ensures a stale key surviving a SW restart can't
-        // suppress an unrelated future challenge. Including the origin
-        // ensures a different 401 on the same tab within 30s isn't suppressed.
         const manualOrigin = new URL(details.url).origin;
         const manualKey = `http-auth-manual:${details.tabId}:${manualOrigin}`;
         const manualResult = await chrome.storage.session.get(manualKey);
@@ -970,10 +959,7 @@ export class Agent extends EventTarget {
             if (Date.now() - manualResult[manualKey] < 30_000) return callback({});
         }
 
-        // Generate a per-challenge token so that only the popup opened for this
-        // specific 401 can resolve the callback. This prevents a compromised page
-        // from embedding a fake popup that routes credentials to the wrong auth
-        // challenge, and ensures concurrent 401 challenges can't cross-route.
+        // Per-challenge token binding the popup to this specific 401 callback.
         const authToken = crypto.randomUUID();
         const entry = { callback, timer: null, tabId: details.tabId, url: details.url };
         this.#pendingAuthCallbacks.set(authToken, entry);
