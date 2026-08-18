@@ -31,6 +31,8 @@
     --color-modal-highlight-2: light-dark(#3333ee, #5dd123);
     --color-progress: light-dark(#3333ee, #bd861a);
     --color-card-accent: light-dark(#0066cc, #4d9fff);
+    --color-login-accent: light-dark(#2a8c2a, #5dd15d);
+    --color-passkey-accent: light-dark(#8b5cf6, #a78bfa);
 }
 * {
     box-sizing: border-box;
@@ -178,6 +180,14 @@ ul {
         }
         &.entry-card {
             border-left: 3px solid var(--color-card-accent);
+            padding-left: calc(0.5em - 3px);
+        }
+        &.entry-login {
+            border-left: 3px solid var(--color-login-accent);
+            padding-left: calc(0.5em - 3px);
+        }
+        &.entry-passkey {
+            border-left: 3px solid var(--color-passkey-accent);
             padding-left: calc(0.5em - 3px);
         }
         .tag {

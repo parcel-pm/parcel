@@ -551,6 +551,7 @@ describe("Popup script", { concurrency: false }, () => {
         const li = document.querySelector("ul#entries > li");
         assert.ok(li, "login entry rendered");
         assert.ok(!li.classList.contains("entry-card"), "login entry does not have entry-card class");
+        assert.ok(li.classList.contains("entry-login"), "login entry has entry-login class");
     });
 
     test("clicking a card entry does not add it to history", async () => {

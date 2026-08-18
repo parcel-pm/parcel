@@ -1177,6 +1177,8 @@
                 li.setAttribute("data-path", entry.path);
                 if (entry.isInHistory) li.classList.add("history");
                 if (entry.rule?.class === "card") li.classList.add("entry-card");
+                else if (entry.rule?.class === "passkey") li.classList.add("entry-passkey");
+                else li.classList.add("entry-login");
                 li.setAttribute("data-sort-order", entry.sortOrder);
 
                 if (entry.rule.tag) {
