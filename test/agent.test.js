@@ -451,574 +451,576 @@ describe("Agent", () => {
         assert.strictEqual(after, before, "no spurious reconnect when already connected");
     });
 
-    test("http-auth: passes through for proxy auth", async () => {
-        const result = await mock.fireAuthRequired({
-            isProxy: true,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
-        });
-        assert.deepStrictEqual(result, {});
-    });
-
-    test("http-auth: passes through for subframe auth", async () => {
-        const result = await mock.fireAuthRequired({
-            isProxy: false,
-            type: "sub_frame",
-            tabId: 1,
-            url: "https://example.com/",
-        });
-        assert.deepStrictEqual(result, {});
-    });
-
-    test("http-auth: passes through when tabId is -1", async () => {
-        const result = await mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: -1,
-            url: "https://example.com/",
-        });
-        assert.deepStrictEqual(result, {});
-    });
-
-    test("http-auth: passes through when handleHttpAuth is false", async () => {
-        uninstallNativeHandler(mock, handler);
-        handler = installNativeHandler(mock, (msg) => {
-            if (msg.action === "install") return { success: true, message: "installed" };
-            if (msg.action === "configure") return { ...makeValidConfig(), handleHttpAuth: false, modified: 2 };
-            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
-            if (msg.action === "changes_since") return { changes: false };
-            if (msg.action === "decrypt") return { plaintext: "hunter2" };
-        });
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
-        const cfgPromise = nextMessage(popup, "config");
-        popup.postMessage({ action: "config" });
-        await cfgPromise;
-        popup.disconnect();
-        await settleAsync();
-
-        const result = await mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
-        });
-        assert.deepStrictEqual(result, {});
-    });
-
-    test("http-auth: opens popup even when no matching entries (search available)", async () => {
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://nonexistent.invalid/",
-        });
-        await settleAsync();
-        await settleAsync();
-
-        // The content script should receive a trigger message even with 0
-        // matches — the user can search for entries from other origins.
-        assert.ok(mock.sentMessages.length > 0, "sendMessage called to trigger scrim");
-        assert.strictEqual(mock.sentMessages[0].tabId, 1, "sent to correct tab");
-        assert.ok(mock.sentMessages[0].msg.token, "trigger message includes a per-challenge token");
-        assert.strictEqual(mock.sentMessages[0].options?.frameId, 0, "trigger restricted to top frame");
-    });
-
-    test("http-auth: returns credentials via popup port decrypt", async () => {
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
-        });
-        await settleAsync();
-        await settleAsync();
-
-        // The background sends a trigger message to the content script.
-        // The popup connects via a "popup" port with the per-challenge token.
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
-
-        // Now simulate a match + decrypt with intent "http-auth"
-        const matchPromise = nextMessage(popup, "match");
-        popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
-        const match = await matchPromise;
-        assert.ok(match.entries.length > 0, "popup received matching entries");
-
-        const donePromise = nextMessage(popup, "http-auth-done");
-        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
-        await donePromise;
-
-        const result = await resultPromise;
-        assert.ok(result.authCredentials, "result has authCredentials");
-        assert.strictEqual(result.authCredentials.username, "testuser");
-        assert.strictEqual(result.authCredentials.password, "hunter2");
-
-        popup.disconnect();
-    });
-
-    test("http-auth: cancel aborts navigation without native dialog", async () => {
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
-        });
-        await settleAsync();
-        await settleAsync();
-
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
-
-        popup.postMessage({ action: "http-auth-cancel" });
-        await settleAsync();
-
-        const result = await resultPromise;
-        assert.deepStrictEqual(result, { cancel: true }, "cancel resolves with { cancel: true }");
-
-        popup.disconnect();
-    });
-
-    test("http-auth: timer expiry prevents plaintext exposure", async () => {
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
-        });
-        await settleAsync();
-        await settleAsync();
-
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
-
-        // Simulate the timer expiring before the user selects an entry by
-        // sending http-auth-cancel, which calls #resolveAuthCallback and
-        // removes the entry from #pendingAuthCallbacks.
-        popup.postMessage({ action: "http-auth-cancel" });
-        await settleAsync();
-
-        const result = await resultPromise;
-        assert.deepStrictEqual(result, { cancel: true }, "timer expiry cancel resolves callback");
-
-        // Now the user selects an entry and decrypt fires with intent "http-auth".
-        // The popup should receive http-auth-done but NOT a plaintext message.
-        let plaintextReceived = false;
-        popup.onMessage.addListener((msg) => {
-            if (msg.action === "plaintext") plaintextReceived = true;
+    describe("HTTP auth interception", () => {
+        test("passes through for proxy auth", async () => {
+            const result = await mock.fireAuthRequired({
+                isProxy: true,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            assert.deepStrictEqual(result, {});
         });
 
-        const donePromise = nextMessage(popup, "http-auth-done");
-        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
-        await donePromise;
-
-        assert.ok(!plaintextReceived, "plaintext is not posted to popup after timer expiry");
-
-        popup.disconnect();
-    });
-
-    test("http-auth: manual fallback shows native dialog", async () => {
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+        test("passes through for subframe auth", async () => {
+            const result = await mock.fireAuthRequired({
+                isProxy: false,
+                type: "sub_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            assert.deepStrictEqual(result, {});
         });
-        await settleAsync();
-        await settleAsync();
 
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
-
-        popup.postMessage({ action: "http-auth-manual" });
-        await settleAsync();
-        await settleAsync();
-
-        const result = await resultPromise;
-        assert.deepStrictEqual(result, {}, "manual resolves with {} for native dialog");
-
-        // Verify the manual-mode flag was stored in session storage
-        assert.ok(mock.sessionStorageMap.has("http-auth-manual:1:https://example.com"), "session storage flag set with origin");
-
-        popup.disconnect();
-    });
-
-    test("http-auth: re-fire after manual mode passes through to native dialog", async () => {
-        // First fire: user chooses "Enter manually"
-        const firstPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+        test("passes through when tabId is -1", async () => {
+            const result = await mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: -1,
+                url: "https://example.com/",
+            });
+            assert.deepStrictEqual(result, {});
         });
-        await settleAsync();
-        await settleAsync();
 
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
+        test("passes through when handleHttpAuth is false", async () => {
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return { ...makeValidConfig(), handleHttpAuth: false, modified: 2 };
+                if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+                if (msg.action === "changes_since") return { changes: false };
+                if (msg.action === "decrypt") return { plaintext: "hunter2" };
+            });
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+            const cfgPromise = nextMessage(popup, "config");
+            popup.postMessage({ action: "config" });
+            await cfgPromise;
+            popup.disconnect();
+            await settleAsync();
 
-        popup.postMessage({ action: "http-auth-manual" });
-        await settleAsync();
-        await settleAsync();
-
-        const firstResult = await firstPromise;
-        assert.deepStrictEqual(firstResult, {}, "first fire resolves with {}");
-
-        popup.disconnect();
-        await settleAsync();
-
-        // Second fire: user cancelled the native dialog, Chrome re-fires
-        const secondPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+            const result = await mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            assert.deepStrictEqual(result, {});
         });
-        await settleAsync();
-        await settleAsync();
 
-        const secondResult = await secondPromise;
-        assert.deepStrictEqual(secondResult, {}, "second fire passes through to native dialog");
-    });
+        test("opens popup even when no matching entries (search available)", async () => {
+            mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://nonexistent.invalid/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-    test("http-auth: popup disconnect falls back to native dialog if callback still pending", async () => {
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+            // The content script should receive a trigger message even with 0
+            // matches — the user can search for entries from other origins.
+            assert.ok(mock.sentMessages.length > 0, "sendMessage called to trigger scrim");
+            assert.strictEqual(mock.sentMessages[0].tabId, 1, "sent to correct tab");
+            assert.ok(mock.sentMessages[0].msg.token, "trigger message includes a per-challenge token");
+            assert.strictEqual(mock.sentMessages[0].options?.frameId, 0, "trigger restricted to top frame");
         });
-        await settleAsync();
-        await settleAsync();
 
-        // Popup connects and authenticates, then disconnects without
-        // sending a cancel or manual message (e.g. tab closed, popup
-        // crashed, or close message arrived before cancel was processed).
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
+        test("returns credentials via popup port decrypt", async () => {
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        popup.disconnect();
-        await settleAsync();
+            // The background sends a trigger message to the content script.
+            // The popup connects via a "popup" port with the per-challenge token.
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
 
-        const result = await resultPromise;
-        assert.deepStrictEqual(result, {}, "disconnect resolves with {} (native dialog fallback)");
-    });
+            // Now simulate a match + decrypt with intent "http-auth"
+            const matchPromise = nextMessage(popup, "match");
+            popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
+            const match = await matchPromise;
+            assert.ok(match.entries.length > 0, "popup received matching entries");
 
-    test("http-auth: sendMessage failure falls back to popup window then native dialog", async () => {
-        // Content script not present (e.g. extension just installed on an open page)
-        mock.setSendMessageFailure("Could not establish connection");
+            const donePromise = nextMessage(popup, "http-auth-done");
+            popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+            await donePromise;
 
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+            const result = await resultPromise;
+            assert.ok(result.authCredentials, "result has authCredentials");
+            assert.strictEqual(result.authCredentials.username, "testuser");
+            assert.strictEqual(result.authCredentials.password, "hunter2");
+
+            popup.disconnect();
         });
-        await settleAsync();
-        await settleAsync();
 
-        // Should fall back to opening a popup window
-        assert.ok(mock.windowsCreated.length > 0, "popup window created as fallback");
-    });
+        test("cancel aborts navigation without native dialog", async () => {
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-    test("http-auth: new-tab navigation opens popup window", async () => {
-        // Simulate a new tab with no loaded page (about:blank)
-        mock.setCurrentTab({ id: 99, status: "loading", url: "about:blank" });
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
 
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 99,
-            url: "https://authenticationtest.com/HTTPAuth/",
+            popup.postMessage({ action: "http-auth-cancel" });
+            await settleAsync();
+
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, { cancel: true }, "cancel resolves with { cancel: true }");
+
+            popup.disconnect();
         });
-        await settleAsync();
-        await settleAsync();
 
-        // Should NOT send a message (no content script)
-        assert.strictEqual(mock.sentMessages.length, 0, "sendMessage not called for new-tab navigation");
+        test("timer expiry prevents plaintext exposure", async () => {
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        // Should open a popup window instead
-        assert.ok(mock.windowsCreated.length > 0, "popup window created");
-        const window = mock.windowsCreated[0];
-        assert.ok(window.url.includes("window=1"), "popup URL includes window=1");
-        assert.ok(window.url.includes("token="), "popup URL includes per-challenge token");
-        assert.ok(!window.url.includes("token=http-auth"), "popup URL does not use fixed token");
-        assert.strictEqual(window.type, "popup", "window type is popup");
-    });
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
 
-    test("http-auth: rejects form-fill intent with http-auth token", async () => {
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+            // Simulate the timer expiring before the user selects an entry by
+            // sending http-auth-cancel, which calls #resolveAuthCallback and
+            // removes the entry from #pendingAuthCallbacks.
+            popup.postMessage({ action: "http-auth-cancel" });
+            await settleAsync();
+
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, { cancel: true }, "timer expiry cancel resolves callback");
+
+            // Now the user selects an entry and decrypt fires with intent "http-auth".
+            // The popup should receive http-auth-done but NOT a plaintext message.
+            let plaintextReceived = false;
+            popup.onMessage.addListener((msg) => {
+                if (msg.action === "plaintext") plaintextReceived = true;
+            });
+
+            const donePromise = nextMessage(popup, "http-auth-done");
+            popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+            await donePromise;
+
+            assert.ok(!plaintextReceived, "plaintext is not posted to popup after timer expiry");
+
+            popup.disconnect();
         });
-        await settleAsync();
-        await settleAsync();
 
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
+        test("manual fallback shows native dialog", async () => {
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        const errorPromise = nextMessage(popup, "error");
-        popup.postMessage({ action: "decrypt", intent: "fill", origin: "https://example.com/", path: "example.com/admin" });
-        const errorMsg = await errorPromise;
-        assert.ok(errorMsg.error.includes("not permitted"), "fill intent rejected for http-auth token");
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
 
-        popup.disconnect();
-    });
+            popup.postMessage({ action: "http-auth-manual" });
+            await settleAsync();
+            await settleAsync();
 
-    test("http-auth: missing login/secret falls back to native dialog", async () => {
-        // Override the native handler to return plaintext without login/secret fields
-        uninstallNativeHandler(mock, handler);
-        handler = installNativeHandler(mock, (msg) => {
-            if (msg.action === "install") return { success: true, message: "installed" };
-            if (msg.action === "configure") return makeValidConfig();
-            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
-            if (msg.action === "changes_since") return { changes: false };
-            if (msg.action === "decrypt") return { plaintext: "totp: JBSWY3DPEHPK3PXP\n" };
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, {}, "manual resolves with {} for native dialog");
+
+            // Verify the manual-mode flag was stored in session storage
+            assert.ok(mock.sessionStorageMap.has("http-auth-manual:1:https://example.com"), "session storage flag set with origin");
+
+            popup.disconnect();
         });
-        const popup0 = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup0.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
-        const cfgPromise = nextMessage(popup0, "config");
-        popup0.postMessage({ action: "config" });
-        await cfgPromise;
-        popup0.disconnect();
-        await settleAsync();
 
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+        test("re-fire after manual mode passes through to native dialog", async () => {
+            // First fire: user chooses "Enter manually"
+            const firstPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
+
+            popup.postMessage({ action: "http-auth-manual" });
+            await settleAsync();
+            await settleAsync();
+
+            const firstResult = await firstPromise;
+            assert.deepStrictEqual(firstResult, {}, "first fire resolves with {}");
+
+            popup.disconnect();
+            await settleAsync();
+
+            // Second fire: user cancelled the native dialog, Chrome re-fires
+            const secondPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            const secondResult = await secondPromise;
+            assert.deepStrictEqual(secondResult, {}, "second fire passes through to native dialog");
         });
-        await settleAsync();
-        await settleAsync();
 
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
+        test("popup disconnect falls back to native dialog if callback still pending", async () => {
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        const donePromise = nextMessage(popup, "http-auth-done");
-        popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
-        await nextMessage(popup, "match");
-        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
-        await donePromise;
+            // Popup connects and authenticates, then disconnects without
+            // sending a cancel or manual message (e.g. tab closed, popup
+            // crashed, or close message arrived before cancel was processed).
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
 
-        const result = await resultPromise;
-        assert.deepStrictEqual(result, {}, "missing fields resolves with {} for native dialog");
+            popup.disconnect();
+            await settleAsync();
 
-        popup.disconnect();
-    });
-
-    test("http-auth: malformed decrypt falls back to native dialog", async () => {
-        // Override the native handler to return a malformed decrypt result
-        uninstallNativeHandler(mock, handler);
-        handler = installNativeHandler(mock, (msg) => {
-            if (msg.action === "install") return { success: true, message: "installed" };
-            if (msg.action === "configure") return makeValidConfig();
-            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
-            if (msg.action === "changes_since") return { changes: false };
-            if (msg.action === "decrypt") return { plaintext: null };
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, {}, "disconnect resolves with {} (native dialog fallback)");
         });
-        const popup0 = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup0.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
-        const cfgPromise = nextMessage(popup0, "config");
-        popup0.postMessage({ action: "config" });
-        await cfgPromise;
-        popup0.disconnect();
-        await settleAsync();
 
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+        test("sendMessage failure falls back to popup window then native dialog", async () => {
+            // Content script not present (e.g. extension just installed on an open page)
+            mock.setSendMessageFailure("Could not establish connection");
+
+            mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            // Should fall back to opening a popup window
+            assert.ok(mock.windowsCreated.length > 0, "popup window created as fallback");
         });
-        await settleAsync();
-        await settleAsync();
 
-        const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
+        test("new-tab navigation opens popup window", async () => {
+            // Simulate a new tab with no loaded page (about:blank)
+            mock.setCurrentTab({ id: 99, status: "loading", url: "about:blank" });
 
-        const donePromise = nextMessage(popup, "http-auth-done");
-        popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
-        await nextMessage(popup, "match");
-        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
-        await donePromise;
+            mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 99,
+                url: "https://authenticationtest.com/HTTPAuth/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        const result = await resultPromise;
-        assert.deepStrictEqual(result, {}, "malformed decrypt resolves with {} for native dialog");
+            // Should NOT send a message (no content script)
+            assert.strictEqual(mock.sentMessages.length, 0, "sendMessage not called for new-tab navigation");
 
-        popup.disconnect();
-    });
-
-    test("http-auth: per-challenge token is random and unique", async () => {
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+            // Should open a popup window instead
+            assert.ok(mock.windowsCreated.length > 0, "popup window created");
+            const window = mock.windowsCreated[0];
+            assert.ok(window.url.includes("window=1"), "popup URL includes window=1");
+            assert.ok(window.url.includes("token="), "popup URL includes per-challenge token");
+            assert.ok(!window.url.includes("token=http-auth"), "popup URL does not use fixed token");
+            assert.strictEqual(window.type, "popup", "window type is popup");
         });
-        await settleAsync();
-        await settleAsync();
-        const token1 = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
 
-        // Complete the first challenge so the map entry is cleaned up
-        const popup1 = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup1.postMessage({ action: "auth", token: token1, tab: { id: 1, url: "https://example.com/" } });
-        await settleAsync();
-        popup1.postMessage({ action: "http-auth-cancel" });
-        await settleAsync();
-        popup1.disconnect();
-        await settleAsync();
+        test("rejects form-fill intent with http-auth token", async () => {
+            mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://example.com/",
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
+
+            const errorPromise = nextMessage(popup, "error");
+            popup.postMessage({ action: "decrypt", intent: "fill", origin: "https://example.com/", path: "example.com/admin" });
+            const errorMsg = await errorPromise;
+            assert.ok(errorMsg.error.includes("not permitted"), "fill intent rejected for http-auth token");
+
+            popup.disconnect();
         });
-        await settleAsync();
-        await settleAsync();
-        const token2 = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
 
-        assert.ok(token1 && token2, "both tokens generated");
-        assert.notStrictEqual(token1, token2, "each challenge gets a unique token");
-        assert.notStrictEqual(token1, "http-auth", "token is not the fixed string");
-    });
+        test("missing login/secret falls back to native dialog", async () => {
+            // Override the native handler to return plaintext without login/secret fields
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return makeValidConfig();
+                if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+                if (msg.action === "changes_since") return { changes: false };
+                if (msg.action === "decrypt") return { plaintext: "totp: JBSWY3DPEHPK3PXP\n" };
+            });
+            const popup0 = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup0.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+            const cfgPromise = nextMessage(popup0, "config");
+            popup0.postMessage({ action: "config" });
+            await cfgPromise;
+            popup0.disconnect();
+            await settleAsync();
 
-    test("http-auth: concurrent 401 challenges don't cross-route credentials", async () => {
-        // Two tabs navigate to 401-protected URLs simultaneously. Each
-        // challenge gets its own token; credentials selected in one
-        // popup must resolve that challenge, not the other.
-        const resultAPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 1,
-            url: "https://bank.example/",
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
+
+            const donePromise = nextMessage(popup, "http-auth-done");
+            popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
+            await nextMessage(popup, "match");
+            popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+            await donePromise;
+
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, {}, "missing fields resolves with {} for native dialog");
+
+            popup.disconnect();
         });
-        const resultBPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 2,
-            url: "https://mail.example/",
+
+        test("malformed decrypt falls back to native dialog", async () => {
+            // Override the native handler to return a malformed decrypt result
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return makeValidConfig();
+                if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+                if (msg.action === "changes_since") return { changes: false };
+                if (msg.action === "decrypt") return { plaintext: null };
+            });
+            const popup0 = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup0.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+            const cfgPromise = nextMessage(popup0, "config");
+            popup0.postMessage({ action: "config" });
+            await cfgPromise;
+            popup0.disconnect();
+            await settleAsync();
+
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            const authToken = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: authToken, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
+
+            const donePromise = nextMessage(popup, "http-auth-done");
+            popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
+            await nextMessage(popup, "match");
+            popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+            await donePromise;
+
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, {}, "malformed decrypt resolves with {} for native dialog");
+
+            popup.disconnect();
         });
-        await settleAsync();
-        await settleAsync();
 
-        // Both challenges should have sent trigger messages with distinct tokens
-        const tokenA = mock.sentMessages[mock.sentMessages.length - 2].msg.token;
-        const tokenB = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-        assert.ok(tokenA && tokenB, "both challenges generated tokens");
-        assert.notStrictEqual(tokenA, tokenB, "concurrent challenges get distinct tokens");
+        test("per-challenge token is random and unique", async () => {
+            mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+            const token1 = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
 
-        // Resolve tab A's challenge with its own token
-        const popupA = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popupA.postMessage({ action: "auth", token: tokenA, tab: { id: 1, url: "https://bank.example/" } });
-        await settleAsync();
-        const doneAPromise = nextMessage(popupA, "http-auth-done");
-        popupA.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://bank.example/", path: "example.com/admin" });
-        await doneAPromise;
+            // Complete the first challenge so the map entry is cleaned up
+            const popup1 = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup1.postMessage({ action: "auth", token: token1, tab: { id: 1, url: "https://example.com/" } });
+            await settleAsync();
+            popup1.postMessage({ action: "http-auth-cancel" });
+            await settleAsync();
+            popup1.disconnect();
+            await settleAsync();
 
-        // Resolve tab B's challenge with its own token
-        const popupB = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popupB.postMessage({ action: "auth", token: tokenB, tab: { id: 2, url: "https://mail.example/" } });
-        await settleAsync();
-        const doneBPromise = nextMessage(popupB, "http-auth-done");
-        popupB.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://mail.example/", path: "example.com/admin" });
-        await doneBPromise;
+            mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://example.com/",
+            });
+            await settleAsync();
+            await settleAsync();
+            const token2 = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
 
-        const [resultA, resultB] = await Promise.all([resultAPromise, resultBPromise]);
-        assert.ok(resultA.authCredentials, "challenge A resolved with credentials");
-        assert.ok(resultB.authCredentials, "challenge B resolved with credentials");
-        // Both resolve with the same test entry, but each via its own callback — no hang, no cross-route
-        assert.strictEqual(resultA.authCredentials.username, "testuser");
-        assert.strictEqual(resultB.authCredentials.username, "testuser");
-
-        popupA.disconnect();
-        popupB.disconnect();
-    });
-
-    test("http-auth: window-mode end-to-end credential resolution", async () => {
-        // New tab with no content script → popup opens as a window.
-        // Simulate the popup connecting with the token from the window URL.
-        mock.setCurrentTab({ id: 77, status: "loading", url: "about:blank" });
-
-        const resultPromise = mock.fireAuthRequired({
-            isProxy: false,
-            type: "main_frame",
-            tabId: 77,
-            url: "https://authenticationtest.com/HTTPAuth/",
+            assert.ok(token1 && token2, "both tokens generated");
+            assert.notStrictEqual(token1, token2, "each challenge gets a unique token");
+            assert.notStrictEqual(token1, "http-auth", "token is not the fixed string");
         });
-        await settleAsync();
-        await settleAsync();
 
-        // No content-script message should have been sent
-        assert.strictEqual(mock.sentMessages.length, 0, "no trigger message for window mode");
+        test("concurrent 401 challenges don't cross-route credentials", async () => {
+            // Two tabs navigate to 401-protected URLs simultaneously. Each
+            // challenge gets its own token; credentials selected in one
+            // popup must resolve that challenge, not the other.
+            const resultAPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 1,
+                url: "https://bank.example/",
+            });
+            const resultBPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 2,
+                url: "https://mail.example/",
+            });
+            await settleAsync();
+            await settleAsync();
 
-        // The popup window was created with the token in the URL
-        assert.ok(mock.windowsCreated.length > 0, "popup window created");
-        const windowUrl = new URL(mock.windowsCreated[0].url);
-        const token = windowUrl.searchParams.get("token");
-        assert.ok(token, "window URL includes per-challenge token");
-        assert.notStrictEqual(token, "http-auth", "window token is not the fixed string");
+            // Both challenges should have sent trigger messages with distinct tokens
+            const tokenA = mock.sentMessages[mock.sentMessages.length - 2].msg.token;
+            const tokenB = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
+            assert.ok(tokenA && tokenB, "both challenges generated tokens");
+            assert.notStrictEqual(tokenA, tokenB, "concurrent challenges get distinct tokens");
 
-        // Simulate the popup connecting with the extracted token
-        const popup = mock.chrome.runtime.connect({ name: "popup" });
-        await settleAsync();
-        popup.postMessage({ action: "auth", token, tab: { url: "https://authenticationtest.com/HTTPAuth/" } });
-        await settleAsync();
+            // Resolve tab A's challenge with its own token
+            const popupA = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popupA.postMessage({ action: "auth", token: tokenA, tab: { id: 1, url: "https://bank.example/" } });
+            await settleAsync();
+            const doneAPromise = nextMessage(popupA, "http-auth-done");
+            popupA.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://bank.example/", path: "example.com/admin" });
+            await doneAPromise;
 
-        // Match + decrypt with intent "http-auth"
-        const matchPromise = nextMessage(popup, "match");
-        popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
-        const match = await matchPromise;
-        assert.ok(match.entries.length > 0, "popup received matching entries");
+            // Resolve tab B's challenge with its own token
+            const popupB = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popupB.postMessage({ action: "auth", token: tokenB, tab: { id: 2, url: "https://mail.example/" } });
+            await settleAsync();
+            const doneBPromise = nextMessage(popupB, "http-auth-done");
+            popupB.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://mail.example/", path: "example.com/admin" });
+            await doneBPromise;
 
-        const donePromise = nextMessage(popup, "http-auth-done");
-        popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
-        await donePromise;
+            const [resultA, resultB] = await Promise.all([resultAPromise, resultBPromise]);
+            assert.ok(resultA.authCredentials, "challenge A resolved with credentials");
+            assert.ok(resultB.authCredentials, "challenge B resolved with credentials");
+            // Both resolve with the same test entry, but each via its own callback — no hang, no cross-route
+            assert.strictEqual(resultA.authCredentials.username, "testuser");
+            assert.strictEqual(resultB.authCredentials.username, "testuser");
 
-        const result = await resultPromise;
-        assert.ok(result.authCredentials, "window-mode resolved with credentials");
-        assert.strictEqual(result.authCredentials.username, "testuser");
-        assert.strictEqual(result.authCredentials.password, "hunter2");
+            popupA.disconnect();
+            popupB.disconnect();
+        });
 
-        popup.disconnect();
-    });
+        test("window-mode end-to-end credential resolution", async () => {
+            // New tab with no content script → popup opens as a window.
+            // Simulate the popup connecting with the token from the window URL.
+            mock.setCurrentTab({ id: 77, status: "loading", url: "about:blank" });
+
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 77,
+                url: "https://authenticationtest.com/HTTPAuth/",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            // No content-script message should have been sent
+            assert.strictEqual(mock.sentMessages.length, 0, "no trigger message for window mode");
+
+            // The popup window was created with the token in the URL
+            assert.ok(mock.windowsCreated.length > 0, "popup window created");
+            const windowUrl = new URL(mock.windowsCreated[0].url);
+            const token = windowUrl.searchParams.get("token");
+            assert.ok(token, "window URL includes per-challenge token");
+            assert.notStrictEqual(token, "http-auth", "window token is not the fixed string");
+
+            // Simulate the popup connecting with the extracted token
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token, tab: { url: "https://authenticationtest.com/HTTPAuth/" } });
+            await settleAsync();
+
+            // Match + decrypt with intent "http-auth"
+            const matchPromise = nextMessage(popup, "match");
+            popup.postMessage({ action: "match", url: "https://example.com/", search: "", limit: true, history: [] });
+            const match = await matchPromise;
+            assert.ok(match.entries.length > 0, "popup received matching entries");
+
+            const donePromise = nextMessage(popup, "http-auth-done");
+            popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
+            await donePromise;
+
+            const result = await resultPromise;
+            assert.ok(result.authCredentials, "window-mode resolved with credentials");
+            assert.strictEqual(result.authCredentials.username, "testuser");
+            assert.strictEqual(result.authCredentials.password, "hunter2");
+
+            popup.disconnect();
+        });
+    }); // describe("HTTP auth interception")
 
     /**
      * Push a passkey-aware config and entry list into the agent.
