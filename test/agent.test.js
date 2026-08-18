@@ -531,7 +531,7 @@ describe("Agent", () => {
             popup.disconnect();
         });
 
-        test("timer expiry prevents plaintext exposure", async () => {
+        test("cancel-then-decrypt doesn't expose plaintext", async () => {
             const resultPromise = mock.fireAuthRequired({
                 isProxy: false,
                 type: "main_frame",
@@ -554,10 +554,12 @@ describe("Agent", () => {
             await settleAsync();
 
             const result = await resultPromise;
-            assert.deepStrictEqual(result, { cancel: true }, "timer expiry cancel resolves callback");
+            assert.deepStrictEqual(result, { cancel: true }, "cancel resolves callback");
 
             // Now the user selects an entry and decrypt fires with intent "http-auth".
-            // The popup should receive http-auth-done but NOT a plaintext message.
+            // The popup should receive http-auth-done but NOT a plaintext message,
+            // because the callback was already resolved (the token is gone from
+            // #pendingAuthCallbacks).
             let plaintextReceived = false;
             popup.onMessage.addListener((msg) => {
                 if (msg.action === "plaintext") plaintextReceived = true;
@@ -567,7 +569,7 @@ describe("Agent", () => {
             popup.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://example.com/", path: "example.com/admin" });
             await donePromise;
 
-            assert.ok(!plaintextReceived, "plaintext is not posted to popup after timer expiry");
+            assert.ok(!plaintextReceived, "plaintext is not posted to popup after callback already resolved");
 
             popup.disconnect();
         });
@@ -668,7 +670,7 @@ describe("Agent", () => {
             assert.deepStrictEqual(result, {}, "disconnect resolves with {} (native dialog fallback)");
         });
 
-        test("sendMessage failure falls back to popup window then native dialog", async () => {
+        test("sendMessage failure falls back to popup window", async () => {
             // Content script not present (e.g. extension just installed on an open page)
             mock.setSendMessageFailure("Could not establish connection");
 
@@ -827,6 +829,33 @@ describe("Agent", () => {
         });
 
         test("concurrent 401 challenges don't cross-route credentials", async () => {
+            // Override the native handler to return distinct credentials per path,
+            // so cross-routing would be detectable.
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return makeValidConfig();
+                if (msg.action === "list")
+                    return [
+                        { name: "example.com/bank", path: "example.com/bank" },
+                        { name: "example.com/mail", path: "example.com/mail" },
+                    ];
+                if (msg.action === "changes_since") return { changes: false };
+                if (msg.action === "decrypt") {
+                    if (msg.path === "example.com/bank") return { plaintext: "secret: bankpass\nlogin: bankuser\n" };
+                    if (msg.path === "example.com/mail") return { plaintext: "secret: mailpass\nlogin: mailuser\n" };
+                    return { plaintext: "" };
+                }
+            });
+            const popup0 = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup0.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+            const cfgPromise = nextMessage(popup0, "config");
+            popup0.postMessage({ action: "config" });
+            await cfgPromise;
+            popup0.disconnect();
+            await settleAsync();
+
             // Two tabs navigate to 401-protected URLs simultaneously. Each
             // challenge gets its own token; credentials selected in one
             // popup must resolve that challenge, not the other.
@@ -851,33 +880,57 @@ describe("Agent", () => {
             assert.ok(tokenA && tokenB, "both challenges generated tokens");
             assert.notStrictEqual(tokenA, tokenB, "concurrent challenges get distinct tokens");
 
-            // Resolve tab A's challenge with its own token
+            // Resolve tab A's challenge with its own token and distinct entry
             const popupA = mock.chrome.runtime.connect({ name: "popup" });
             await settleAsync();
             popupA.postMessage({ action: "auth", token: tokenA, tab: { id: 1, url: "https://bank.example/" } });
             await settleAsync();
             const doneAPromise = nextMessage(popupA, "http-auth-done");
-            popupA.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://bank.example/", path: "example.com/admin" });
+            popupA.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://bank.example/", path: "example.com/bank" });
             await doneAPromise;
 
-            // Resolve tab B's challenge with its own token
+            // Resolve tab B's challenge with its own token and distinct entry
             const popupB = mock.chrome.runtime.connect({ name: "popup" });
             await settleAsync();
             popupB.postMessage({ action: "auth", token: tokenB, tab: { id: 2, url: "https://mail.example/" } });
             await settleAsync();
             const doneBPromise = nextMessage(popupB, "http-auth-done");
-            popupB.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://mail.example/", path: "example.com/admin" });
+            popupB.postMessage({ action: "decrypt", intent: "http-auth", origin: "https://mail.example/", path: "example.com/mail" });
             await doneBPromise;
 
             const [resultA, resultB] = await Promise.all([resultAPromise, resultBPromise]);
             assert.ok(resultA.authCredentials, "challenge A resolved with credentials");
             assert.ok(resultB.authCredentials, "challenge B resolved with credentials");
-            // Both resolve with the same test entry, but each via its own callback — no hang, no cross-route
-            assert.strictEqual(resultA.authCredentials.username, "testuser");
-            assert.strictEqual(resultB.authCredentials.username, "testuser");
+            // Each challenge must receive its own distinct credentials — if
+            // credentials were cross-routed, these assertions would fail.
+            assert.strictEqual(resultA.authCredentials.username, "bankuser");
+            assert.strictEqual(resultA.authCredentials.password, "bankpass");
+            assert.strictEqual(resultB.authCredentials.username, "mailuser");
+            assert.strictEqual(resultB.authCredentials.password, "mailpass");
 
             popupA.disconnect();
             popupB.disconnect();
+
+            // Restore the default handler for subsequent tests
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return makeValidConfig();
+                if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+                if (msg.action === "changes_since") return { changes: false };
+                if (msg.action === "decrypt") {
+                    if (msg.intent === "http-auth") return { plaintext: "secret: hunter2\nlogin: testuser\n" };
+                    return { plaintext: { password: "hunter2" } };
+                }
+            });
+            const popup0b = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup0b.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+            const cfgPromise2 = nextMessage(popup0b, "config");
+            popup0b.postMessage({ action: "config" });
+            await cfgPromise2;
+            popup0b.disconnect();
+            await settleAsync();
         });
 
         test("window-mode end-to-end credential resolution", async () => {
