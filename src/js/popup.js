@@ -1283,8 +1283,6 @@
                 document.body.appendChild(elDetail);
             }
         } else if (msg.action === "http-auth-done") {
-            // HTTP auth resolved — the background has called the blocking callback.
-            // Close the popup via the trigger port.
             tabPort.postMessage({ action: "close-popup" });
         } else if (msg.action === "error") {
             if (suppressErrors) return;
