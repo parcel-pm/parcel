@@ -683,7 +683,13 @@ export class Agent extends EventTarget {
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
                     // get matching entries
-                    const result = await this.search(message.url, message.search || "", message.limit, message.history);
+                    const result = await this.search(
+                        message.url,
+                        message.search || "",
+                        message.limit,
+                        message.history,
+                        message.targetClass || null,
+                    );
                     clearStatus();
                     port.postMessage({ action: "match", entries: result });
                 } else if (message?.action === "decrypt") {
@@ -1010,10 +1016,11 @@ export class Agent extends EventTarget {
      * @param {string} search - The search string to match against.
      * @param {boolean} [limit=true] - Whether to limit the search to the current origin.
      * @param {object[]} [history=[]] - Historical fill entries (`{path, when}`) used for sort priority.
+     * @param {string|null} [targetClass=null] - When set (e.g. "card" or "login"), restrict results to entries whose rule class matches. Null shows all fillable entries.
      * @returns {Promise<object[]>} The matching entries.
      * @throws {Error} If a search term is not a valid regular expression. The thrown error additionally has a `logAs` property set to `"info"`.
      */
-    async search(url, search, limit = true, history = []) {
+    async search(url, search, limit = true, history = [], targetClass = null) {
         // consolidate history to most-recent entry per item
         history = history.reduce((acc, entry) => {
             if (!Object.prototype.hasOwnProperty.call(acc, entry.path)) acc[entry.path] = entry;
@@ -1030,6 +1037,7 @@ export class Agent extends EventTarget {
             const slices = [];
             for (let s = origin.hostname; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
             for (const entry of (await this.#getEntries()).filter((e) => this.#isFillEntry(e))) {
+                if (targetClass && (entry.rule?.class || "login") !== targetClass) continue;
                 const hash = await this.#pathHash(entry);
                 entry.history = history?.[hash];
 
@@ -1069,7 +1077,9 @@ export class Agent extends EventTarget {
 
         // add all entries for unrestricted search
         if (!limit && search?.length)
-            for (const entry of (await this.#getEntries()).filter((e) => this.#isFillEntry(e)))
+            for (const entry of (await this.#getEntries()).filter(
+                (e) => this.#isFillEntry(e) && (!targetClass || (e.rule?.class || "login") === targetClass),
+            ))
                 if (!matches.includes(entry)) matches.push(entry);
 
         // filter by space-separated regex search terms

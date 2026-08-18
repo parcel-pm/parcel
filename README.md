@@ -222,7 +222,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 |----------|------|---------|-------------|
 | `pattern` | string (regex) | *required* | Regex matched against the entry name (relative to the store root, without `.gpg`). |
 | `ignore` | boolean | `false` | If `true`, entries matching this rule are excluded. |
-| `class` | string | `"login"` | `"login"` (fillable credential) or `"passkey"` (WebAuthn credential, excluded from filling; see [Passkeys](#passkeys-webauthn--fido2)). `"browser-passkey"` is a site-policy rule (not an entry class) that defers a site's ceremonies to the browser (see [Passkey conflicts](#passkey-conflicts-with-other-password-managers)). |
+| `class` | string | `"login"` | `"login"` (fillable credential) or `"passkey"` (WebAuthn credential, excluded from filling; see [Passkeys](#passkeys-webauthn--fido2)). `"browser-passkey"` is a site-policy rule (not an entry class) that defers a site's ceremonies to the browser (see [Passkey conflicts](#passkey-conflicts-with-other-password-managers)). `"card"` classifies an entry as a credit/debit card credential — card-classed entries are shown only when filling card-type form fields and are excluded from fill history. |
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |

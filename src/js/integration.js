@@ -144,7 +144,7 @@
         if (port.name !== "trigger") return;
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "trigger-popup") {
-                triggerPopup(msg.token, msg.frameId, msg.position, msg.mode);
+                triggerPopup(msg.token, msg.frameId, msg.position, msg.mode, msg.targetClass);
             } else if (msg?.action === "close-popup") {
                 document.querySelectorAll(".parcel-popup").forEach((popup) => removePopup(popup));
             } else if (msg?.action === "resize-popup") {
@@ -558,9 +558,10 @@
      * @param {number} frameId - The ID of the frame in which the target element resides.
      * @param {DOMRect} position - The position of the target element.
      * @param {string} [mode] - Optional popup mode (e.g. "passkey"), passed through to the popup iframe URL.
+     * @param {string|null} [targetClass=null] - The class of the target field (e.g. "card"), used to filter popup entries.
      * @returns {Promise<void>}
      */
-    async function triggerPopup(token, frameId, position, mode = null) {
+    async function triggerPopup(token, frameId, position, mode = null, targetClass = null) {
         // remove old popups
         for (const popup of [...Helpers.shadowSelectorAll(".parcel-popup")]) {
             removePopup(popup);
@@ -666,7 +667,9 @@
         // extension-origin frame; without it the async Clipboard API is policy-denied)
         const frame = document.createElement("iframe");
         frame.setAttribute("allow", "clipboard-write");
-        frame.src = chrome.runtime.getURL(`/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${mode}` : ""}`);
+        frame.src = chrome.runtime.getURL(
+            `/html/popup.html?token=${token}&frameId=${frameId}${mode ? `&mode=${mode}` : ""}${targetClass ? `&targetClass=${targetClass}` : ""}`,
+        );
         root.appendChild(frame);
         if (scrimMode) {
             // provisional card size until the popup reports its real size via resize-popup
@@ -741,12 +744,17 @@
             target.setAttribute("parcel-selector", targetInfo.selector);
             target.setAttribute("parcel-type", targetInfo.type);
 
+            // resolve the target's class so the popup can filter entries accordingly
+            const targetDef = (await config).targets.concat((await config).additionalTargets || []).find((t) => t.name === targetInfo.type);
+            const targetClass = targetDef?.class || "login";
+
             // dispatch clicks to the handler in the root frame so that the popup can be rendered there
             triggerPort.postMessage({
                 action: "trigger-popup",
                 frameId,
                 token: target._parcelToken,
                 position: target.getBoundingClientRect(),
+                targetClass,
             });
         } catch (_err) {
             // dispatch other clicks to the root frame too, so that they can be used to close the popup

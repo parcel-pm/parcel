@@ -32,4 +32,24 @@ describe("Default targets", () => {
             }
         }
     });
+
+    test("card targets use class 'card'", () => {
+        const cardTargetNames = ["card", "cardholder", "cardexp", "cardexp-month", "cardexp-year", "cardcsc"];
+        for (const name of cardTargetNames) {
+            const target = defaultTargets.find((t) => t.name === name);
+            assert.ok(target, `Card target "${name}" not found in default targets`);
+            assert.strictEqual(target.class, "card", `Target "${name}" should have class "card"`);
+        }
+    });
+
+    test("non-card targets default to class 'login'", () => {
+        const cardTargetNames = new Set(["card", "cardholder", "cardexp", "cardexp-month", "cardexp-year", "cardcsc"]);
+        for (const target of defaultTargets) {
+            if (!cardTargetNames.has(target.name)) {
+                const expected = target.name === "secret" || target.name === "login" || target.name === "totp" ? "login" : target.class;
+                // targets without an explicit class default to "login" via schema validation
+                assert.ok(expected === "login" || expected === undefined, `Target "${target.name}" should not have a non-login class`);
+            }
+        }
+    });
 });

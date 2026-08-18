@@ -411,4 +411,30 @@ describe("Defined schemas", () => {
             /expected boolean.*got string/,
         );
     });
+
+    test("TargetSchema: accepts class 'card'", () => {
+        assert.doesNotThrow(() => Schema.validate(TargetSchema, { name: "test", pattern: "^test:", class: "card" }));
+    });
+
+    test("TargetSchema: accepts class 'login'", () => {
+        assert.doesNotThrow(() => Schema.validate(TargetSchema, { name: "test", pattern: "^test:", class: "login" }));
+    });
+
+    test("TargetSchema: accepts class 'passkey'", () => {
+        assert.doesNotThrow(() => Schema.validate(TargetSchema, { name: "test", pattern: "^test:", class: "passkey" }));
+    });
+
+    test("TargetSchema: rejects invalid class", () => {
+        assert.throws(() => Schema.validate(TargetSchema, { name: "test", pattern: "^test:", class: "invalid" }), /must be one of/);
+    });
+
+    test("ConfigSchema: accepts rule class 'card'", () => {
+        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "^cards/", class: "card" }] };
+        assert.doesNotThrow(() => Schema.validate(ConfigSchema, config));
+    });
+
+    test("ConfigSchema: rejects invalid rule class", () => {
+        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "^cards/", class: "invalid" }] };
+        assert.throws(() => Schema.validate(ConfigSchema, config), /must be one of/);
+    });
 });

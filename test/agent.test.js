@@ -1146,6 +1146,114 @@ describe("Agent", () => {
         const msg = await candidatesPromise; // defer did not fire; candidates posted (empty list)
         assert.deepStrictEqual(msg.candidates, []);
     });
+
+    /**
+     * Push a card-aware config and entry list into the agent.
+     *
+     * `cards/example.com/visa` is rule-classed as a card entry; `example.com/admin`
+     * is a login entry. Both name `example.com` so they match the origin.
+     * @returns {Promise<void>}
+     */
+    async function configureCardStore() {
+        const cardConfig = {
+            ...makeValidConfig(),
+            modified: 2,
+            rules: [{ pattern: "^cards/", class: "card" }, { pattern: "." }],
+        };
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return cardConfig;
+            if (msg.action === "list")
+                return [
+                    { name: "cards/example.com/visa", path: "/home/test/.password-store/cards/example.com/visa.gpg" },
+                    { name: "example.com/admin", path: "/home/test/.password-store/example.com/admin.gpg" },
+                ];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") return { plaintext: "card: 4111111111111111\n" };
+        });
+        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        await settleAsync();
+        const configPromise = nextMessage(integration, "config");
+        integration.postMessage({ action: "config", config: cardConfig });
+        await configPromise;
+    }
+
+    test("search with targetClass 'card' returns only card entries", async () => {
+        await configureCardStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+            targetClass: "card",
+        });
+        const match = await matchPromise;
+        assert.strictEqual(match.entries.length, 1);
+        assert.strictEqual(match.entries[0].name, "cards/example.com/visa");
+        assert.strictEqual(match.entries[0].rule.class, "card");
+    });
+
+    test("search with targetClass 'login' returns only login entries", async () => {
+        await configureCardStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+            targetClass: "login",
+        });
+        const match = await matchPromise;
+        assert.strictEqual(match.entries.length, 1);
+        assert.strictEqual(match.entries[0].name, "example.com/admin");
+    });
+
+    test("search without targetClass returns all fillable entries", async () => {
+        await configureCardStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+        });
+        const match = await matchPromise;
+        assert.strictEqual(match.entries.length, 2);
+    });
+
+    test("card entries are fillable (isFillEntry)", async () => {
+        await configureCardStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+            targetClass: "card",
+        });
+        const match = await matchPromise;
+        // If the card entry appears in results, #isFillEntry returned true for it
+        assert.strictEqual(match.entries.length, 1);
+        assert.strictEqual(match.entries[0].rule.class, "card");
+    });
 });
 
 describe("Agent initialisation failures", () => {

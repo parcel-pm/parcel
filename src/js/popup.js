@@ -6,6 +6,7 @@
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const frameId = parseInt(new URLSearchParams(window.location.search).get("frameId"), 10) || 0;
     const mode = new URLSearchParams(window.location.search).get("mode");
+    const targetClass = new URLSearchParams(window.location.search).get("targetClass");
     const isWindowMode = new URLSearchParams(window.location.search).get("window") === "1";
     let frameOrigin; // intended origin for the actual fill operation
     if (token === "broadcast" && window !== window.top) {
@@ -1168,6 +1169,7 @@
                 li.tabIndex = -1;
                 li.setAttribute("data-path", entry.path);
                 if (entry.isInHistory) li.classList.add("history");
+                if (entry.rule?.class === "card") li.classList.add("entry-card");
                 li.setAttribute("data-sort-order", entry.sortOrder);
 
                 if (entry.rule.tag) {
@@ -1248,6 +1250,9 @@
                 li.addEventListener("click", async () => {
                     const intent = mode === "http-auth" ? "http-auth" : "fill";
                     port.postMessage({ action: "decrypt", intent, origin: url.origin, path: entry.path });
+                    // Card entries are never added to fill history — card fills are not
+                    // origin-specific and tracking them would clutter login history.
+                    if ((entry.rule?.class || "login") === "card") return;
                     const hash = await sha256(entry.path);
                     if (history?.[0]?.path === hash) history[0].when = Date.now();
                     else history.unshift({ path: hash, when: Date.now() });
@@ -1346,7 +1351,7 @@
 
         // re-run the search
         function update() {
-            port.postMessage({ action: "match", url: tab.url || "unknown-url://", search: search.value, limit, history });
+            port.postMessage({ action: "match", url: tab.url || "unknown-url://", search: search.value, limit, history, targetClass });
         }
 
         // initial search

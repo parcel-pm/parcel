@@ -511,6 +511,104 @@ describe("Popup script", { concurrency: false }, () => {
         assert.ok(hist && hist.length > 0, "history updated after fill click");
     });
 
+    test("card entry renders with entry-card CSS class", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "match",
+            entries: [
+                {
+                    path: "cards/example.com/visa",
+                    name: "example.com/visa",
+                    rule: { tag: "card", color: "0066cc", strip: "", class: "card" },
+                    sortOrder: 1,
+                    isInHistory: false,
+                },
+            ],
+        });
+        await settleAsync();
+
+        const li = document.querySelector("ul#entries > li");
+        assert.ok(li, "card entry rendered");
+        assert.ok(li.classList.contains("entry-card"), "card entry has entry-card class");
+    });
+
+    test("non-card entry does not get entry-card CSS class", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "match",
+            entries: [
+                {
+                    path: "test/login.com",
+                    name: "login.com",
+                    rule: { tag: "login", color: "ff0000", strip: "", class: "login" },
+                    sortOrder: 1,
+                    isInHistory: false,
+                },
+            ],
+        });
+        await settleAsync();
+
+        const li = document.querySelector("ul#entries > li");
+        assert.ok(li, "login entry rendered");
+        assert.ok(!li.classList.contains("entry-card"), "login entry does not have entry-card class");
+    });
+
+    test("clicking a card entry does not add it to history", async () => {
+        const url = new URL("https://example.com/login");
+        const hash = sha256Native(url.origin);
+        const scope = sha256Native("default");
+        const cardPathHash = sha256Native("cards/example.com/visa");
+
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "match",
+            entries: [
+                {
+                    path: "cards/example.com/visa",
+                    name: "example.com/visa",
+                    rule: { tag: "card", color: "0066cc", strip: "", class: "card" },
+                    sortOrder: 1,
+                    isInHistory: false,
+                },
+            ],
+        });
+        await settleAsync();
+
+        // Capture the decrypt request the popup sends on click
+        const decryptPromise = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error("Timeout waiting for decrypt")), 3000);
+            const listener = (msg) => {
+                if (msg?.action === "decrypt") {
+                    clearTimeout(timer);
+                    popupReceiver.onMessage.removeListener(listener);
+                    resolve(msg);
+                }
+            };
+            popupReceiver.onMessage.addListener(listener);
+        });
+
+        const li = document.querySelector("ul#entries > li");
+        li.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+        await settleAsync();
+
+        const decryptMsg = await decryptPromise;
+        assert.strictEqual(decryptMsg.intent, "fill");
+
+        // Reply with plaintext fill so the popup attempts to write history
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "fill",
+            plaintext: "card: 4111111111111111\n",
+        });
+        await settleAsync();
+
+        // The card entry's hash must NOT be in the stored history
+        const stored = await chrome.storage.local.get(`history:${scope}:${hash}`);
+        const hist = stored[`history:${scope}:${hash}`] || [];
+        const cardInHistory = hist.some((h) => h.path === cardPathHash);
+        assert.ok(!cardInHistory, "card entry was not added to history");
+    });
+
     // -----------------------------------------------------------------------
     // error display
     // -----------------------------------------------------------------------
