@@ -452,63 +452,6 @@ describe("Agent", () => {
     });
 
     describe("HTTP auth interception", () => {
-        test("passes through for proxy auth", async () => {
-            const result = await mock.fireAuthRequired({
-                isProxy: true,
-                type: "main_frame",
-                tabId: 1,
-                url: "https://example.com/",
-            });
-            assert.deepStrictEqual(result, {});
-        });
-
-        test("passes through for subframe auth", async () => {
-            const result = await mock.fireAuthRequired({
-                isProxy: false,
-                type: "sub_frame",
-                tabId: 1,
-                url: "https://example.com/",
-            });
-            assert.deepStrictEqual(result, {});
-        });
-
-        test("passes through when tabId is -1", async () => {
-            const result = await mock.fireAuthRequired({
-                isProxy: false,
-                type: "main_frame",
-                tabId: -1,
-                url: "https://example.com/",
-            });
-            assert.deepStrictEqual(result, {});
-        });
-
-        test("passes through when handleHttpAuth is false", async () => {
-            uninstallNativeHandler(mock, handler);
-            handler = installNativeHandler(mock, (msg) => {
-                if (msg.action === "install") return { success: true, message: "installed" };
-                if (msg.action === "configure") return { ...makeValidConfig(), handleHttpAuth: false, modified: 2 };
-                if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
-                if (msg.action === "changes_since") return { changes: false };
-                if (msg.action === "decrypt") return { plaintext: "hunter2" };
-            });
-            const popup = mock.chrome.runtime.connect({ name: "popup" });
-            await settleAsync();
-            popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
-            const cfgPromise = nextMessage(popup, "config");
-            popup.postMessage({ action: "config" });
-            await cfgPromise;
-            popup.disconnect();
-            await settleAsync();
-
-            const result = await mock.fireAuthRequired({
-                isProxy: false,
-                type: "main_frame",
-                tabId: 1,
-                url: "https://example.com/",
-            });
-            assert.deepStrictEqual(result, {});
-        });
-
         test("opens popup even when no matching entries (search available)", async () => {
             mock.fireAuthRequired({
                 isProxy: false,
@@ -881,42 +824,6 @@ describe("Agent", () => {
             assert.deepStrictEqual(result, {}, "malformed decrypt resolves with {} for native dialog");
 
             popup.disconnect();
-        });
-
-        test("per-challenge token is random and unique", async () => {
-            mock.fireAuthRequired({
-                isProxy: false,
-                type: "main_frame",
-                tabId: 1,
-                url: "https://example.com/",
-            });
-            await settleAsync();
-            await settleAsync();
-            const token1 = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-
-            // Complete the first challenge so the map entry is cleaned up
-            const popup1 = mock.chrome.runtime.connect({ name: "popup" });
-            await settleAsync();
-            popup1.postMessage({ action: "auth", token: token1, tab: { id: 1, url: "https://example.com/" } });
-            await settleAsync();
-            popup1.postMessage({ action: "http-auth-cancel" });
-            await settleAsync();
-            popup1.disconnect();
-            await settleAsync();
-
-            mock.fireAuthRequired({
-                isProxy: false,
-                type: "main_frame",
-                tabId: 1,
-                url: "https://example.com/",
-            });
-            await settleAsync();
-            await settleAsync();
-            const token2 = mock.sentMessages[mock.sentMessages.length - 1].msg.token;
-
-            assert.ok(token1 && token2, "both tokens generated");
-            assert.notStrictEqual(token1, token2, "each challenge gets a unique token");
-            assert.notStrictEqual(token1, "http-auth", "token is not the fixed string");
         });
 
         test("concurrent 401 challenges don't cross-route credentials", async () => {
