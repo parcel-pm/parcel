@@ -56,7 +56,7 @@ function createTestEnv(opts = {}) {
     }
 
     // Mock gpg binary.
-    // The bootstrap extracts the signer via: grep VALIDSIG | cut -d' ' -f12
+    // The bootstrap extracts the signer via: grep '^\[GNUPG:\] VALIDSIG ' | cut -d' ' -f12
     // Real GnuPG field 12 is the primary fingerprint. We replicate the layout.
     const knownSigner = opts.knownSigner ?? "88FF14D6294AF4036B7F00FF676A3C09E2E47A72";
     const mockGpg = join(bindir, "gpg");
@@ -288,7 +288,7 @@ describe("Bootstrap script", () => {
             const msg = await read();
             assert.strictEqual(msg.token, "broadcast");
             assert.strictEqual(msg.data?.action, "bootstrap");
-            assert.strictEqual(msg.data?.version, "1");
+            assert.strictEqual(msg.data?.version, "2");
         } finally {
             proc.kill();
             env.cleanup();

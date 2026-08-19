@@ -794,6 +794,17 @@
         port.postMessage({ action: "config" });
     });
 
+    // bootstrap version from the native host
+    const bootstrapVersion = new Promise((resolve) => {
+        function versionListener(msg) {
+            if (msg?.action === "bootstrap-status") {
+                port.onMessage.removeListener(versionListener);
+                resolve(msg?.version);
+            }
+        }
+        port.onMessage.addListener(versionListener);
+    });
+
     /**
      * Copy text to the clipboard, falling back to a hidden textarea and
      * `execCommand("copy")` when the async Clipboard API is unavailable or policy-denied
@@ -1396,6 +1407,15 @@
         const p = document.createElement("p");
         p.classList.add("warning");
         p.textContent = "No whitelist rules are configured - your entire password store is accessible!";
+        document.body.insertAdjacentElement("afterbegin", p);
+    });
+
+    // show the bootstrap version warning
+    bootstrapVersion.then((version) => {
+        if (Number(version) >= 2) return; // required for PR #144 vuln fix
+        const p = document.createElement("p");
+        p.classList.add("warning");
+        p.textContent = "Please upgrade your bootstrap `parcel-host` script to v1.0.6 or newer.";
         document.body.insertAdjacentElement("afterbegin", p);
     });
 

@@ -19,7 +19,7 @@ set -e
 
 TOKEN="broadcast"
 PARCEL_HOST=""
-BOOTSTRAP_VERSION="1"
+BOOTSTRAP_VERSION="2"
 
 # transmit message in native messaging host protocol
 function parcel_transmit() {
@@ -161,7 +161,7 @@ function action_install() {
             SIGNER_VALID=true
             break
         fi
-    done < <(grep VALIDSIG <<< "$OUT" | cut -d' ' -f12)
+    done < <(grep '^\[GNUPG:\] VALIDSIG ' <<< "$OUT" | cut -d' ' -f12)
     if ! $SIGNER_VALID; then
         # Log the full GPG status output for debugging; do not leak it to the extension.
         printf '[%s] Signature verification failed: No valid signer fingerprint:\n%s\n' \

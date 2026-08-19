@@ -34,6 +34,7 @@ export class Agent extends EventTarget {
     #reconnectTimer = null;
     #destroyed = false;
     #pendingAuthCallbacks = new Map();
+    #bootstrapVersion = null;
 
     /**
      * Construct a new Agent instance.
@@ -42,7 +43,10 @@ export class Agent extends EventTarget {
     constructor() {
         super();
 
-        this.addEventListener("parcel::native::bootstrap", () => this.#init());
+        this.addEventListener("parcel::native::bootstrap", (ev) => {
+            this.#bootstrapVersion = ev.detail?.version ?? null;
+            this.#init();
+        });
         chrome.runtime.onConnect.addListener((port) => this.#connect(port));
         if (chrome.contextualIdentities?.onRemoved) {
             chrome.contextualIdentities.onRemoved.addListener((changeInfo) =>
@@ -598,6 +602,11 @@ export class Agent extends EventTarget {
         const clearStatus = () => port.postMessage({ action: "clear-status" });
         const clearErrors = (category = null) => port.postMessage({ action: "clear-errors", category });
         clearStatus();
+
+        // Push the bootstrap version so the popup can warn about outdated hosts.
+        if (port.name === "popup" && this.#bootstrapVersion !== null) {
+            port.postMessage({ action: "bootstrap-status", version: this.#bootstrapVersion });
+        }
 
         // Allow-list: map port names to the actions they are permitted to invoke.
         // `decrypt`/`match` are privileged and only available to authorised popup ports;
