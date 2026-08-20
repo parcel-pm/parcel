@@ -757,14 +757,7 @@ export class Agent extends EventTarget {
                     port.postMessage({ action: "http-auth-url", url: authEntry?.url ?? null });
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
-                    // Filter to classes that can actually widen visibility.
-                    const includeClasses = (Array.isArray(message.includeClasses) ? message.includeClasses : []).filter(
-                        (c) =>
-                            typeof c === "string" &&
-                            ((classDefaults[c] ?? classDefaults._default).originBound === false ||
-                                (classDefaults[c] ?? classDefaults._default).scope === "context" ||
-                                this.#config.rules.some((r) => r.class === c && (r.originBound === false || r.scope === "context"))),
-                    );
+                    const includeClasses = Array.isArray(message.includeClasses) ? message.includeClasses : [];
                     // get matching entries
                     const result = await this.search(
                         message.url,
