@@ -1334,6 +1334,29 @@ describe("Agent", () => {
         assert.deepStrictEqual(names, ["example.com/admin"], "non-origin cards hidden without includeClasses");
     });
 
+    test("spoofed includeClasses cannot widen origin scope", async () => {
+        // A malicious page could claim any class is present. includeClasses only
+        // affects scopeVisible; originVisible is enforced from host matching and
+        // config-resolved originBound — never from page-reported data.
+        await configureMixedStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+            includeClasses: ["login"],
+        });
+        const match = await matchPromise;
+        const names = match.entries.map((e) => e.name);
+        assert.ok(!names.includes("other.com/user"), "spoofed login class does not surface non-origin logins");
+        assert.ok(names.includes("example.com/admin"), "origin-matching login is unaffected");
+    });
+
     test("rule originBound and scope overrides resolve per entry", async () => {
         // A rule within an otherwise non-origin-bound class may pin its entries to
         // the origin and/or context-gate them; an origin-bound class may have a rule

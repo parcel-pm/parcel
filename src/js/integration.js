@@ -1440,6 +1440,9 @@
      * @since 1.0.7
      * @returns {Promise<string[]>} The distinct target classes present on the page.
      */
+    // Uses shadowSelector (first match only) rather than shadowSelectorAll for
+    // performance with the large selector set. If the first matching field is hidden,
+    // the class won't be reported — an accepted trade-off for popup responsiveness.
     async function getPageTargetClasses() {
         const targetDefs = (await config).targets.concat((await config).additionalTargets || []);
         const classes = new Set();

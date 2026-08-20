@@ -1324,7 +1324,11 @@
                 while (pendingEntries !== undefined) {
                     const next = pendingEntries;
                     pendingEntries = undefined;
-                    await renderEntries(next);
+                    try {
+                        await renderEntries(next);
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             } finally {
                 rendering = false;
