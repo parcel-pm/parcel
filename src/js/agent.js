@@ -184,7 +184,10 @@ export class Agent extends EventTarget {
      * against a wedged host that never disconnected), the port is forcibly
      * disconnected so the retry spawns a fresh host process; the resulting
      * `#onNativeDisconnect` then schedules the actual reconnect on its normal
-     * short timer.
+     * short timer. Should the browser never deliver `onDisconnect` for the
+     * forced disconnect, an identity-guarded fallback clears the stale state
+     * and reconnects, so the agent cannot wedge with a dead-but-flagged-live
+     * port while no ping watchdog is running.
      * @since 1.0.7
      * @param {number} delay - Time to wait before reconnecting, in milliseconds.
      * @returns {void}
@@ -195,11 +198,19 @@ export class Agent extends EventTarget {
         this.#reconnectTimer = setTimeout(() => {
             this.#reconnectTimer = null;
             if (this.#connectedNative && this.#host) {
+                const host = this.#host;
                 try {
-                    this.#host.disconnect();
+                    host.disconnect();
                 } catch (_err) {
                     // already disconnected; nothing to clean up
                 }
+                // Fallback if onDisconnect is never delivered for the forced disconnect
+                setTimeout(() => {
+                    if (!this.#destroyed && this.#connectedNative && this.#host === host) {
+                        this.#connectedNative = false;
+                        this.#ensureNativeConnected();
+                    }
+                }, 1000);
             }
             this.#ensureNativeConnected();
         }, delay);
