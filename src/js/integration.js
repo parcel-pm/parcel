@@ -1558,8 +1558,8 @@
         });
         try {
             await getTargetInfo(el);
-        } catch (_err) {
-            maybePost(port, { action: "error", error: "The selected autofill candidate was unsuitable." });
+        } catch (err) {
+            maybePost(port, { action: "error", error: `The best-match autofill candidate was unsuitable: ${err.message}` });
             port.disconnect();
             return;
         }
