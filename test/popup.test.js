@@ -72,6 +72,7 @@ function makeValidConfig(overrides = {}) {
                 hoist: true,
                 label: "Pass",
             },
+            { name: "card", class: "card", pattern: "^card:", related: [] },
         ],
         additionalSelectors: [],
         showDelegateTooltips: false,
@@ -613,5 +614,44 @@ describe("Popup script", { concurrency: false }, () => {
 
         assert.strictEqual(document.querySelectorAll("p.error").length, 1, "one error remains");
         assert.strictEqual(document.querySelector("p.error").textContent, "Network error");
+    });
+
+    // -----------------------------------------------------------------------
+    // target class detection (toolbar popup)
+    // -----------------------------------------------------------------------
+
+    test("origin message with card targets re-runs the search with includeClasses", async () => {
+        // The toolbar popup defaults to origin-limited results. When the content
+        // script reports fillable fields, the popup re-runs the search with those
+        // classes made eligible; the agent enforces the per-entry origin binding.
+        const popupReceiver = portReceivers["popup"];
+        const tabReceiver = portReceivers["broadcast"];
+
+        const matchRequest = nextMessage(popupReceiver, "match", 3000);
+        tabReceiver.postMessage({ action: "origin", origin: "https://example.com", targetClasses: ["login", "card"] });
+        const msg = await matchRequest;
+        assert.deepStrictEqual(msg.includeClasses, ["login", "card"], "page classes are offered for the agent to gate");
+        assert.strictEqual(msg.limit, true, "origin limiting still applies to other entries");
+    });
+
+    test("overlapping match responses never duplicate entries", async () => {
+        // The toolbar popup re-runs its search when the origin message widens the
+        // class filter; that second response lands while the first render is
+        // mid-await. Renders must be serialised so a rebuilt entry never appears twice.
+        const popupReceiver = portReceivers["popup"];
+        const entry = {
+            path: "test/site.com",
+            name: "site.com",
+            rule: { tag: "login", color: "ff0000", strip: "" },
+            sortOrder: 1,
+            isInHistory: false,
+        };
+
+        popupReceiver.postMessage({ action: "match", entries: [entry] });
+        popupReceiver.postMessage({ action: "match", entries: [entry] });
+        await settleAsync();
+
+        const lis = document.querySelectorAll('ul#entries > li[data-path="test/site.com"]');
+        assert.strictEqual(lis.length, 1, "the entry is rendered exactly once");
     });
 });

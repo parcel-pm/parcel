@@ -1436,6 +1436,22 @@
     }
 
     /**
+     * Get the distinct rule classes of fillable targets present in the current frame.
+     * @since 1.0.7
+     * @returns {Promise<string[]>} The distinct target classes present on the page.
+     */
+    async function getPageTargetClasses() {
+        const targetDefs = (await config).targets.concat((await config).additionalTargets || []);
+        const classes = new Set();
+        for (const selector of (await validTargets).filter((t) => !t.relatedOnly)) {
+            const el = Helpers.shadowSelector(selector.selector);
+            if (!el?.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+            classes.add(targetDefs.find((t) => t.name === selector.type)?.class || "login");
+        }
+        return [...classes];
+    }
+
+    /**
      * Handle incoming connections from the popup, binding each connection to its target element
      * and routing subsequent messages (ready / fill-value / fill / resize / close).
      * @since 1.0.0
@@ -1554,7 +1570,11 @@
         };
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
-                maybePost(port, { action: "origin", origin: window.location.origin });
+                maybePost(port, {
+                    action: "origin",
+                    origin: window.location.origin,
+                    targetClasses: port.name === "broadcast" ? await getPageTargetClasses() : undefined,
+                });
             } else if (msg?.action === "focus-target") {
                 el.focus();
             } else if (msg?.action === "focus-suspend") {

@@ -1,5 +1,5 @@
 "use strict";
-import { Schema, ConfigSchema } from "./schema.js";
+import { Schema, ConfigSchema, classDefaults } from "./schema.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
 
@@ -498,6 +498,15 @@ export class Agent extends EventTarget {
                 if (p.test(entry.name)) entry.rule = rule;
             }
         }
+        // Resolve fill visibility: rule-level overrides win, else classDefaults.
+        for (const entry of entries) {
+            const rule = entry.rule;
+            const classDefault = classDefaults[rule?.class || "login"] ?? classDefaults._default;
+            entry.originBound = Object.prototype.hasOwnProperty.call(rule ?? {}, "originBound")
+                ? rule.originBound
+                : classDefault.originBound;
+            entry.scope = Object.prototype.hasOwnProperty.call(rule ?? {}, "scope") ? rule.scope : classDefault.scope;
+        }
         this.#entries = entries;
         this.#entriesUpdated = Date.now();
         this.dispatchEvent(new CustomEvent("entriesUpdated", { detail: this.#entries }));
@@ -748,6 +757,14 @@ export class Agent extends EventTarget {
                     port.postMessage({ action: "http-auth-url", url: authEntry?.url ?? null });
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
+                    // Filter to classes that can actually widen visibility.
+                    const includeClasses = (Array.isArray(message.includeClasses) ? message.includeClasses : []).filter(
+                        (c) =>
+                            typeof c === "string" &&
+                            ((classDefaults[c] ?? classDefaults._default).originBound === false ||
+                                (classDefaults[c] ?? classDefaults._default).scope === "context" ||
+                                this.#config.rules.some((r) => r.class === c && (r.originBound === false || r.scope === "context"))),
+                    );
                     // get matching entries
                     const result = await this.search(
                         message.url,
@@ -755,6 +772,7 @@ export class Agent extends EventTarget {
                         message.limit,
                         message.history,
                         message.targetClass || null,
+                        includeClasses,
                     );
                     clearStatus();
                     port.postMessage({ action: "match", entries: result });
@@ -1083,10 +1101,11 @@ export class Agent extends EventTarget {
      * @param {boolean} [limit=true] - Whether to limit the search to the current origin.
      * @param {object[]} [history=[]] - Historical fill entries (`{path, when}`) used for sort priority.
      * @param {string|null} [targetClass=null] - When set (e.g. "card" or "login"), restrict results to entries whose rule class matches. Null shows all fillable entries.
+     * @param {string[]} [includeClasses=[]] - Page-present fill classes for context-scope gating.
      * @returns {Promise<object[]>} The matching entries.
      * @throws {Error} If a search term is not a valid regular expression. The thrown error additionally has a `logAs` property set to `"info"`.
      */
-    async search(url, search, limit = true, history = [], targetClass = null) {
+    async search(url, search, limit = true, history = [], targetClass = null, includeClasses = []) {
         // consolidate history to most-recent entry per item
         history = history.reduce((acc, entry) => {
             if (!Object.prototype.hasOwnProperty.call(acc, entry.path)) acc[entry.path] = entry;
@@ -1096,6 +1115,8 @@ export class Agent extends EventTarget {
 
         const origin = new URL(url);
         let matches = [];
+        const includeSet = new Set(includeClasses);
+        if (targetClass) includeSet.add(targetClass);
 
         if (origin.host) {
             // find matches for the origin
@@ -1118,7 +1139,10 @@ export class Agent extends EventTarget {
                         }
                     }
                 }
-                if (entry.history || entry.matchesHost || entry.matchesHostPart) {
+
+                const originVisible = entry.history || entry.matchesHost || entry.matchesHostPart || entry.originBound === false;
+                const scopeVisible = entry.scope === "global" || includeSet.has(entry.rule?.class || "login");
+                if (originVisible && scopeVisible) {
                     matches.push(entry);
                 }
             }

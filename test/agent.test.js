@@ -1199,6 +1199,30 @@ describe("Agent", () => {
         assert.strictEqual(match.entries[0].rule.class, "card");
     });
 
+    test("search with targetClass 'card' surfaces non-origin cards by default", async () => {
+        // The card context popup is origin-limited with an empty query; non-origin-bound
+        // classes must still surface all of their entries or the default list is empty.
+        await configureMixedStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+            targetClass: "card",
+        });
+        const match = await matchPromise;
+        assert.deepStrictEqual(
+            match.entries.map((e) => e.name),
+            ["cards/visa"],
+            "all cards surface for a card-class search, regardless of origin",
+        );
+    });
+
     test("search with targetClass 'login' returns only login entries", async () => {
         await configureCardStore();
         const popup = mock.chrome.runtime.connect({ name: "popup" });
@@ -1230,6 +1254,7 @@ describe("Agent", () => {
             search: "",
             limit: true,
             history: [],
+            includeClasses: ["card"],
         });
         const match = await matchPromise;
         assert.strictEqual(match.entries.length, 2);
@@ -1253,6 +1278,151 @@ describe("Agent", () => {
         // If the card entry appears in results, #isFillEntry returned true for it
         assert.strictEqual(match.entries.length, 1);
         assert.strictEqual(match.entries[0].rule.class, "card");
+    });
+    /**
+     * Push a config and entry list where the card entry does NOT match the search origin.
+     *
+     * `cards/visa` is rule-classed as a card entry and names no host; `example.com/admin`
+     * is a login matching the origin; `other.com/user` is a login for a different origin.
+     * @returns {Promise<void>}
+     */
+    async function configureMixedStore() {
+        const mixedConfig = {
+            ...makeValidConfig(),
+            modified: 2,
+            rules: [{ pattern: "^cards/", class: "card" }, { pattern: "." }],
+        };
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return mixedConfig;
+            if (msg.action === "list")
+                return [
+                    { name: "cards/visa", path: "/home/test/.password-store/cards/visa.gpg" },
+                    { name: "example.com/admin", path: "/home/test/.password-store/example.com/admin.gpg" },
+                    { name: "other.com/user", path: "/home/test/.password-store/other.com/user.gpg" },
+                ];
+            if (msg.action === "changes_since") return { changes: false };
+        });
+        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        await settleAsync();
+        const configPromise = nextMessage(integration, "config");
+        integration.postMessage({ action: "config", config: mixedConfig });
+        await configPromise;
+    }
+
+    test("includeClasses surfaces non-origin cards while keeping logins origin-limited", async () => {
+        await configureMixedStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const searchEntries = async (includeClasses) => {
+            const matchPromise = nextMessage(popup, "match");
+            popup.postMessage({ action: "match", url: "https://example.com", search: "", limit: true, history: [], includeClasses });
+            return (await matchPromise).entries.map((e) => e.name);
+        };
+
+        // With includeClasses: cards surface alongside origin-matching logins
+        let names = await searchEntries(["card"]);
+        assert.ok(names.includes("cards/visa"), "card entry is surfaced despite not matching the origin");
+        assert.ok(names.includes("example.com/admin"), "origin-matching login is still present");
+        assert.ok(!names.includes("other.com/user"), "non-origin login remains excluded");
+        assert.strictEqual(names[0], "example.com/admin", "origin-matching login still sorts first");
+
+        // Without includeClasses: non-origin cards stay hidden
+        names = await searchEntries([]);
+        assert.deepStrictEqual(names, ["example.com/admin"], "non-origin cards hidden without includeClasses");
+    });
+
+    test("rule originBound and scope overrides resolve per entry", async () => {
+        // A rule within an otherwise non-origin-bound class may pin its entries to
+        // the origin and/or context-gate them; an origin-bound class may have a rule
+        // opted out to global visibility.
+        const overrideConfig = {
+            ...makeValidConfig(),
+            modified: 2,
+            rules: [
+                // Single-site card: origin match required, and only when the page has card fields
+                { pattern: "^cards/example\\.com/", class: "card", originBound: true, scope: "context" },
+                { pattern: "^cards/", class: "card" },
+                // Identity login: any origin, any page
+                { pattern: "^other.com/", class: "login", originBound: false },
+                { pattern: "." },
+            ],
+        };
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return overrideConfig;
+            if (msg.action === "list")
+                return [
+                    { name: "cards/example.com/corporate", path: "/home/test/.password-store/cards/example.com/corporate.gpg" },
+                    { name: "cards/visa", path: "/home/test/.password-store/cards/visa.gpg" },
+                    { name: "example.com/admin", path: "/home/test/.password-store/example.com/admin.gpg" },
+                    { name: "other.com/user", path: "/home/test/.password-store/other.com/user.gpg" },
+                ];
+            if (msg.action === "changes_since") return { changes: false };
+        });
+        const integration = mock.chrome.runtime.connect({ name: "integration" });
+        await settleAsync();
+        const configPromise = nextMessage(integration, "config");
+        integration.postMessage({ action: "config", config: overrideConfig });
+        await configPromise;
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const searchEntries = async (url, includeClasses) => {
+            const matchPromise = nextMessage(popup, "match");
+            popup.postMessage({
+                action: "match",
+                url,
+                search: "",
+                limit: true,
+                history: [],
+                includeClasses,
+            });
+            return (await matchPromise).entries.map((e) => e.name);
+        };
+
+        // Page with card and login fields: everything eligible surfaces
+        let names = await searchEntries("https://example.com", ["card", "login"]);
+        assert.deepStrictEqual(names.sort(), ["cards/example.com/corporate", "cards/visa", "example.com/admin", "other.com/user"].sort());
+
+        // Wrong origin: the pinned card stays hidden even on a page with card fields
+        names = await searchEntries("https://elsewhere.example", ["card"]);
+        assert.deepStrictEqual(names.sort(), ["cards/visa", "other.com/user"].sort(), "originBound: true pins the card to its origin");
+
+        // Matching origin but no card fields: context-scoped entries stay hidden
+        names = await searchEntries("https://example.com", []);
+        assert.deepStrictEqual(
+            names.sort(),
+            ["example.com/admin", "other.com/user"].sort(),
+            "context scope requires the class on the page; global entries always surface",
+        );
+    });
+
+    test("targetClass filter takes precedence over includeClasses", async () => {
+        await configureMixedStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({
+            action: "match",
+            url: "https://example.com",
+            search: "",
+            limit: true,
+            history: [],
+            targetClass: "login",
+            includeClasses: ["card"],
+        });
+        const match = await matchPromise;
+        assert.deepStrictEqual(
+            match.entries.map((e) => e.name),
+            ["example.com/admin"],
+            "cards are excluded when the popup is restricted to a different class",
+        );
     });
 });
 
