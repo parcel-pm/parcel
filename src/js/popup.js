@@ -246,8 +246,7 @@
     const ul = document.querySelector("ul");
     let limit = true;
     let history = [];
-    // Fill classes the page reports as present (toolbar popup only).
-    let includeClasses = [];
+    let includeClasses = []; // fill classes the page reports as present (toolbar popup only)
 
     /**
      * Re-run the entry search.
