@@ -156,6 +156,7 @@ This origin-scoping is the primary anti-phishing safeguard in the popup UI. An e
 
 - **It matches the current origin** (or a parent domain). An entry for `google.com` will not appear while you're on `attacker-g00gle-login.com`, even if your search term would otherwise match it.
 - **It was previously used on this origin.** Entries you have filled on the current page before are remembered, and are displayed again regardless of whether their path matches the hostname. This means an entry you manually selected once will continue to surface on that origin without needing global search.
+- **Its class is not origin-bound.** Entries with `originBound: false` (the default for `card`) match any origin, bypassing origin-scoping. They still require a `scope` match — `"context"`-scoped entries are only shown when the page has fillable fields of the entry's class.
 - The hostname label is a visual confirmation of which origin the results are scoped to.
 
 Within the results, **pin-perfect matches** (where the entry path contains the full hostname) are sorted above **partial-domain matches** (where the entry path matches a parent domain of the current host). Previously-used entries are then sorted to the top of the entire list.
@@ -226,6 +227,8 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
+| `originBound` | boolean | *(class default)* | If `true`, the entry is only offered on pages whose origin matches. Defaults to `true` for all classes except `card`. |
+| `scope` | string | *(class default)* | `"global"` (shown whenever origin-eligible) or `"context"` (only shown when the page has fillable fields of the entry's class). Defaults to `"global"` for all classes except `card`. |
 
 #### Other options
 
