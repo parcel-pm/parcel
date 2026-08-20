@@ -1444,9 +1444,11 @@
         const targetDefs = (await config).targets.concat((await config).additionalTargets || []);
         const classes = new Set();
         for (const selector of (await validTargets).filter((t) => !t.relatedOnly)) {
+            const cls = targetDefs.find((t) => t.name === selector.type)?.class || "login";
+            if (classes.has(cls)) continue;
             const el = Helpers.shadowSelector(selector.selector);
             if (!el?.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
-            classes.add(targetDefs.find((t) => t.name === selector.type)?.class || "login");
+            classes.add(cls);
         }
         return [...classes];
     }
