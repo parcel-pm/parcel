@@ -25,7 +25,7 @@ export class Agent extends EventTarget {
     #pathHashes = new WeakMap();
     #initError;
     #pendingCall = null;
-    /** Settles when the previous native call has fully finished (including timeouts); see {@link Agent.#callNative}. */
+    /** Always-fulfilled promise settling when the previous native call has fully finished (including timeouts); see {@link Agent.#callNative}. */
     #nativeCallLock = Promise.resolve();
     #authorisedTokens = new Set();
     #publicSuffixList = null;
@@ -341,7 +341,7 @@ export class Agent extends EventTarget {
                 this.#host.postMessage({ ...message, token, action });
             });
 
-        const result = this.#nativeCallLock.then(run, run);
+        const result = this.#nativeCallLock.then(run);
         this.#nativeCallLock = result.then(
             () => {},
             () => {},
