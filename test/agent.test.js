@@ -1497,4 +1497,42 @@ describe("Agent native call timeout recovery", () => {
 
         uninstallNativeHandler(scopedMock, scopedHandler2);
     });
+
+    test("concurrent native calls are strictly serialised", async () => {
+        // The native messaging transport can drop messages posted in rapid
+        // succession, so a second call must not reach the host until the first
+        // has settled. Older code only awaited a shared "current call" promise,
+        // which two concurrent callers could both pass before either published
+        // its own — posting both messages at once with no mutual exclusion.
+        uninstallNativeHandler(scopedMock, scopedHandler);
+        const decryptTokens = [];
+        scopedHandler = installNativeHandler(scopedMock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return { ...makeValidConfig(), decryptTimeout: 5 };
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+            if (msg.action === "decrypt") decryptTokens.push(msg.token); // respond manually below
+        });
+
+        const popup = scopedMock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1, url: "https://example.com" } });
+        await settleAsync();
+
+        // Fire two decrypt requests back-to-back; only the first may hit the host.
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+        await settleAsync();
+        assert.strictEqual(decryptTokens.length, 1, "the second call must wait for the first to settle");
+
+        // Settle the first call; the second is only then posted to the host.
+        const nativePort = scopedMock.getNativePort("com.github.erayd.parcel");
+        nativePort.receiver.postMessage({ token: decryptTokens[0], data: { plaintext: "secret: hunter2\nlogin: u\n" } });
+        await settleAsync();
+        assert.strictEqual(decryptTokens.length, 2, "the second call proceeds once the first settles");
+
+        // Settle the second call so no timer outlives the test.
+        nativePort.receiver.postMessage({ token: decryptTokens[1], data: { plaintext: "secret: hunter2\nlogin: u\n" } });
+        await settleAsync();
+    });
 });

@@ -24,8 +24,9 @@ export class Agent extends EventTarget {
     /** @type {WeakMap<object, Promise<string>>} Cached SHA-256 hashes of entry paths, keyed by entry object. */
     #pathHashes = new WeakMap();
     #initError;
-    #currentNativeCall = null;
     #pendingCall = null;
+    /** Settles when the previous native call has fully finished (including timeouts); see {@link Agent.#callNative}. */
+    #nativeCallLock = Promise.resolve();
     #authorisedTokens = new Set();
     #publicSuffixList = null;
     #refreshingEntries = null;
@@ -297,6 +298,12 @@ export class Agent extends EventTarget {
 
     /**
      * Call the native host.
+     *
+     * Calls are strictly serialised via a promise chain: the native messaging
+     * transport can drop messages sent in rapid succession, so the next call must
+     * not post to the host until the previous call has fully settled. Awaiting a
+     * shared "current call" promise is not sufficient — two concurrent callers both
+     * read the settled promise before either publishes its own, defeating the mutex.
      * @since 1.0.0
      * @param {string} action - The action to send to the native host.
      * @param {object} [message={}] - The message to send to the native host.
@@ -305,48 +312,41 @@ export class Agent extends EventTarget {
      * @throws {Error} If not connected to the native host, the call times out, or the host returns an error.
      */
     async #callNative(action, message = {}, timeout = 2000) {
-        try {
-            // This is necessary to avoid a race condition in Chrome that sometimes drops
-            // messages to the native host if they are sent too quickly in succession. By
-            // putting a semaphore here, we ensure that the previous call has completed
-            // first, thus avoiding any potential in-flight collisions.
-            await this.#currentNativeCall;
-        } catch (_err) {
-            // we don't care about previous errors, only that the call has completed.
-            // This error has already been handled by this point, and was thrown from
-            // the promise rejection callback below.
-        }
-        const token = crypto.randomUUID();
-        this.#currentNativeCall = new Promise((resolve, reject) => {
-            if (!this.#connectedNative) {
-                reject(new Error("Not connected to native host"));
-                return true;
-            }
-            // Remove the listener on settle to prevent a late response for a
-            // timed-out call from corrupting a subsequent in-flight call.
-            const onMessage = (ev) => {
-                cleanup();
-                if (ev.detail?.error) reject(new Error(ev.detail.error));
-                else resolve(ev.detail.data);
-            };
-            const timer = setTimeout(() => {
-                cleanup();
-                reject(new Error(`Native host call timed out: ${action}`));
-            }, timeout);
-            const cleanup = () => {
-                clearTimeout(timer);
-                this.removeEventListener(token, onMessage);
-                if (this.#pendingCall?.token === token) this.#pendingCall = null;
-            };
-            this.#pendingCall = { reject, cleanup, token };
-            this.addEventListener(token, onMessage, { once: true });
-        });
+        // executed only once the previous call has settled
+        const run = () =>
+            new Promise((resolve, reject) => {
+                if (!this.#connectedNative) {
+                    reject(new Error("Not connected to native host"));
+                    return;
+                }
+                const token = crypto.randomUUID();
+                // Remove the listener on settle to prevent a late response for a
+                // timed-out call from corrupting a subsequent in-flight call.
+                const onMessage = (ev) => {
+                    cleanup();
+                    if (ev.detail?.error) reject(new Error(ev.detail.error));
+                    else resolve(ev.detail.data);
+                };
+                const timer = setTimeout(() => {
+                    cleanup();
+                    reject(new Error(`Native host call timed out: ${action}`));
+                }, timeout);
+                const cleanup = () => {
+                    clearTimeout(timer);
+                    this.removeEventListener(token, onMessage);
+                    if (this.#pendingCall?.token === token) this.#pendingCall = null;
+                };
+                this.#pendingCall = { reject, cleanup, token };
+                this.addEventListener(token, onMessage, { once: true });
+                this.#host.postMessage({ ...message, token, action });
+            });
 
-        message.token = token;
-        message.action = action;
-        this.#host.postMessage(message);
-
-        return this.#currentNativeCall;
+        const result = this.#nativeCallLock.then(run, run);
+        this.#nativeCallLock = result.then(
+            () => {},
+            () => {},
+        );
+        return result;
     }
 
     /**
