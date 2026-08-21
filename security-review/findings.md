@@ -2,6 +2,54 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
+## [v1.0.6 / kimi-k3 + glm-5.2](reviews/v1.0.6/merged-glm-5.2.md)
+
+Two-model security review using kimi-k3 and glm-5.2, merged August 19, 2026 against Parcel v1.0.6 (commit `03fec5a`, tag `v1.0.6`; release review — HEAD is at the tag, 0 commits ahead). Both models independently completed both phases of the review protocol including cross-verification.
+
+No CRITICAL or HIGH vulnerabilities are exploitable in the v1.0.6 committed tree. The merged record carries seven findings: one CRITICAL (fixed in release, not exploitable in the shipped tree), one MEDIUM, and five LOW. Both models report `make test` passing 440/440 (31 suites, up from 407 in v1.0.5) and verified the committed `chrome/`/`firefox/` bundles byte-identical to `src/`. The central security event of the release is #144, which anchors the bootstrap's signer-extraction `grep` to the genuine `[GNUPG:] VALIDSIG` status-line prefix; both models agree the v1.0.6 tree is not vulnerable, verified live against GnuPG 2.4.9 with a malicious-UID key. Three findings are disputed between the models (F52C reachability, F57L & F58L finding-vs-residual); the editor recorded the canonical severities and both positions verbatim.
+
+### F52C — `VALIDSIG` signer extraction was forgeable via an unanchored grep (CRITICAL; fixed in #144 / v1.0.6)
+
+**Description:** The bootstrap signer check used unanchored `grep VALIDSIG | cut -f12`; a crafted GPG key whose UID embeds a `VALIDSIG <trusted-fpr> ...` substring would set `SIGNER_VALID=true` and trigger `eval` of attacker host code (TM2/TM3). Fixed in #144 by anchoring on `^\[GNUPG:] VALIDSIG`; the v1.0.6 tree is not vulnerable (both models agree). Pre-fix reachability through shipped v1.0.5 is disputed (kimi: rejected by the F41L multi-line containment accident; glm: reachable).
+
+**Response:** <maintainer reponse pending>
+
+### F53M — Concurrent host processes multiply the persisted rate-limiter budget (MEDIUM)
+
+**Description:** F35M's persisted token bucket has no locking around `load_state → compute → save_state`; K parallel `connectNative()` processes each observe a full bucket and spend independently, multiplying the documented rate by K. Same TM2 class the limiter documents against. Whitelist and audit log still bound impact.
+
+**Response:** <maintainer reponse pending>
+
+### F54L — Unvalidated `otpauth://` `digits`/`period` → large-allocation DoS / timer churn in browser-side TOTP (LOW)
+
+**Description:** `Helpers.generateTOTP` trusts `digits` verbatim; a store-controlled `otpauth://` URI with `digits=1e8` triggers a ~100 MB `padStart` allocation, hanging or OOM-crashing the popup (TM4). `period=0` defeats the `|| 30` default and drives 50 ms refresh churn. No credential or host impact.
+
+**Response:** <maintainer reponse pending>
+
+### F55L — `clientDataJSON.crossOrigin` hardcoded `false` for cross-origin-iframe ceremonies (LOW)
+
+**Description:** `buildClientDataJSON` hardcodes `"crossOrigin": false`, so cross-origin-iframe ceremonies (#138) mislabel themselves as same-origin. The `origin` field remains correct and signature binding is host-enforced; impact is contingent on RP behaviour that inspects `crossOrigin`/`topOrigin`. No credential misdirection. TM0-adjacent interop defect.
+
+**Response:** <maintainer reponse pending>
+
+### F56L — No adversarial regression test for the #144 VALIDSIG-injection fix (LOW)
+
+**Description:** The mock GPG emits no `GOODSIG` line, so no test crafts a malicious-UID line that would pass the old unanchored grep but fail the anchored one; reverting the #144 fix fails zero tests. Rated LOW (both models) rather than INFORMATIONAL because a silent regression re-opens host-code execution (TM5).
+
+**Response:** <maintainer reponse pending>
+
+### F57L — Schema unknown-property rejection is prototype-subvertible (LOW)
+
+**Description:** The unknown-key gate tests `schema.properties[key]` for truthiness; since it's a plain object, keys like `__proto__`/`constructor`/`toString` resolve via `Object.prototype` and pass. Inert today (no dynamic config-key reads). Disputed: glm classifies residual (no reachable exploit), kimi reports LOW. TM4 / TM2-adjacent.
+
+**Response:** <maintainer reponse pending>
+
+### F58L — MetaSchema nested self-recursion never fires (LOW)
+
+**Description:** `MetaSchema` self-recursion never validates nested property values — `Schema.validate` consumes `items` only in the array branch and `properties` only in the object branch, so malformed nested schemas (e.g. `maxLengh` typo) pass silently. Developer-time only; schemas are author-controlled. Disputed: glm residual, kimi LOW. TM0.
+
+**Response:** <maintainer reponse pending>
+
 ## [v1.0.5 / kimi-k3 + deepseek-v4](reviews/v1.0.5/merged-glm-5.2.md)
 
 Two-model security review using kimi-k3 and deepseek-v4, conducted on August 8, 2026 against Parcel v1.0.5 (commit `6b0f1a7`). Both models independently completed the two-phase review protocol including cross-verification.
