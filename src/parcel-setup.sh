@@ -423,8 +423,7 @@ parse_args() {
                 fi
                 ;;
             --browser=*)
-                BROWSER_FILTER="${1#*=}"
-                BROWSER_FILTER="${BROWSER_FILTER//,/ }"
+                BROWSER_FILTER="$BROWSER_FILTER ${1#*=}"
                 ;;
             --yes|-y) YES=true ;;
             --create-config) ACTION="config" ;;
@@ -452,6 +451,9 @@ parse_args() {
         esac
         shift
     done
+
+    # Normalise comma separators so both --browser forms accept comma lists.
+    BROWSER_FILTER="${BROWSER_FILTER//,/ }"
 
     # Resolve install level when not explicitly specified
     if [ -z "$INSTALL_LEVEL" ]; then
