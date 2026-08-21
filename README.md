@@ -46,6 +46,7 @@ If you wish to run the test suite, you will also need the following:
 
 - **Node.js**
 - **JSDom** and **Prettier** (`make install-deps`)
+- **ShellCheck** (to lint the native hosts and setup script)
 
 ### Key components
 
@@ -73,7 +74,7 @@ The easiest way to install Parcel is directly from your browser's webstore:
 - **[Mozilla Firefox — Parcel](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/)** (recommended)
 - **[Google Chrome — Parcel](https://chromewebstore.google.com/detail/parcel/ciifpadakeohfnnneflckhojbldkkllp)** (recommended)
 
-After installing from the webstore, you will still need to set up the [native host](#install-the-native-host) and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
+After installing from the webstore, you will still need to set up the [native host](#set-up-the-native-host) and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
 
 > **Note:** If you install from the webstore you will receive automatic updates. If you prefer to run a local build from source, follow the steps below instead.
 
@@ -109,7 +110,66 @@ make clean
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on** and select `firefox/manifest.json`.
 
-### Install the native host
+### Set up the native host
+
+Parcel uses a native-messaging host to communicate with `gpg` and your password store. The recommended way to install it is with the setup script from the [latest release](https://github.com/parcel-pm/parcel/releases).
+
+The setup script is a single self-contained file with the bootstrap host and browser configuration embedded inside it.
+
+**1. Download and verify the script:**
+
+```bash
+curl -LO https://github.com/parcel-pm/parcel/releases/latest/download/parcel-setup.sh
+curl -LO https://github.com/parcel-pm/parcel/releases/latest/download/parcel-setup.sh.asc
+gpg --verify parcel-setup.sh.asc parcel-setup.sh
+```
+
+**2. Run the script:**
+
+```bash
+bash parcel-setup.sh
+```
+
+The script will:
+
+- Detect your operating system and architecture.
+- Check that `jq` and `gpg` are installed.
+- Ask whether to install system-wide (requires `sudo`) or user-level.
+- Detect installed browsers and ask which ones to set up.
+- Install the bootstrap host (`parcel-host`) to the appropriate prefix.
+- Generate and install native-messaging manifests for each selected browser.
+- Create or update `~/.config/parcel/parcelrc` with detected tool paths.
+- Offer to pin the signed host hash in `parcelrc` for additional security.
+- Optionally build a `.parcel.json` configuration interactively.
+- Handle Flatpak browsers automatically (including the `flatpak override` permission).
+
+After the setup script completes, install the Parcel extension from your browser's webstore (or [load it from source](#installation-from-source) if you prefer), and Parcel is ready to use.
+
+**Command-line options:**
+
+| Option | Description |
+|--------|-------------|
+| `--system` | Install system-wide (requires `sudo`). |
+| `--user` | Install user-level (no `sudo` needed). |
+| `--prefix <path>` | Custom installation prefix. |
+| `--passdir <path>` | Custom password store directory (overrides `PASSWORD_STORE_DIR`). |
+| `--browser <name>` | Set up only the specified browser(s) (comma or space separated). |
+| `--flatpak-only` | Only handle Flatpak browsers (skip native). |
+| `--yes`, `-y` | Non-interactive: accept all detected defaults. |
+| `--verbose` | Show verbose output (e.g. manifest contents, full password-store tree). |
+| `--uninstall` | Remove the installation (preserves `parcelrc` and `.parcel.json`). |
+| `--remove-config` | With `--uninstall`: also remove config files. |
+| `--create-config` | Run the `.parcel.json` config builder without installing. |
+
+**Uninstalling:**
+
+```bash
+bash parcel-setup.sh --uninstall
+```
+
+This removes the bootstrap host, native-messaging manifests, and Flatpak wrappers. Your `parcelrc` and `.parcel.json` are preserved. Add `--remove-config` to also remove those files.
+
+### Manual native host installation
 
 Parcel uses a native-messaging host to communicate with `gpg` and your password store. The bootstrap host (`parcel-host`) must be registered with your browser and placed somewhere on your `$PATH` (or referenced absolutely in the host manifest).
 
@@ -284,7 +344,7 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
 
 **Setup steps:**
 
-1. Install `parcel-host` on the host system as per the [standard instructions](#install-the-native-host).
+1. Install `parcel-host` on the host system as per the [standard instructions](#set-up-the-native-host).
 
 2. Create a directory inside the Flatpak browser's visible config:
 

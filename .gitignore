@@ -3,5 +3,6 @@
 /dist
 /firefox
 /node_modules
+/parcel-setup.sh
 /src/dist
 /src/nodepass-host.asc

@@ -1,0 +1,185 @@
+{
+    "hostName": "com.github.erayd.parcel",
+    "extensionIds": {
+        "chromium": "ciifpadakeohfnnneflckhojbldkkllp",
+        "firefox": "parcel@erayd.net"
+    },
+    "browsers": [
+        {
+            "name": "chrome",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Google Chrome.app"],
+                "linux": ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/opt/google/chrome/chrome"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Google/Chrome/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Google/Chrome/NativeMessagingHosts",
+                "linux-system": "/etc/opt/chrome/native-messaging-hosts",
+                "linux-user": "~/.config/google-chrome/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "brave",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Brave Browser.app"],
+                "linux": ["/usr/bin/brave-browser", "/usr/bin/brave", "/opt/brave.com/brave/brave", "/usr/local/bin/brave-browser"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+                "linux-system": "/etc/brave/native-messaging-hosts",
+                "linux-user": "~/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "vivaldi",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Vivaldi.app"],
+                "linux": ["/usr/bin/vivaldi", "/usr/bin/vivaldi-stable", "/opt/vivaldi/vivaldi"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Vivaldi/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Vivaldi/NativeMessagingHosts",
+                "linux-system": "/etc/vivaldi/native-messaging-hosts",
+                "linux-user": "~/.config/vivaldi/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "edge",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Microsoft Edge.app"],
+                "linux": ["/usr/bin/microsoft-edge", "/usr/bin/microsoft-edge-stable", "/opt/microsoft/msedge/microsoft-edge"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Microsoft Edge/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Microsoft Edge/NativeMessagingHosts",
+                "linux-system": "/etc/opt/microsoft-edge/native-messaging-hosts",
+                "linux-user": "~/.config/microsoft-edge/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "chromium",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Chromium.app"],
+                "linux": ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/local/bin/chromium", "/snap/bin/chromium"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Chromium/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Chromium/NativeMessagingHosts",
+                "linux-system": "/etc/chromium/native-messaging-hosts",
+                "linux-user": "~/.config/chromium/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "arc",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Arc.app"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Arc/User Data/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Arc/User Data/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "iridium",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Iridium.app"],
+                "linux": ["/usr/bin/iridium-browser", "/usr/local/bin/iridium-browser"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Iridium/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Iridium/NativeMessagingHosts",
+                "linux-system": "/etc/iridium-browser/native-messaging-hosts",
+                "linux-user": "~/.config/iridium/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "slimjet",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Slimjet.app"],
+                "linux": ["/usr/bin/slimjet", "/opt/slimjet/slimjet", "/usr/local/bin/slimjet"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Slimjet/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Slimjet/NativeMessagingHosts",
+                "linux-system": "/etc/slimjet/native-messaging-hosts",
+                "linux-user": "~/.config/slimjet/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "yandex",
+            "engine": "chromium",
+            "detect": {
+                "darwin": ["/Applications/Yandex.app"],
+                "linux": ["/usr/bin/yandex-browser", "/opt/yandex/browser/yandex-browser"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Yandex/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Yandex/NativeMessagingHosts",
+                "linux-system": "/etc/opt/yandex-browser/native-messaging-hosts",
+                "linux-user": "~/.config/yandex-browser/NativeMessagingHosts"
+            }
+        },
+        {
+            "name": "librewolf",
+            "engine": "firefox",
+            "detect": {
+                "darwin": ["/Applications/LibreWolf.app"],
+                "linux": ["/usr/bin/librewolf", "/usr/lib/librewolf/librewolf"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/librewolf/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/librewolf/NativeMessagingHosts",
+                "linux-system": "/usr/lib/librewolf/native-messaging-hosts",
+                "linux-user": "~/.librewolf/native-messaging-hosts"
+            }
+        },
+        {
+            "name": "waterfox",
+            "engine": "firefox",
+            "detect": {
+                "darwin": ["/Applications/Waterfox.app"],
+                "linux": ["/usr/bin/waterfox", "/usr/lib/waterfox/waterfox"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Waterfox/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Waterfox/NativeMessagingHosts",
+                "linux-system": "/usr/lib/waterfox/native-messaging-hosts",
+                "linux-user": "~/.waterfox/native-messaging-hosts"
+            }
+        },
+        {
+            "name": "firefox",
+            "engine": "firefox",
+            "detect": {
+                "darwin": ["/Applications/Firefox.app"],
+                "linux": ["/usr/bin/firefox", "/usr/lib/firefox/firefox", "/opt/firefox/firefox", "/snap/bin/firefox"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Mozilla/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Mozilla/NativeMessagingHosts",
+                "linux-system": "/usr/lib/mozilla/native-messaging-hosts",
+                "linux-user": "~/.mozilla/native-messaging-hosts"
+            }
+        }
+    ],
+    "flatpak": {
+        "browsers": [
+            { "name": "firefox", "appId": "org.mozilla.firefox" },
+            { "name": "librewolf", "appId": "io.gitlab.librewolf-community" },
+            { "name": "chrome", "appId": "com.google.Chrome" },
+            { "name": "brave", "appId": "com.brave.Browser" },
+            { "name": "edge", "appId": "com.microsoft.Edge" },
+            { "name": "chromium", "appId": "org.chromium.Chromium" }
+        ],
+        "wrapperDirTemplate": "~/.var/app/{appId}/config/parcel"
+    }
+}
