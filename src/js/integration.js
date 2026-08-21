@@ -952,7 +952,7 @@
     function slugifyPasskeyName(name) {
         const slug = String(name || "")
             .toLowerCase()
-            .replace(/[^a-z0-9._-]+/g, "-")
+            .replace(/[^a-z0-9._@-]+/g, "-")
             .replace(/^[^a-z0-9]+/, "")
             .slice(0, 100);
         return slug || "credential";
