@@ -16,6 +16,9 @@ export const targetSelectors = [
     { selector: "form", type: "aggregate" },
     { selector: "#form", type: "aggregate" },
 
+    // preemptive exceptions
+    { selector: "input[type=tel i][name=pin i]", type: "totp", host: ["www.linkedin.com"] }, // LinkedIn TOTP
+
     // type: secret
     { selector: "input[autocomplete~=current-password i]", type: "secret", relatedNever: true },
     { selector: "input[type=password i]", type: "secret" },
