@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2155,SC1090
 set -e
 
 # ISC License
@@ -85,6 +86,7 @@ fi
 
 # load startup config & set up dedicated logging
 LOGFILE="$HOME/.local/log/parcel-host.log"
+# shellcheck disable=SC2034 # consumed by the evaluated main host script
 PASSWORD_STORE_DIR="$HOME/.password-store"
 . "$PARCELRC"
 mkdir -p "$(dirname "$LOGFILE")"
@@ -107,7 +109,7 @@ function parcel_error() {
         parcel_transmit "$(jq -n --arg token "$TOKEN" --arg msg "$1" '{token: $token, error: $msg}')"
     fi
     if [ -n "$2" ]; then
-        exit $2
+        exit "$2"
     fi
 }
 
@@ -157,7 +159,7 @@ function action_install() {
     local SIGNER
     local SIGNER_VALID=false
     while IFS= read -r SIGNER; do
-        if [[ -n "$SIGNER" && " $VALID_SIGNERS " =~ [[:space:]]$SIGNER[[:space:]] ]]; then
+        if [[ -n "$SIGNER" && " $VALID_SIGNERS " =~ [[:space:]]${SIGNER}[[:space:]] ]]; then
             SIGNER_VALID=true
             break
         fi
@@ -186,7 +188,7 @@ function action_install() {
 
 # main event loop
 function main() {
-    while MSG_LEN="$(printf %ld 0x$(dd bs=4 count=1 2> /dev/null | od -An -tx4 | tr -d '[:space:]') 2>/dev/null)"; do
+    while MSG_LEN="$(printf %ld "0x$(dd bs=4 count=1 2> /dev/null | od -An -tx4 | tr -d '[:space:]')" 2>/dev/null)"; do
         if [ "$MSG_LEN" -gt 16777216 ]; then
             parcel_error "Message is too large (max 16MiB): $MSG_LEN bytes"
             exit 1
@@ -218,7 +220,7 @@ function main() {
 
 # ensure jq works
 if ! command -v jq &> /dev/null; then
-    parcel_transmit '{"token": "broadcast", "error": "Cannot find jq ('${JQ:-jq}'): Please configure the correct path for it in parcelrc"}'
+    parcel_transmit '{"token": "broadcast", "error": "Cannot find jq ('"${JQ:-jq}"'): Please configure the correct path for it in parcelrc"}'
     exit 1
 fi
 if ! jq --version &> /dev/null; then
