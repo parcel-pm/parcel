@@ -2176,6 +2176,7 @@ run_config_builder() {
     # Confirm and write
     if $YES || prompt_yesno "Write this config to $parcelfile?" true; then
         printf '%s\n' "$final_config" > "$parcelfile"
+        chmod 0600 "$parcelfile"
         # Fix ownership if running as root
         if [ "$(id -u)" -eq 0 ] && [ -n "$SERVICES_USER" ]; then
             chown "$SERVICES_USER" "$parcelfile" 2>/dev/null || true
