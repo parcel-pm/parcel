@@ -1499,13 +1499,16 @@ install_flatpak_wrappers() {
 # @since 1.0.7
 get_user_home() {
     if [ -n "$SERVICES_USER" ]; then
+        local home_dir=""
         if [ "$OS" = "darwin" ]; then
-            dscl . -read "/Users/$SERVICES_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}' || echo "$HOME"
+            home_dir="$(dscl . -read "/Users/$SERVICES_USER" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: *//p')"
         else
-            getent passwd "$SERVICES_USER" 2>/dev/null | cut -d: -f6 || echo "$HOME"
+            home_dir="$(getent passwd "$SERVICES_USER" 2>/dev/null | cut -d: -f6)"
         fi
+        [ -n "$home_dir" ] || die "Could not determine the home directory for user '$SERVICES_USER'"
+        printf '%s\n' "$home_dir"
     else
-        echo "$HOME"
+        printf '%s\n' "$HOME"
     fi
 }
 
