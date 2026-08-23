@@ -8,6 +8,7 @@
         {
             "name": "chrome",
             "engine": "chromium",
+            "detect_command": ["google-chrome", "google-chrome-stable"],
             "detect": {
                 "darwin": ["/Applications/Google Chrome.app"],
                 "linux": ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/opt/google/chrome/chrome"]
@@ -22,6 +23,7 @@
         {
             "name": "brave",
             "engine": "chromium",
+            "detect_command": ["brave", "brave-browser"],
             "detect": {
                 "darwin": ["/Applications/Brave Browser.app"],
                 "linux": ["/usr/bin/brave-browser", "/usr/bin/brave", "/opt/brave.com/brave/brave", "/usr/local/bin/brave-browser"]
@@ -36,6 +38,7 @@
         {
             "name": "vivaldi",
             "engine": "chromium",
+            "detect_command": ["vivaldi", "vivaldi-stable"],
             "detect": {
                 "darwin": ["/Applications/Vivaldi.app"],
                 "linux": ["/usr/bin/vivaldi", "/usr/bin/vivaldi-stable", "/opt/vivaldi/vivaldi"]
@@ -50,6 +53,7 @@
         {
             "name": "edge",
             "engine": "chromium",
+            "detect_command": ["microsoft-edge", "microsoft-edge-stable"],
             "detect": {
                 "darwin": ["/Applications/Microsoft Edge.app"],
                 "linux": ["/usr/bin/microsoft-edge", "/usr/bin/microsoft-edge-stable", "/opt/microsoft/msedge/microsoft-edge"]
@@ -64,6 +68,7 @@
         {
             "name": "chromium",
             "engine": "chromium",
+            "detect_command": ["chromium", "chromium-browser"],
             "detect": {
                 "darwin": ["/Applications/Chromium.app"],
                 "linux": ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/local/bin/chromium", "/snap/bin/chromium"]
@@ -78,6 +83,7 @@
         {
             "name": "arc",
             "engine": "chromium",
+            "detect_command": [],
             "detect": {
                 "darwin": ["/Applications/Arc.app"]
             },
@@ -89,6 +95,7 @@
         {
             "name": "iridium",
             "engine": "chromium",
+            "detect_command": ["iridium", "iridium-browser"],
             "detect": {
                 "darwin": ["/Applications/Iridium.app"],
                 "linux": ["/usr/bin/iridium-browser", "/usr/local/bin/iridium-browser"]
@@ -103,6 +110,7 @@
         {
             "name": "slimjet",
             "engine": "chromium",
+            "detect_command": ["slimjet"],
             "detect": {
                 "darwin": ["/Applications/Slimjet.app"],
                 "linux": ["/usr/bin/slimjet", "/opt/slimjet/slimjet", "/usr/local/bin/slimjet"]
@@ -117,6 +125,7 @@
         {
             "name": "yandex",
             "engine": "chromium",
+            "detect_command": ["yandex-browser"],
             "detect": {
                 "darwin": ["/Applications/Yandex.app"],
                 "linux": ["/usr/bin/yandex-browser", "/opt/yandex/browser/yandex-browser"]
@@ -131,6 +140,7 @@
         {
             "name": "librewolf",
             "engine": "firefox",
+            "detect_command": ["librewolf"],
             "detect": {
                 "darwin": ["/Applications/LibreWolf.app"],
                 "linux": ["/usr/bin/librewolf", "/usr/lib/librewolf/librewolf"]
@@ -145,6 +155,7 @@
         {
             "name": "waterfox",
             "engine": "firefox",
+            "detect_command": ["waterfox"],
             "detect": {
                 "darwin": ["/Applications/Waterfox.app"],
                 "linux": ["/usr/bin/waterfox", "/usr/lib/waterfox/waterfox"]
@@ -159,6 +170,7 @@
         {
             "name": "firefox",
             "engine": "firefox",
+            "detect_command": ["firefox"],
             "detect": {
                 "darwin": ["/Applications/Firefox.app"],
                 "linux": ["/usr/bin/firefox", "/usr/lib/firefox/firefox", "/opt/firefox/firefox", "/snap/bin/firefox"]

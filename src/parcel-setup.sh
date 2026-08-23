@@ -672,6 +672,19 @@ detect_browsers() {
             fi
         done <<< "$detect_paths"
 
+        # Also probe the browser's command names on PATH. NixOS and other
+        # nix-based setups install binaries outside the hard-coded paths above.
+        if ! $found; then
+            local commands
+            commands="$(config_query ".browsers[$i].detect_command[]?")"
+            while IFS= read -r cmd; do
+                if command_exists "$cmd"; then
+                    found=true
+                    break
+                fi
+            done <<< "$commands"
+        fi
+
         # Also check if a Parcel manifest already exists (i.e. Parcel was
         # previously set up for this browser even if the browser is no longer
         # detectable via its binary). This avoids false positives from
@@ -952,14 +965,7 @@ run_detect() {
     PHASE="detect"
     log_section "Detection"
 
-    if $IS_NIXOS; then
-        printf '  \033[1;31m!\033[0m \033[1;31mNixOS detected - native (non-flatpak) browsers require manual\033[0m\n' >&2
-        printf '  \033[1;31m!\033[0m \033[1;31mmanifest setup. See the README'"'"'s Manual native host installation\033[0m\n' >&2
-        printf '  \033[1;31m!\033[0m \033[1;31msection. Flatpak browsers are detected and configured automatically.\033[0m\n' >&2
-        printf '\n' >&2
-    else
-        detect_browsers
-    fi
+    detect_browsers
     detect_flatpak_browsers
     confirm_browsers
     if ! $IS_NIXOS; then
@@ -1019,7 +1025,7 @@ preview_install() {
         printf '\n' >&2
 
         # Native manifests
-        if ! $IS_NIXOS && [ -n "$DETECTED_BROWSERS" ]; then
+        if [ -n "$DETECTED_BROWSERS" ]; then
             log_info "  Generate & install native messaging manifests:"
             local name
             for name in $DETECTED_BROWSERS; do
@@ -1137,27 +1143,25 @@ preview_uninstall() {
     fi
 
     # Native manifests
-    if ! $IS_NIXOS; then
-        local browser_count
-        browser_count="$(config_query '.browsers | length')"
-        local i=0
-        while [ "$i" -lt "$browser_count" ]; do
-            local name manifest_dir key
-            name="$(config_query ".browsers[$i].name")"
-            local os_key="$OS"
-            [ "$os_key" = "bsd" ] && os_key="linux"
-            key="$os_key-$RESOLVED_LEVEL"
-            manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$key\"]?")"
-            if [ -n "$manifest_dir" ]; then
-                manifest_dir="$(expand_tilde "$manifest_dir")"
-                local manifest_path="$manifest_dir/$HOST_NAME.json"
-                if [ -f "$manifest_path" ]; then
-                    log_info "  $manifest_path"
-                fi
+    local browser_count
+    browser_count="$(config_query '.browsers | length')"
+    local i=0
+    while [ "$i" -lt "$browser_count" ]; do
+        local name manifest_dir key
+        name="$(config_query ".browsers[$i].name")"
+        local os_key="$OS"
+        [ "$os_key" = "bsd" ] && os_key="linux"
+        key="$os_key-$RESOLVED_LEVEL"
+        manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$key\"]?")"
+        if [ -n "$manifest_dir" ]; then
+            manifest_dir="$(expand_tilde "$manifest_dir")"
+            local manifest_path="$manifest_dir/$HOST_NAME.json"
+            if [ -f "$manifest_path" ]; then
+                log_info "  $manifest_path"
             fi
-            i=$((i + 1))
-        done
-    fi
+        fi
+        i=$((i + 1))
+    done
 
     # Flatpak wrappers and overrides
     if $HAS_FLATPAK; then
@@ -1745,8 +1749,8 @@ summary_report() {
 
     # NixOS guidance
     if $IS_NIXOS; then
-        log_info "For nix-native browsers, set up native messaging manually per"
-        log_info "the README (or use flatpak browsers, which are configured automatically)."
+        log_info "NixOS: native (non-flatpak) manifests are installed user-level."
+        log_info "System-level native manifests must be managed declaratively (see README)."
         printf '\n' >&2
     fi
 
@@ -1784,9 +1788,7 @@ apply_install() {
     log_section "Applying"
 
     install_bootstrap_host
-    if ! $IS_NIXOS; then
-        install_native_manifests
-    fi
+    install_native_manifests
     install_flatpak_wrappers
 
     # First smoke test (creates parcelrc)
@@ -1826,31 +1828,29 @@ do_uninstall() {
     fi
 
     # Remove native messaging manifests
-    if ! $IS_NIXOS; then
-        local browser_count
-        browser_count="$(config_query '.browsers | length')"
-        local i=0
-        while [ "$i" -lt "$browser_count" ]; do
-            local name
-            name="$(config_query ".browsers[$i].name")"
-            # Only remove manifests for the current install level
-            local os_key="$OS"
-            [ "$os_key" = "bsd" ] && os_key="linux"
-            local key="$os_key-$RESOLVED_LEVEL"
-            local manifest_dir
-            manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$key\"]?")"
-            if [ -n "$manifest_dir" ]; then
-                manifest_dir="$(expand_tilde "$manifest_dir")"
-                local manifest_path="$manifest_dir/$HOST_NAME.json"
-                if [ -f "$manifest_path" ]; then
-                    rm -f "$manifest_path"
-                    log_success "Removed: $manifest_path"
-                    removed="$removed manifest-$name-$RESOLVED_LEVEL"
-                fi
+    local browser_count
+    browser_count="$(config_query '.browsers | length')"
+    local i=0
+    while [ "$i" -lt "$browser_count" ]; do
+        local name
+        name="$(config_query ".browsers[$i].name")"
+        # Only remove manifests for the current install level
+        local os_key="$OS"
+        [ "$os_key" = "bsd" ] && os_key="linux"
+        local key="$os_key-$RESOLVED_LEVEL"
+        local manifest_dir
+        manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$key\"]?")"
+        if [ -n "$manifest_dir" ]; then
+            manifest_dir="$(expand_tilde "$manifest_dir")"
+            local manifest_path="$manifest_dir/$HOST_NAME.json"
+            if [ -f "$manifest_path" ]; then
+                rm -f "$manifest_path"
+                log_success "Removed: $manifest_path"
+                removed="$removed manifest-$name-$RESOLVED_LEVEL"
             fi
-            i=$((i + 1))
-        done
-    fi
+        fi
+        i=$((i + 1))
+    done
 
     # Remove flatpak wrappers, manifests, and overrides
     if $HAS_FLATPAK; then
