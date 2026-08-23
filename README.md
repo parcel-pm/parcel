@@ -117,7 +117,7 @@ See your browser's native-messaging documentation for manifest location details:
 - [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
 - [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
 
-Example host manifests for both browsers are provided in the `example/` directory (`com.github.erayd.parcel.chrome.json` and `com.github.erayd.parcel.firefox.json`). Copy the relevant one to your browser's native-messaging directory, adjust the `path` to point at your installed `parcel-host` binary, and rename it to `com.github.erayd.parcel.json`.
+Example host manifests for both browsers are provided in the `example/` directory (`chrome/com.github.erayd.parcel.json` and `firefox/com.github.erayd.parcel.json`). Copy the relevant one to your browser's native-messaging directory and adjust the `path` to point at your installed `parcel-host` binary. The filename stem must match the value of the `name` field inside the file: `com.github.erayd.parcel.json`.
 
 The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
 
@@ -317,15 +317,14 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
    ```bash
    # Firefox Flatpak:
    MANIFEST_DIR=~/.var/app/$APP_ID/.mozilla/native-messaging-hosts
-   MANIFEST_TEMPLATE=example/com.github.erayd.parcel.flatpak.firefox.json
+   MANIFEST_TEMPLATE=example/flatpak/firefox/com.github.erayd.parcel.json
 
    # Chromium-based Flatpak (ungoogled-chromium, Brave, etc.):
    # MANIFEST_DIR=~/.var/app/$APP_ID/config/chromium/NativeMessagingHosts
-   # MANIFEST_TEMPLATE=example/com.github.erayd.parcel.flatpak.chrome.json
+   # MANIFEST_TEMPLATE=example/flatpak/chrome/com.github.erayd.parcel.json
 
    mkdir -p "$MANIFEST_DIR"
-   cp "$MANIFEST_TEMPLATE" \
-       "$MANIFEST_DIR/com.github.erayd.parcel.json"
+   cp "$MANIFEST_TEMPLATE" "$MANIFEST_DIR/"
    ```
 
 6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. Separate manifest templates are provided for Firefox and Chrome.
