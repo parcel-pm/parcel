@@ -49,6 +49,8 @@ RESOLVED_PREFIX=""
 HOST_BIN_PATH=""
 HOST_BIN_DIR=""
 SERVICES_USER="${SUDO_USER:-}"
+# Invoking user's PATH, threaded through sudo to resolve bare tool names.
+USER_PATH="${USER_PATH:-${PATH:-}}"
 
 # Detected browsers
 DETECTED_BROWSERS=""
@@ -405,7 +407,7 @@ resolve_install_level() {
     [ "$ACTION" = "uninstall" ] && verb="Uninstall"
     if prompt_yesno "$verb system-wide? (requires sudo)" true; then
         log_info "Re-running with sudo for system-wide $ACTION..."
-        exec sudo bash "$0" --system "$@"
+        exec sudo env "USER_PATH=$USER_PATH" bash "$0" --system "$@"
     fi
     INSTALL_LEVEL="user"
 }
@@ -482,7 +484,7 @@ parse_args() {
             die "System install requires root (re-run with sudo, or use --user)"
         fi
         log_info "Re-running with sudo for system-wide $ACTION..."
-        exec sudo bash "$0" "${orig_args[@]}"
+        exec sudo env "USER_PATH=$USER_PATH" bash "$0" "${orig_args[@]}"
     fi
 
     RESOLVED_LEVEL="$INSTALL_LEVEL"
@@ -857,13 +859,18 @@ detect_single_tool_path() {
     local custom_var="$4" force_var="$5"
     local found_path
 
-    # 1. Existing parcelrc value - respect it if the binary is still executable
+    # 1. Existing parcelrc value - respect it if still usable
     if [ -n "$existing" ]; then
-        if [ -x "$existing" ]; then
+        local usable=false
+        case "$existing" in
+            */*) [ -x "$existing" ] && usable=true ;;
+            *) PATH="$USER_PATH" command -v "$existing" >/dev/null 2>&1 && usable=true ;;
+        esac
+        if $usable; then
             log_info "$tool already set in parcelrc ($existing) - leaving as-is"
             return
         fi
-        log_warn "$tool in parcelrc ($existing) is not executable - will overwrite"
+        log_warn "$tool in parcelrc ($existing) is not usable - will overwrite"
     fi
 
     # 2. Default path visible to the host (no customisation needed)
