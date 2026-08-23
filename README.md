@@ -115,7 +115,7 @@ Parcel uses a native-messaging host to communicate with `gpg` and your password 
 
 See your browser's native-messaging documentation for manifest location details:
 - [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
-- [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
+- [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_manifests#manifest_location)
 
 Example host manifests for both browsers are provided in the `example/` directory (`chrome/com.github.erayd.parcel.json` and `firefox/com.github.erayd.parcel.json`). Copy the relevant one to your browser's native-messaging directory and adjust the `path` to point at your installed `parcel-host` binary. The filename stem must match the value of the `name` field inside the file: `com.github.erayd.parcel.json`.
 
