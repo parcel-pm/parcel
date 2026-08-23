@@ -757,11 +757,11 @@ detect_flatpak_browsers() {
         # Check if the flatpak app is installed
         local flatpak_list_cmd
         if [ -n "$SERVICES_USER" ]; then
-            flatpak_list_cmd="sudo -u $SERVICES_USER flatpak"
+            flatpak_list_cmd=("sudo" "-u" "$SERVICES_USER" "flatpak")
         else
-            flatpak_list_cmd="flatpak"
+            flatpak_list_cmd=("flatpak")
         fi
-        if $flatpak_list_cmd list --columns=application 2>/dev/null | grep -F -x -q "$app_id"; then
+        if "${flatpak_list_cmd[@]}" list --columns=application 2>/dev/null | grep -F -x -q "$app_id"; then
             if [ -n "$DETECTED_FLATPAK_BROWSERS" ]; then
                 DETECTED_FLATPAK_BROWSERS="$DETECTED_FLATPAK_BROWSERS$newline$app_id"
             else
