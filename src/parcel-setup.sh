@@ -288,7 +288,7 @@ add_rule() {
             split("")
             | map(. as $c | if (("\\" + ".^$*+?{}[]()|") | contains($c)) then "\\" + $c else $c end)
             | join("");
-        . + [{pattern: ("^" + ($pattern | re_escape) + "/"), class: $class, tag: $tag, color: "333333"}]
+        . + [{pattern: ("^" + ($pattern | re_escape) + "/"), class: $class, tag: $tag}]
     '
 }
 
