@@ -271,12 +271,23 @@ manifest_key() {
     printf '%s-%s' "$os_key" "$RESOLVED_LEVEL"
 }
 
-# Escape regex metacharacters in a string for safe use in a pattern.
-# @param {string} str - Input string.
-# @returns {string} Escaped string on stdout.
+# Append a detected rule to the rule list, regex-escaping the pattern inside jq
+# so a directory name containing shell or regex metacharacters is treated as
+# opaque data rather than filter syntax.
+# Reads the current rule array on stdin and writes the updated array.
+# @param {string} rel_pattern - Store-relative directory path.
+# @param {string} class - Entry class (login, passkey, card).
+# @param {string} tag - Rule tag.
 # @since 1.0.7
-escape_regex() {
-    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/[]^$*+?.{}|()[]/\\&/g'
+add_rule() {
+    local rel_pattern="$1" class="$2" tag="$3"
+    jq --arg pattern "$rel_pattern" --arg class "$class" --arg tag "$tag" '
+        def re_escape:
+            split("")
+            | map(. as $c | if (("\\" + ".^$*+?{}[]()|") | contains($c)) then "\\" + $c else $c end)
+            | join("");
+        . + [{pattern: ("^" + ($pattern | re_escape) + "/"), class: $class, tag: $tag, color: "333333"}]
+    '
 }
 
 # ===========================================================================
@@ -2009,13 +2020,7 @@ run_config_builder() {
         esac
 
         # Create a rule for this directory
-        local escaped_pattern
-        escaped_pattern="$(escape_regex "$rel_pattern")"
-        rules_json="$(printf '%s' "$rules_json" | jq \
-            --arg pattern "^${escaped_pattern}/" \
-            --arg class "$entry_class" \
-            --arg tag "$basename_dir" \
-            '. += [{pattern: $pattern, class: $class, tag: $tag, color: "333333"}]')"
+        rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "$entry_class" "$basename_dir")"
     done <<< "$top_level"
 
     # Also check for nested login/passkey/card dirs
@@ -2029,28 +2034,13 @@ run_config_builder() {
 
         case "$basename_dir" in
             login|logins)
-                local escaped_pattern
-                escaped_pattern="$(escape_regex "$rel_pattern")"
-                rules_json="$(printf '%s' "$rules_json" | jq \
-                    --arg pattern "^${escaped_pattern}/" \
-                    --arg tag "$(printf '%s' "$rel_pattern" | cut -d/ -f1)" \
-                    '. += [{pattern: $pattern, class: "login", tag: $tag, color: "333333"}]')"
+                rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "login" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
                 ;;
             passkey|passkeys)
-                local escaped_pattern
-                escaped_pattern="$(escape_regex "$rel_pattern")"
-                rules_json="$(printf '%s' "$rules_json" | jq \
-                    --arg pattern "^${escaped_pattern}/" \
-                    --arg tag "$(printf '%s' "$rel_pattern" | cut -d/ -f1)" \
-                    '. += [{pattern: $pattern, class: "passkey", tag: $tag, color: "333333"}]')"
+                rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "passkey" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
                 ;;
             card|cards)
-                local escaped_pattern
-                escaped_pattern="$(escape_regex "$rel_pattern")"
-                rules_json="$(printf '%s' "$rules_json" | jq \
-                    --arg pattern "^${escaped_pattern}/" \
-                    --arg tag "$(printf '%s' "$rel_pattern" | cut -d/ -f1)" \
-                    '. += [{pattern: $pattern, class: "card", tag: $tag, color: "333333"}]')"
+                rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "card" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
                 ;;
         esac
     done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d -not -path '*/.git/*' \( -name '.*' -prune -o -print \) 2>/dev/null | sort)"
