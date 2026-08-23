@@ -2053,7 +2053,7 @@ run_config_builder() {
                 rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "card" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
                 ;;
         esac
-    done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -path '*/.*' 2>/dev/null | sort)"
+    done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -name '.*' 2>/dev/null | sort)"
 
     # Sort rules by specificity: longer (more-specific) patterns first,
     # so that e.g. ^clients/help/cards/ matches before ^clients/
