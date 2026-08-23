@@ -251,7 +251,7 @@ export const ConfigSchema = {
                         enum: ["login", "passkey", "browser-passkey", "card"],
                         default: "login",
                     },
-                    color: { type: "string", required: true, pattern: "^[0-9a-f]{6}$", flags: "ui", default: "333333" },
+                    color: { type: "string", pattern: "^[0-9a-f]{6}$", flags: "ui" },
                     ignore: { type: "boolean", required: true, default: false },
                     originBound: { type: "boolean" }, // per-rule override; class default comes from classDefaults
                     scope: { type: "string", enum: ["context", "global"] }, // per-rule override; class default comes from classDefaults
