@@ -1980,7 +1980,7 @@ run_config_builder() {
     # Scan the password store
     log_info "Scanning password store..."
     local tree_output
-    tree_output="$(find "$PASSWORD_STORE_DIR" -type d -not -path '*/.git/*' -not -name '.git' 2>/dev/null | sort)"
+    tree_output="$(find "$PASSWORD_STORE_DIR" -type d ! -path '*/.git/*' ! -name '.git' 2>/dev/null | sort)"
 
     # Show directory structure
     printf '\n' >&2
@@ -2005,7 +2005,7 @@ run_config_builder() {
     # Detect top-level credential-type subdirs
     # Skip the password-store root itself and any dotfile/dotdir
     local top_level
-    top_level="$(find "$PASSWORD_STORE_DIR" -maxdepth 1 -mindepth 1 -type d -not -path '*/.git/*' -not -name '.git' -not -name '.*' 2>/dev/null | sort)"
+    top_level="$(find "$PASSWORD_STORE_DIR" -maxdepth 1 -mindepth 1 -type d ! -path '*/.git/*' ! -name '.git' ! -name '.*' 2>/dev/null | sort)"
     while IFS= read -r dir; do
         [ -z "$dir" ] && continue
         local basename_dir rel_pattern
@@ -2046,7 +2046,7 @@ run_config_builder() {
                 rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "card" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
                 ;;
         esac
-    done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d -not -path '*/.git/*' \( -name '.*' -prune -o -print \) 2>/dev/null | sort)"
+    done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -path '*/.*' 2>/dev/null | sort)"
 
     # Sort rules by specificity: longer (more-specific) patterns first,
     # so that e.g. ^clients/help/cards/ matches before ^clients/
