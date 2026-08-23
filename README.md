@@ -73,9 +73,19 @@ The easiest way to install Parcel is directly from your browser's webstore:
 - **[Mozilla Firefox — Parcel](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/)** (recommended)
 - **[Google Chrome — Parcel](https://chromewebstore.google.com/detail/parcel/ciifpadakeohfnnneflckhojbldkkllp)** (recommended)
 
-After installing from the webstore, you will still need to set up the [native host](#install-the-native-host) and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
+After installing from the webstore, you will still need to set up the native host from [distro package](#install-from-distro-package) or manually [from source](#install-the-native-host), and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
 
 > **Note:** If you install from the webstore you will receive automatic updates. If you prefer to run a local build from source, follow the steps below instead.
+
+### Install from distro package
+
+Distro packages are available for the native host and, optionally, for the extension itself. When extension is installed from the distro package, the updates are managed by the distro package manager, not by the browser.
+
+#### Arch Linux
+
+[![AUR parcel package](https://repology.org/badge/version-for-repo/aur/parcel.svg?header=AUR%20parcel)](https://aur.archlinux.org/packages/parcel)
+[![AUR parcel-firefox package](https://repology.org/badge/version-for-repo/aur/parcel-firefox.svg?header=AUR%20parcel-firefox)](https://aur.archlinux.org/packages/parcel-firefox)
+[![AUR parcel-chromium package](https://repology.org/badge/version-for-repo/aur/parcel-chromium.svg?header=AUR%20parcel-chromium)](https://aur.archlinux.org/packages/parcel-chromium)
 
 ### Installation from source
 
