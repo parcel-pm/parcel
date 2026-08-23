@@ -2117,7 +2117,9 @@ run_config_builder() {
     fill_related="$(prompt "fillRelated (true/false)" "$(printf '%s' "$config_json" | jq -r '.fillRelated // true')")"
     disable_context_popup="$(prompt "disableContextPopup (true/false)" "$(printf '%s' "$config_json" | jq -r '.disableContextPopup // false')")"
 
-    # Normalise booleans
+    # Normalise a truthy/falsy string to "true" or "false".
+    # @param {string} value - Input value to interpret as boolean.
+    # @returns {string} "true" or "false" on stdout.
     normalise_bool() {
         case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
             true|t|yes|y|1) echo "true" ;;
@@ -2203,7 +2205,6 @@ cleanup() {
 }
 
 # Handle interrupt signals.
-# @param {number} signal_name - Name of the signal.
 # @since 1.0.7
 on_signal() {
     printf '\n' >&2
