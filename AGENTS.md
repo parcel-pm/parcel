@@ -47,9 +47,13 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Inline closures or anonymous functions should NOT be given a JSDoc comment, but they may have a brief // comment if the purpose is not obvious.
 - Never refer to line numbers in comments; they become stale rapidly.
 - Inline TODO comments should be prefixed with uppercase `TODO:`, so that `make todo` will show them.
-- Multiline todo comments should have a first line consisting exclusively of a brief and self-contained description.
+- Single-line TODO comments are preferred over multi-line.
+- Multi-line todo comments should have a first line consisting exclusively of a brief and self-contained description.
 - Do not wrap TODO comment lines with markdown emphasis (_, * etc).
 - Keep code comments brief and to-the-point. Do not write essays explaining behaviour - the code itself should already be clear and understandable.
+- If a comment is too long for one line, prefer a longer single line up to 120 columns over wrapping.
+- Inline comments should describe *what* the code does, not *why*. Reserve *why* comments for cases where the reasoning is genuinely non-obvious.
+- JSDoc descriptions and `@param` lines must be concise - a short phrase per item, not full sentences explaining implementation details.
 
 ## Security considerations
 

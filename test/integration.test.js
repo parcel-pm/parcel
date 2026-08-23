@@ -77,6 +77,16 @@ function makeValidConfig(overrides = {}) {
                 transform: [],
                 trim: true,
             },
+            {
+                name: "card",
+                class: "card",
+                pattern: "^(card|card-number|ccn|credit-?card|debit-?card|card-?num):",
+                related: [],
+                onMissing: "null",
+                strip: true,
+                transform: [],
+                trim: true,
+            },
         ],
         additionalSelectors: [],
         showDelegateTooltips: false,
@@ -1112,6 +1122,55 @@ describe("Integration script", { concurrency: false }, () => {
         const iframe = popup.shadowRoot.querySelector("iframe");
         assert.ok(iframe, "shadow root should contain iframe");
         assert.ok(!iframe.src.includes("token=broadcast"), "iframe src must not carry token=broadcast");
+    });
+
+    test("broadcast origin response reports fillable classes present on the page", async () => {
+        clearBody();
+        makeInput({ type: "email", name: "user" });
+        makeInput({ type: "text", name: "cc-number", autocomplete: "cc-number" });
+
+        const port = mock.chrome.runtime.connect({ name: "broadcast" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        let msg = await originPromise;
+
+        assert.ok(Array.isArray(msg.targetClasses), "broadcast origin message carries targetClasses");
+        assert.ok(msg.targetClasses.includes("card"), "card class reported when card fields are fillable");
+        assert.ok(msg.targetClasses.includes("login"), "login class reported when login fields are fillable");
+
+        // Without card fields, the card class is not reported
+        clearBody();
+        makeInput({ type: "email", name: "user" });
+        const port2 = mock.chrome.runtime.connect({ name: "broadcast" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const originPromise2 = nextMessage(port2, "origin", 3000);
+        port2.postMessage({ action: "ready" });
+        msg = await originPromise2;
+
+        assert.ok(!msg.targetClasses.includes("card"), "card class not reported without fillable card fields");
+        assert.ok(msg.targetClasses.includes("login"), "login class still reported");
+    });
+
+    test("element-token origin response does not report targetClasses", async () => {
+        // Only the toolbar (broadcast) popup needs class detection; context
+        // popups already carry an explicit targetClass from the clicked field.
+        clearBody();
+        const input = makeInput({ type: "text", name: "username" });
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await click(input);
+        await popupPromise;
+
+        const port = mock.chrome.runtime.connect({ name: input._parcelToken });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        const msg = await originPromise;
+
+        assert.strictEqual(msg.targetClasses, undefined, "targetClasses is only sent to broadcast connections");
     });
 
     // -----------------------------------------------------------------------

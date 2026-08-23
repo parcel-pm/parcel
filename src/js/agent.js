@@ -1,5 +1,5 @@
 "use strict";
-import { Schema, ConfigSchema } from "./schema.js";
+import { Schema, ConfigSchema, classDefaults } from "./schema.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
 
@@ -24,14 +24,16 @@ export class Agent extends EventTarget {
     /** @type {WeakMap<object, Promise<string>>} Cached SHA-256 hashes of entry paths, keyed by entry object. */
     #pathHashes = new WeakMap();
     #initError;
-    #currentNativeCall = null;
     #pendingCall = null;
+    /** Always-fulfilled promise settling when the previous native call has fully finished (including timeouts); see {@link Agent.#callNative}. */
+    #nativeCallLock = Promise.resolve();
     #authorisedTokens = new Set();
     #publicSuffixList = null;
     #refreshingEntries = null;
     #nativePingInterval = null;
     #nativePingFailures = 0;
     #reconnectTimer = null;
+    #initRetries = 0;
     #destroyed = false;
     #pendingAuthCallbacks = new Map();
     #bootstrapVersion = null;
@@ -164,12 +166,55 @@ export class Agent extends EventTarget {
             this.#setConfig(await this.#callNative("configure", {}, 10_000));
             this.#startNativePing();
             this.#initError = null;
+            this.#initRetries = 0;
             this.dispatchEvent(new CustomEvent("ready"));
         } catch (err) {
             this.#initError = err;
             console.error(`Agent initialisation failed: ${err.message}`);
             this.dispatchEvent(new CustomEvent("initFailed", { detail: err.message }));
+            // re-attempt init with exponential backoff
+            this.#initRetries++;
+            this.#scheduleReconnect(Math.min(5_000 * 2 ** (this.#initRetries - 1), 60_000));
         }
+    }
+
+    /**
+     * Schedule a native-host reconnect, replacing any pending reconnect.
+     *
+     * If the current connection is still considered live (e.g. init failed
+     * against a wedged host that never disconnected), the port is forcibly
+     * disconnected so the retry spawns a fresh host process; the resulting
+     * `#onNativeDisconnect` then schedules the actual reconnect on its normal
+     * short timer. Should the browser never deliver `onDisconnect` for the
+     * forced disconnect, an identity-guarded fallback clears the stale state
+     * and reconnects, so the agent cannot wedge with a dead-but-flagged-live
+     * port while no ping watchdog is running.
+     * @since 1.0.7
+     * @param {number} delay - Time to wait before reconnecting, in milliseconds.
+     * @returns {void}
+     */
+    #scheduleReconnect(delay) {
+        if (this.#destroyed) return;
+        if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
+        this.#reconnectTimer = setTimeout(() => {
+            this.#reconnectTimer = null;
+            if (this.#connectedNative && this.#host) {
+                const host = this.#host;
+                try {
+                    host.disconnect();
+                } catch (_err) {
+                    // already disconnected; nothing to clean up
+                }
+                // Fallback if onDisconnect is never delivered for the forced disconnect
+                setTimeout(() => {
+                    if (!this.#destroyed && this.#connectedNative && this.#host === host) {
+                        this.#connectedNative = false;
+                        this.#ensureNativeConnected();
+                    }
+                }, 1000);
+            }
+            this.#ensureNativeConnected();
+        }, delay);
     }
 
     /**
@@ -253,6 +298,12 @@ export class Agent extends EventTarget {
 
     /**
      * Call the native host.
+     *
+     * Calls are strictly serialised via a promise chain: the native messaging
+     * transport can drop messages sent in rapid succession, so the next call must
+     * not post to the host until the previous call has fully settled. Awaiting a
+     * shared "current call" promise is not sufficient — two concurrent callers both
+     * read the settled promise before either publishes its own, defeating the mutex.
      * @since 1.0.0
      * @param {string} action - The action to send to the native host.
      * @param {object} [message={}] - The message to send to the native host.
@@ -261,48 +312,41 @@ export class Agent extends EventTarget {
      * @throws {Error} If not connected to the native host, the call times out, or the host returns an error.
      */
     async #callNative(action, message = {}, timeout = 2000) {
-        try {
-            // This is necessary to avoid a race condition in Chrome that sometimes drops
-            // messages to the native host if they are sent too quickly in succession. By
-            // putting a semaphore here, we ensure that the previous call has completed
-            // first, thus avoiding any potential in-flight collisions.
-            await this.#currentNativeCall;
-        } catch (_err) {
-            // we don't care about previous errors, only that the call has completed.
-            // This error has already been handled by this point, and was thrown from
-            // the promise rejection callback below.
-        }
-        const token = crypto.randomUUID();
-        this.#currentNativeCall = new Promise((resolve, reject) => {
-            if (!this.#connectedNative) {
-                reject(new Error("Not connected to native host"));
-                return true;
-            }
-            // Remove the listener on settle to prevent a late response for a
-            // timed-out call from corrupting a subsequent in-flight call.
-            const onMessage = (ev) => {
-                cleanup();
-                if (ev.detail?.error) reject(new Error(ev.detail.error));
-                else resolve(ev.detail.data);
-            };
-            const timer = setTimeout(() => {
-                cleanup();
-                reject(new Error(`Native host call timed out: ${action}`));
-            }, timeout);
-            const cleanup = () => {
-                clearTimeout(timer);
-                this.removeEventListener(token, onMessage);
-                if (this.#pendingCall?.token === token) this.#pendingCall = null;
-            };
-            this.#pendingCall = { reject, cleanup, token };
-            this.addEventListener(token, onMessage, { once: true });
-        });
+        // executed only once the previous call has settled
+        const run = () =>
+            new Promise((resolve, reject) => {
+                if (!this.#connectedNative) {
+                    reject(new Error("Not connected to native host"));
+                    return;
+                }
+                const token = crypto.randomUUID();
+                // Remove the listener on settle to prevent a late response for a
+                // timed-out call from corrupting a subsequent in-flight call.
+                const onMessage = (ev) => {
+                    cleanup();
+                    if (ev.detail?.error) reject(new Error(ev.detail.error));
+                    else resolve(ev.detail.data);
+                };
+                const timer = setTimeout(() => {
+                    cleanup();
+                    reject(new Error(`Native host call timed out: ${action}`));
+                }, timeout);
+                const cleanup = () => {
+                    clearTimeout(timer);
+                    this.removeEventListener(token, onMessage);
+                    if (this.#pendingCall?.token === token) this.#pendingCall = null;
+                };
+                this.#pendingCall = { reject, cleanup, token };
+                this.addEventListener(token, onMessage, { once: true });
+                this.#host.postMessage({ ...message, token, action });
+            });
 
-        message.token = token;
-        message.action = action;
-        this.#host.postMessage(message);
-
-        return this.#currentNativeCall;
+        const result = this.#nativeCallLock.then(run);
+        this.#nativeCallLock = result.then(
+            () => {},
+            () => {},
+        );
+        return result;
     }
 
     /**
@@ -368,12 +412,7 @@ export class Agent extends EventTarget {
         // terminated inside this 1s window; on the next cold start the
         // constructor re-runs #connectNative() anyway, so correctness is
         // preserved either way.
-        if (!this.#destroyed) {
-            this.#reconnectTimer = setTimeout(() => {
-                this.#reconnectTimer = null;
-                this.#ensureNativeConnected();
-            }, 1000);
-        }
+        this.#scheduleReconnect(1000);
     }
 
     /**
@@ -458,6 +497,15 @@ export class Agent extends EventTarget {
                 if (entry.rule) continue;
                 if (p.test(entry.name)) entry.rule = rule;
             }
+        }
+        // Resolve fill visibility: rule-level overrides win, else classDefaults.
+        for (const entry of entries) {
+            const rule = entry.rule;
+            const classDefault = classDefaults[rule?.class || "login"] ?? classDefaults._default;
+            entry.originBound = Object.prototype.hasOwnProperty.call(rule ?? {}, "originBound")
+                ? rule.originBound
+                : classDefault.originBound;
+            entry.scope = Object.prototype.hasOwnProperty.call(rule ?? {}, "scope") ? rule.scope : classDefault.scope;
         }
         this.#entries = entries;
         this.#entriesUpdated = Date.now();
@@ -709,6 +757,7 @@ export class Agent extends EventTarget {
                     port.postMessage({ action: "http-auth-url", url: authEntry?.url ?? null });
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
+                    const includeClasses = Array.isArray(message.includeClasses) ? message.includeClasses : [];
                     // get matching entries
                     const result = await this.search(
                         message.url,
@@ -716,6 +765,7 @@ export class Agent extends EventTarget {
                         message.limit,
                         message.history,
                         message.targetClass || null,
+                        includeClasses,
                     );
                     clearStatus();
                     port.postMessage({ action: "match", entries: result });
@@ -1044,10 +1094,11 @@ export class Agent extends EventTarget {
      * @param {boolean} [limit=true] - Whether to limit the search to the current origin.
      * @param {object[]} [history=[]] - Historical fill entries (`{path, when}`) used for sort priority.
      * @param {string|null} [targetClass=null] - When set (e.g. "card" or "login"), restrict results to entries whose rule class matches. Null shows all fillable entries.
+     * @param {string[]} [includeClasses=[]] - Page-present fill classes for context-scope gating.
      * @returns {Promise<object[]>} The matching entries.
      * @throws {Error} If a search term is not a valid regular expression. The thrown error additionally has a `logAs` property set to `"info"`.
      */
-    async search(url, search, limit = true, history = [], targetClass = null) {
+    async search(url, search, limit = true, history = [], targetClass = null, includeClasses = []) {
         // consolidate history to most-recent entry per item
         history = history.reduce((acc, entry) => {
             if (!Object.prototype.hasOwnProperty.call(acc, entry.path)) acc[entry.path] = entry;
@@ -1057,6 +1108,8 @@ export class Agent extends EventTarget {
 
         const origin = new URL(url);
         let matches = [];
+        const includeSet = new Set(includeClasses);
+        if (targetClass) includeSet.add(targetClass);
 
         if (origin.host) {
             // find matches for the origin
@@ -1079,7 +1132,10 @@ export class Agent extends EventTarget {
                         }
                     }
                 }
-                if (entry.history || entry.matchesHost || entry.matchesHostPart) {
+
+                const originVisible = entry.history || entry.matchesHost || entry.matchesHostPart || entry.originBound === false;
+                const scopeVisible = entry.scope === "global" || includeSet.has(entry.rule?.class || "login");
+                if (originVisible && scopeVisible) {
                     matches.push(entry);
                 }
             }

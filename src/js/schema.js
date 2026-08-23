@@ -3,6 +3,21 @@
 import { defaultTargets } from "./targets.js";
 
 /**
+ * Default fill visibility per entry class.
+ *
+ * originBound controls whether an entry is offered only when its origin matches
+ * (logins, passkeys) or any origin (cards, which fill across many sites); scope
+ * gates whether an origin-eligible entry is shown unconditionally ("global") or
+ * only on pages that have fillable fields of the entry's class ("context").
+ * Classes not listed fall back to `_default`; rule-level overrides always win.
+ * @since 1.0.7
+ */
+export const classDefaults = {
+    _default: { originBound: true, scope: "global" },
+    card: { originBound: false, scope: "context" },
+};
+
+/**
  * A basic data validation class.
  * @since 1.0.0
  */
@@ -238,6 +253,8 @@ export const ConfigSchema = {
                     },
                     color: { type: "string", required: true, pattern: "^[0-9a-f]{6}$", flags: "ui", default: "333333" },
                     ignore: { type: "boolean", required: true, default: false },
+                    originBound: { type: "boolean" }, // per-rule override; class default comes from classDefaults
+                    scope: { type: "string", enum: ["context", "global"] }, // per-rule override; class default comes from classDefaults
                     pattern: { type: "string", required: true, format: "regex" },
                     strip: { type: "string", format: "regex" },
                     tag: { type: "string" },

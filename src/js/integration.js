@@ -952,7 +952,7 @@
     function slugifyPasskeyName(name) {
         const slug = String(name || "")
             .toLowerCase()
-            .replace(/[^a-z0-9._-]+/g, "-")
+            .replace(/[^a-z0-9._@-]+/g, "-")
             .replace(/^[^a-z0-9]+/, "")
             .slice(0, 100);
         return slug || "credential";
@@ -1436,6 +1436,27 @@
     }
 
     /**
+     * Get the distinct rule classes of fillable targets present in the current frame.
+     * @since 1.0.7
+     * @returns {Promise<string[]>} The distinct target classes present on the page.
+     */
+    // Uses shadowSelector (first match only) rather than shadowSelectorAll for
+    // performance with the large selector set. If the first matching field is hidden,
+    // the class won't be reported — an accepted trade-off for popup responsiveness.
+    async function getPageTargetClasses() {
+        const targetDefs = (await config).targets.concat((await config).additionalTargets || []);
+        const classes = new Set();
+        for (const selector of (await validTargets).filter((t) => !t.relatedOnly)) {
+            const cls = targetDefs.find((t) => t.name === selector.type)?.class || "login";
+            if (classes.has(cls)) continue;
+            const el = Helpers.shadowSelector(selector.selector);
+            if (!el?.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+            classes.add(cls);
+        }
+        return [...classes];
+    }
+
+    /**
      * Handle incoming connections from the popup, binding each connection to its target element
      * and routing subsequent messages (ready / fill-value / fill / resize / close).
      * @since 1.0.0
@@ -1537,8 +1558,8 @@
         });
         try {
             await getTargetInfo(el);
-        } catch (_err) {
-            maybePost(port, { action: "error", error: "The selected autofill candidate was unsuitable." });
+        } catch (err) {
+            maybePost(port, { action: "error", error: `The best-match autofill candidate was unsuitable: ${err.message}` });
             port.disconnect();
             return;
         }
@@ -1554,7 +1575,11 @@
         };
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
-                maybePost(port, { action: "origin", origin: window.location.origin });
+                maybePost(port, {
+                    action: "origin",
+                    origin: window.location.origin,
+                    targetClasses: port.name === "broadcast" ? await getPageTargetClasses() : undefined,
+                });
             } else if (msg?.action === "focus-target") {
                 el.focus();
             } else if (msg?.action === "focus-suspend") {

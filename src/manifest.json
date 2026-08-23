@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "version": "1.0.5",
+    "version": "1.0.6",
     "name": "Parcel",
     "description": "A simple password manager with no third-party dependencies.",
     "homepage_url": "https://github.com/parcel-pm/parcel/",

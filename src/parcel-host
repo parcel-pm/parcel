@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2155
 set -e
 
 # ISC License
@@ -18,6 +19,7 @@ set -e
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 # set up the environment
+# shellcheck disable=SC2034 # consumed by parcel_transmit() / parcel_send() in the bootstrap host
 TOKEN="broadcast"
 ALLOWED_FILES=()
 PASSKEY_FILES=()

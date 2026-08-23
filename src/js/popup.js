@@ -246,6 +246,24 @@
     const ul = document.querySelector("ul");
     let limit = true;
     let history = [];
+    let includeClasses = []; // fill classes the page reports as present (toolbar popup only)
+
+    /**
+     * Re-run the entry search.
+     * @since 1.0.0
+     * @returns {void}
+     */
+    function update() {
+        port.postMessage({
+            action: "match",
+            url: tab.url || "unknown-url://",
+            search: document.getElementById("searchPattern").value,
+            limit,
+            history,
+            targetClass,
+            includeClasses,
+        });
+    }
 
     /**
      * Focus the currently-selected element in the popup, defaulting to the search input
@@ -685,13 +703,6 @@
         document.getElementById("origin").classList.add("hidden");
     }
 
-    // Card fields are not origin-specific — a card is used across many sites —
-    // so the popup defaults to global search instead of origin-limited results.
-    if (targetClass === "card") {
-        limit = false;
-        document.getElementById("origin").classList.add("hidden");
-    }
-
     document.getElementById("modal-shade").addEventListener("click", () => {
         document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
         document.getElementById("modal-shade").classList.add("hidden");
@@ -744,7 +755,7 @@
     });
 
     // listen for status & error messages returned from the content script
-    tabPort.onMessage.addListener((msg) => {
+    tabPort.onMessage.addListener(async (msg) => {
         if (msg?.action === "focus-popup") {
             focusSelected();
         } else if (msg?.action === "status") {
@@ -777,6 +788,15 @@
                             `enter any sensitive information into this field unless you are sure it is safe to do so.`,
                     );
                     tabPort.postMessage({ action: "focus-resume" });
+                }
+            }
+            // Page-reported classes; the agent enforces per-entry binding.
+            if (token === "broadcast" && !targetClass && Array.isArray(msg.targetClasses)) {
+                const eligible = msg.targetClasses;
+                const changed = eligible.some((c) => !includeClasses.includes(c)) || includeClasses.some((c) => !eligible.includes(c));
+                if (changed) {
+                    includeClasses = eligible;
+                    update();
                 }
             }
         }
@@ -1158,6 +1178,164 @@
         document.getElementById("passkey-conflict-dismiss").focus();
     }
 
+    /**
+     * Render match results into the entry list, keyed by path.
+     * @since 1.0.7
+     * @param {object[]} entries - The match entries to render.
+     * @returns {Promise<void>}
+     */
+    async function renderEntries(entries) {
+        if (!entries.length && !document.querySelector(".no-matches")) {
+            const p = document.createElement("p");
+            p.classList.add("list-notice", "no-matches");
+            p.textContent = "No matching entries";
+            ul.insertAdjacentElement("afterend", p);
+        } else if (entries.length) {
+            document.querySelector(".no-matches")?.remove();
+        }
+        ul.querySelectorAll(":scope > li").forEach((el) => (el._keep = false));
+        for (const entry of entries) {
+            let li = ul.querySelector(`li[data-path="${CSS.escape(entry.path)}"]`);
+            if (li) {
+                // reuse existing li elements
+                li._keep = true;
+                ul.appendChild(li);
+                continue;
+            }
+            li = document.createElement("li");
+            li._keep = true;
+            li.tabIndex = -1;
+            li.setAttribute("data-path", entry.path);
+            if (entry.isInHistory) li.classList.add("history");
+            if (entry.rule?.class === "card") li.classList.add("entry-card");
+            else if (entry.rule?.class === "passkey") li.classList.add("entry-passkey");
+            else li.classList.add("entry-login");
+            li.setAttribute("data-sort-order", entry.sortOrder);
+
+            if (entry.rule.tag) {
+                const tag = document.createElement("span");
+                tag.classList.add("tag");
+                tag.textContent = entry.rule.tag;
+                tag.style.backgroundColor = `#${entry.rule.color}`;
+                const luma = Helpers.getLuma(entry.rule.color);
+                if (luma < 0.35) tag.style.color = "var(--color-text-tag-inverted)";
+                else tag.style.color = "var(--color-text-tag)";
+                li.appendChild(tag);
+            }
+
+            const nameContainer = document.createElement("div");
+            nameContainer.classList.add("name-container");
+
+            const name = document.createElement("span");
+            name.classList.add("name");
+            name.textContent = entry.rule.strip ? entry.name.replace(new RegExp(entry.rule.strip, "ui"), "") : entry.name;
+            nameContainer.appendChild(name);
+
+            const pathSpan = document.createElement("span");
+            pathSpan.classList.add("path");
+            const passdir = (await config).passdir;
+            if (passdir && entry.path.startsWith(passdir)) {
+                pathSpan.textContent = entry.path.slice(passdir.length + (entry.path.charAt(passdir.length) === "/" ? 1 : 0));
+            } else {
+                pathSpan.textContent = entry.path;
+            }
+            if (pathSpan.textContent.replace(/.gpg$/, "") !== name.textContent) nameContainer.appendChild(pathSpan);
+
+            li.appendChild(nameContainer);
+
+            const url = new URL(tab.url || "undefined-url://");
+            const hash = await sha256(url.origin);
+            const scope = await sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");
+            for (const he of history) {
+                if (he.path === (await sha256(entry.path))) {
+                    const historyButton = document.createElement("button");
+                    historyButton.classList.add("historyNuke");
+                    historyButton.setAttribute("title", "Forget this entry");
+                    historyButton.addEventListener("click", (ev) => {
+                        ev.stopPropagation();
+                        history = history.filter((h) => h.path !== he.path);
+                        chrome.storage.local.set({ [`history:${scope}:${hash}`]: history });
+                        historyButton.remove();
+                        li.remove();
+                        for (let el = ul.lastElementChild; el; el = el.previousElementSibling) {
+                            if (parseInt(el.getAttribute("data-sort-order")) < entry.sortOrder || el.classList.contains("history")) {
+                                el.insertAdjacentElement("afterend", li);
+                                break;
+                            }
+                        }
+                        if (!li.parentElement) {
+                            ul.insertAdjacentElement("afterbegin", li);
+                        }
+                    });
+                    li.appendChild(historyButton);
+                    break;
+                }
+            }
+
+            const button = document.createElement("button");
+            button.classList.add("detail");
+            button.setAttribute("title", "Show detailed content");
+            if (mode === "http-auth") button.classList.add("hidden");
+            else {
+                button.addEventListener("click", (ev) => {
+                    ev.stopPropagation();
+                    document.querySelector(".selected")?.classList.remove("selected");
+                    button.closest("li").classList.add("selected");
+                    document.getElementById("modal-shade").classList.remove("hidden");
+                    port.postMessage({ action: "decrypt", intent: "detail", origin: url.origin, path: entry.path });
+                });
+            }
+            li.appendChild(button);
+
+            li.addEventListener("click", async () => {
+                const intent = mode === "http-auth" ? "http-auth" : "fill";
+                port.postMessage({ action: "decrypt", intent, origin: url.origin, path: entry.path });
+                // Card entries are never added to fill history — card fills are not
+                // origin-specific and tracking them would clutter login history.
+                if ((entry.rule?.class || "login") === "card") return;
+                const hash = await sha256(entry.path);
+                if (history?.[0]?.path === hash) history[0].when = Date.now();
+                else history.unshift({ path: hash, when: Date.now() });
+            });
+
+            ul.appendChild(li);
+        }
+        ul.querySelectorAll(":scope > li").forEach((el) => {
+            if (!el._keep) el.remove();
+        });
+    }
+
+    // Serialise renders: concurrent renders can duplicate rebuilt rows.
+    let rendering = false;
+    let pendingEntries;
+
+    /**
+     * Queue a render, coalescing if one is in flight.
+     * @since 1.0.7
+     * @param {object[]} entries - The match entries to render.
+     * @returns {void}
+     */
+    function scheduleRender(entries) {
+        pendingEntries = entries;
+        if (rendering) return;
+        rendering = true;
+        (async () => {
+            try {
+                while (pendingEntries !== undefined) {
+                    const next = pendingEntries;
+                    pendingEntries = undefined;
+                    try {
+                        await renderEntries(next);
+                    } catch (err) {
+                        console.error(err);
+                    }
+                }
+            } finally {
+                rendering = false;
+            }
+        })();
+    }
+
     // listen for messages from the native host
     port.onMessage.addListener(async (msg) => {
         if (msg.action === "status") {
@@ -1165,124 +1343,7 @@
         } else if (msg.action === "clear-status") {
             document.querySelector("#status").textContent = "Idle";
         } else if (msg.action === "match") {
-            if (!msg.entries.length && !document.querySelector(".no-matches")) {
-                const p = document.createElement("p");
-                p.classList.add("list-notice", "no-matches");
-                p.textContent = "No matching entries";
-                ul.insertAdjacentElement("afterend", p);
-            } else if (msg.entries.length) {
-                document.querySelector(".no-matches")?.remove();
-            }
-            ul.querySelectorAll(":scope > li").forEach((el) => (el._keep = false));
-            for (const entry of msg.entries) {
-                let li = ul.querySelector(`li[data-path="${CSS.escape(entry.path)}"]`);
-                if (li) {
-                    // reuse existing li elements
-                    li._keep = true;
-                    ul.appendChild(li);
-                    continue;
-                }
-                li = document.createElement("li");
-                li._keep = true;
-                li.tabIndex = -1;
-                li.setAttribute("data-path", entry.path);
-                if (entry.isInHistory) li.classList.add("history");
-                if (entry.rule?.class === "card") li.classList.add("entry-card");
-                else if (entry.rule?.class === "passkey") li.classList.add("entry-passkey");
-                else li.classList.add("entry-login");
-                li.setAttribute("data-sort-order", entry.sortOrder);
-
-                if (entry.rule.tag) {
-                    const tag = document.createElement("span");
-                    tag.classList.add("tag");
-                    tag.textContent = entry.rule.tag;
-                    tag.style.backgroundColor = `#${entry.rule.color}`;
-                    const luma = Helpers.getLuma(entry.rule.color);
-                    if (luma < 0.35) tag.style.color = "var(--color-text-tag-inverted)";
-                    else tag.style.color = "var(--color-text-tag)";
-                    li.appendChild(tag);
-                }
-
-                const nameContainer = document.createElement("div");
-                nameContainer.classList.add("name-container");
-
-                const name = document.createElement("span");
-                name.classList.add("name");
-                name.textContent = entry.rule.strip ? entry.name.replace(new RegExp(entry.rule.strip, "ui"), "") : entry.name;
-                nameContainer.appendChild(name);
-
-                const pathSpan = document.createElement("span");
-                pathSpan.classList.add("path");
-                const passdir = (await config).passdir;
-                if (passdir && entry.path.startsWith(passdir)) {
-                    pathSpan.textContent = entry.path.slice(passdir.length + (entry.path.charAt(passdir.length) === "/" ? 1 : 0));
-                } else {
-                    pathSpan.textContent = entry.path;
-                }
-                if (pathSpan.textContent.replace(/.gpg$/, "") !== name.textContent) nameContainer.appendChild(pathSpan);
-
-                li.appendChild(nameContainer);
-
-                const url = new URL(tab.url || "undefined-url://");
-                const hash = await sha256(url.origin);
-                const scope = await sha256(tab.contextualIdentity ? tab.contextualIdentity : "default");
-                for (const he of history) {
-                    if (he.path === (await sha256(entry.path))) {
-                        const historyButton = document.createElement("button");
-                        historyButton.classList.add("historyNuke");
-                        historyButton.setAttribute("title", "Forget this entry");
-                        historyButton.addEventListener("click", (ev) => {
-                            ev.stopPropagation();
-                            history = history.filter((h) => h.path !== he.path);
-                            chrome.storage.local.set({ [`history:${scope}:${hash}`]: history });
-                            historyButton.remove();
-                            li.remove();
-                            for (let el = ul.lastElementChild; el; el = el.previousElementSibling) {
-                                if (parseInt(el.getAttribute("data-sort-order")) < entry.sortOrder || el.classList.contains("history")) {
-                                    el.insertAdjacentElement("afterend", li);
-                                    break;
-                                }
-                            }
-                            if (!li.parentElement) {
-                                ul.insertAdjacentElement("afterbegin", li);
-                            }
-                        });
-                        li.appendChild(historyButton);
-                        break;
-                    }
-                }
-
-                const button = document.createElement("button");
-                button.classList.add("detail");
-                button.setAttribute("title", "Show detailed content");
-                if (mode === "http-auth") button.classList.add("hidden");
-                else {
-                    button.addEventListener("click", (ev) => {
-                        ev.stopPropagation();
-                        document.querySelector(".selected")?.classList.remove("selected");
-                        button.closest("li").classList.add("selected");
-                        document.getElementById("modal-shade").classList.remove("hidden");
-                        port.postMessage({ action: "decrypt", intent: "detail", origin: url.origin, path: entry.path });
-                    });
-                }
-                li.appendChild(button);
-
-                li.addEventListener("click", async () => {
-                    const intent = mode === "http-auth" ? "http-auth" : "fill";
-                    port.postMessage({ action: "decrypt", intent, origin: url.origin, path: entry.path });
-                    // Card entries are never added to fill history — card fills are not
-                    // origin-specific and tracking them would clutter login history.
-                    if ((entry.rule?.class || "login") === "card") return;
-                    const hash = await sha256(entry.path);
-                    if (history?.[0]?.path === hash) history[0].when = Date.now();
-                    else history.unshift({ path: hash, when: Date.now() });
-                });
-
-                ul.appendChild(li);
-            }
-            ul.querySelectorAll(":scope > li").forEach((el) => {
-                if (!el._keep) el.remove();
-            });
+            scheduleRender(msg.entries);
         } else if (msg.action === "plaintext") {
             if (msg.intent === "fill") {
                 const delivered = tabPort.postMessage({
@@ -1368,11 +1429,6 @@
             document.querySelector(".selected")?.classList.remove("selected");
             search.classList.add("selected");
         });
-
-        // re-run the search
-        function update() {
-            port.postMessage({ action: "match", url: tab.url || "unknown-url://", search: search.value, limit, history, targetClass });
-        }
 
         // initial search
         update();
