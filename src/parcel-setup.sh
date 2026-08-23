@@ -346,7 +346,7 @@ config_query() {
 # @returns {string} JSON object for the browser.
 # @since 1.0.7
 get_browser_config() {
-    config_query ".browsers[] | select(.name == \"$1\")"
+    printf '%s' "$SETUP_CONFIG" | jq -r --arg name "$1" '.browsers[] | select(.name == $name)'
 }
 
 # Expand the flatpak wrapper dir template for a given app ID.
@@ -669,7 +669,7 @@ detect_browsers() {
         local os_key="$OS"
         [ "$os_key" = "bsd" ] && os_key="linux"
         local detect_paths
-        detect_paths="$(config_query ".browsers[$i].detect[\"$os_key\"][]?")"
+        detect_paths="$(printf '%s' "$SETUP_CONFIG" | jq -r --arg os_key "$os_key" '.browsers['"$i"'].detect[$os_key][]?')"
 
         if [ -z "$detect_paths" ]; then
             i=$((i + 1))
@@ -706,7 +706,7 @@ detect_browsers() {
             local manifest_key
             manifest_key="$(manifest_key)"
             local manifest_dir
-            manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$manifest_key\"]?")"
+            manifest_dir="$(printf '%s' "$SETUP_CONFIG" | jq -r --arg key "$manifest_key" '.browsers['"$i"'].manifestDir[$key]?')"
             if [ -n "$manifest_dir" ]; then
                 local resolved_manifest_dir
                 resolved_manifest_dir="$(expand_tilde "$manifest_dir")"
@@ -960,7 +960,7 @@ confirm_browsers() {
         local app_id display_name
         while IFS= read -r app_id; do
             [ -z "$app_id" ] && continue
-            display_name="$(config_query ".flatpak.browsers[] | select(.appId == \"$app_id\") | .name")"
+            display_name="$(printf '%s' "$SETUP_CONFIG" | jq -r --arg app_id "$app_id" '.flatpak.browsers[] | select(.appId == $app_id) | .name')"
             if prompt_yesno "  Set up $display_name (flatpak)?" false; then
                 if [ -n "$confirmed" ]; then
                     confirmed="$confirmed$newline$app_id"
@@ -1051,7 +1051,7 @@ preview_install() {
                 browser_json="$(get_browser_config "$name")"
                 local key
                 key="$(manifest_key)"
-                manifest_dir="$(printf '%s' "$browser_json" | jq -r ".manifestDir[\"$key\"]?")"
+                manifest_dir="$(printf '%s' "$browser_json" | jq -r --arg key "$key" '.manifestDir[$key]?')"
                 manifest_dir="$(expand_tilde "$manifest_dir")"
                 local manifest_path="$manifest_dir/$HOST_NAME.json"
                 log_info "    $name: $manifest_path"
@@ -1170,7 +1170,7 @@ preview_uninstall() {
         local os_key="$OS"
         [ "$os_key" = "bsd" ] && os_key="linux"
         key="$os_key-$RESOLVED_LEVEL"
-        manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$key\"]?")"
+        manifest_dir="$(printf '%s' "$SETUP_CONFIG" | jq -r --arg key "$key" '.browsers['"$i"'].manifestDir[$key]?')"
         if [ -n "$manifest_dir" ]; then
             manifest_dir="$(expand_tilde "$manifest_dir")"
             local manifest_path="$manifest_dir/$HOST_NAME.json"
@@ -1195,7 +1195,7 @@ preview_uninstall() {
             [ "$os_key" = "bsd" ] && os_key="linux"
             local fp_name fp_manifest_dir fp_manifest_path
             fp_name="$(config_query ".flatpak.browsers[$i].name")"
-            fp_manifest_dir="$(get_browser_config "$fp_name" | jq -r ".manifestDir[\"${os_key}-user\"]?")"
+            fp_manifest_dir="$(get_browser_config "$fp_name" | jq -r --arg key "${os_key}-user" '.manifestDir[$key]?')"
             if [ -n "$fp_manifest_dir" ]; then
                 fp_manifest_dir="$(expand_tilde "$fp_manifest_dir")"
                 fp_manifest_path="$fp_manifest_dir/$HOST_NAME.json"
@@ -1466,7 +1466,7 @@ install_flatpak_wrappers() {
         # For flatpak, the user-level manifest dir is what matters
         local os_key="$OS"
         [ "$os_key" = "bsd" ] && os_key="linux"
-        manifest_dir="$(get_browser_config "$browser_name" | jq -r ".manifestDir[\"${os_key}-user\"]?")"
+        manifest_dir="$(get_browser_config "$browser_name" | jq -r --arg key "${os_key}-user" '.manifestDir[$key]?')"
         manifest_dir="$(expand_tilde "$manifest_dir")"
         local manifest_path="$manifest_dir/$HOST_NAME.json"
 
@@ -1860,7 +1860,7 @@ do_uninstall() {
         [ "$os_key" = "bsd" ] && os_key="linux"
         local key="$os_key-$RESOLVED_LEVEL"
         local manifest_dir
-        manifest_dir="$(config_query ".browsers[$i].manifestDir[\"$key\"]?")"
+        manifest_dir="$(printf '%s' "$SETUP_CONFIG" | jq -r --arg key "$key" '.browsers['"$i"'].manifestDir[$key]?')"
         if [ -n "$manifest_dir" ]; then
             manifest_dir="$(expand_tilde "$manifest_dir")"
             local manifest_path="$manifest_dir/$HOST_NAME.json"
@@ -1890,7 +1890,7 @@ do_uninstall() {
             [ "$os_key" = "bsd" ] && os_key="linux"
             local fp_name fp_manifest_dir fp_manifest_path
             fp_name="$(config_query ".flatpak.browsers[$i].name")"
-            fp_manifest_dir="$(get_browser_config "$fp_name" | jq -r ".manifestDir[\"${os_key}-user\"]?")"
+            fp_manifest_dir="$(get_browser_config "$fp_name" | jq -r --arg key "${os_key}-user" '.manifestDir[$key]?')"
             if [ -n "$fp_manifest_dir" ]; then
                 fp_manifest_dir="$(expand_tilde "$fp_manifest_dir")"
                 fp_manifest_path="$fp_manifest_dir/$HOST_NAME.json"
