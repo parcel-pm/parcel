@@ -151,6 +151,33 @@ expand_tilde() {
     esac
 }
 
+# Get the home directory of the invoking user (respects sudo).
+# @returns {string} Home directory path.
+# @since 1.0.7
+get_user_home() {
+    if [ -n "$SERVICES_USER" ]; then
+        local home_dir=""
+        if [ "$OS" = "darwin" ]; then
+            home_dir="$(dscl . -read "/Users/$SERVICES_USER" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: *//p')"
+        else
+            home_dir="$(getent passwd "$SERVICES_USER" 2>/dev/null | cut -d: -f6)"
+        fi
+        [ -n "$home_dir" ] || die "Could not determine the home directory for user '$SERVICES_USER'"
+        printf '%s\n' "$home_dir"
+    else
+        printf '%s\n' "$HOME"
+    fi
+}
+
+# Expand the flatpak wrapper dir template for a given app ID.
+# @param {string} app_id - Flatpak application ID.
+# @returns {string} Expanded wrapper directory path on stdout.
+# @since 1.0.7
+flatpak_wrapper_dir() {
+    local app_id="$1"
+    expand_tilde "${FLATPAK_WRAPPER_DIR_TEMPLATE/\{appId\}/$app_id}"
+}
+
 # Check if a command exists on PATH.
 # @param {string} cmd - Command name.
 # @returns {boolean} 0 if found, 1 otherwise.
@@ -301,52 +328,6 @@ manifest_key() {
     printf '%s-%s' "$os_key" "$RESOLVED_LEVEL"
 }
 
-# Detect and consolidate rule patterns from the password-store layout,
-# emitting a jq array of {pattern, class, tag} sorted most-specific first.
-# Direct class directories (e.g. erayd/login) become literal rules. Class
-# directories nested under a container consolidate into a single wildcard
-# (^clients/.+/login/, or ^family/(.+/)?login/ when the container also holds
-# the class directly) only when the container has two or more direct
-# subdirectories; otherwise they stay literal. Containers with no class
-# directories fall back to a single top-level rule (^monica/).
-# @returns {string} jq array of rule objects.
-# @since 1.0.8
-detect_rules() {
-    local top_level nested_dirs
-    top_level="$(find "$PASSWORD_STORE_DIR" -maxdepth 1 -mindepth 1 -type d ! -path '*/.git/*' ! -name '.git' ! -name '.*' 2>/dev/null | while IFS= read -r d; do printf '%s\n' "${d##*/}"; done | sort)"
-    nested_dirs="$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -name '.*' 2>/dev/null | while IFS= read -r d; do printf '%s\n' "${d#"$PASSWORD_STORE_DIR"/}"; done | sort)"
-
-    printf '%s\n' "$nested_dirs" | jq -R -s --arg tl "$top_level" '
-        def re_escape:
-            split("")
-            | map(. as $c | if (("\\" + ".^$*+?{}[]()|") | contains($c)) then "\\" + $c else $c end)
-            | join("");
-        def class_of:
-            if (. == "passkey" or . == "passkeys" or . == "webauthn") then "passkey"
-            elif (. == "card" or . == "cards") then "card"
-            elif (. == "login" or . == "logins" or . == "credentials") then "login"
-            else "" end;
-        (($tl | split("\n")) | map(select(length > 0))) as $top
-        | (split("\n") | map(select(length > 0))) as $rels
-        | ($rels | map(select((split("/") | length) == 2))
-                | group_by(split("/")[0])
-                | map({key: (.[0] | split("/")[0]), value: length})
-                | from_entries) as $childcount
-        | ($rels | map(select((split("/") | last | class_of) != ""))
-                | map({X: (split("/")[0]), N: (split("/") | last), rel: ., depth: (split("/") | length)})) as $desc
-        | ($top - ([$desc[].X] | unique)) as $flat
-        | [ $desc | group_by(.X)[] | group_by(.N)[] as $g
-            | {X: $g[0].X, N: $g[0].N, direct: any($g[]; .depth == 2), nested: any($g[]; .depth >= 3)}
-            | if (.nested and (($childcount[.X] // 0) >= 2))
-                then [{pattern: ("^" + (.X | re_escape) + "/" + (if .direct then "(.+/)?" else ".+/" end) + (.N | re_escape) + "/"), class: (.N | class_of), tag: .X}]
-                else [$g[] | {pattern: ("^" + (.rel | re_escape) + "/"), class: (.N | class_of), tag: .X}]
-              end ]
-            | flatten
-            + [ $flat[] | {pattern: ("^" + (re_escape) + "/"), class: (class_of), tag: .} ]
-        | sort_by(.pattern | split("") | map(select(. == "/")) | length) | reverse
-    '
-}
-
 # ===========================================================================
 # Dev-mode fallback: load embedded data from source files
 # ===========================================================================
@@ -402,15 +383,6 @@ config_query() {
 # @since 1.0.7
 get_browser_config() {
     printf '%s' "$SETUP_CONFIG" | jq -r --arg name "$1" '.browsers[] | select(.name == $name)'
-}
-
-# Expand the flatpak wrapper dir template for a given app ID.
-# @param {string} app_id - Flatpak application ID.
-# @returns {string} Expanded wrapper directory path on stdout.
-# @since 1.0.7
-flatpak_wrapper_dir() {
-    local app_id="$1"
-    expand_tilde "${FLATPAK_WRAPPER_DIR_TEMPLATE/\{appId\}/$app_id}"
 }
 
 # Get the value of a field from a browser definition.
@@ -1565,24 +1537,6 @@ install_flatpak_wrappers() {
 # Smoke test
 # ===========================================================================
 
-# Get the home directory of the invoking user (respects sudo).
-# @returns {string} Home directory path.
-# @since 1.0.7
-get_user_home() {
-    if [ -n "$SERVICES_USER" ]; then
-        local home_dir=""
-        if [ "$OS" = "darwin" ]; then
-            home_dir="$(dscl . -read "/Users/$SERVICES_USER" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: *//p')"
-        else
-            home_dir="$(getent passwd "$SERVICES_USER" 2>/dev/null | cut -d: -f6)"
-        fi
-        [ -n "$home_dir" ] || die "Could not determine the home directory for user '$SERVICES_USER'"
-        printf '%s\n' "$home_dir"
-    else
-        printf '%s\n' "$HOME"
-    fi
-}
-
 # Run the bootstrap host as the correct user.
 # Stdout is discarded - the native messaging protocol output is not needed
 # during the smoke test, and leaking it to the terminal is confusing.
@@ -2035,6 +1989,52 @@ do_uninstall() {
 # ===========================================================================
 # Interactive .parcel.json config builder
 # ===========================================================================
+
+# Detect and consolidate rule patterns from the password-store layout,
+# emitting a jq array of {pattern, class, tag} sorted most-specific first.
+# Direct class directories (e.g. erayd/login) become literal rules. Class
+# directories nested under a container consolidate into a single wildcard
+# (^clients/.+/login/, or ^family/(.+/)?login/ when the container also holds
+# the class directly) only when the container has two or more direct
+# subdirectories; otherwise they stay literal. Containers with no class
+# directories fall back to a single top-level rule (^monica/).
+# @returns {string} jq array of rule objects.
+# @since 1.0.8
+detect_rules() {
+    local top_level nested_dirs
+    top_level="$(find "$PASSWORD_STORE_DIR" -maxdepth 1 -mindepth 1 -type d ! -path '*/.git/*' ! -name '.git' ! -name '.*' 2>/dev/null | while IFS= read -r d; do printf '%s\n' "${d##*/}"; done | sort)"
+    nested_dirs="$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -name '.*' 2>/dev/null | while IFS= read -r d; do printf '%s\n' "${d#"$PASSWORD_STORE_DIR"/}"; done | sort)"
+
+    printf '%s\n' "$nested_dirs" | jq -R -s --arg tl "$top_level" '
+        def re_escape:
+            split("")
+            | map(. as $c | if (("\\" + ".^$*+?{}[]()|") | contains($c)) then "\\" + $c else $c end)
+            | join("");
+        def class_of:
+            if (. == "passkey" or . == "passkeys" or . == "webauthn") then "passkey"
+            elif (. == "card" or . == "cards") then "card"
+            elif (. == "login" or . == "logins" or . == "credentials") then "login"
+            else "" end;
+        (($tl | split("\n")) | map(select(length > 0))) as $top
+        | (split("\n") | map(select(length > 0))) as $rels
+        | ($rels | map(select((split("/") | length) == 2))
+                | group_by(split("/")[0])
+                | map({key: (.[0] | split("/")[0]), value: length})
+                | from_entries) as $childcount
+        | ($rels | map(select((split("/") | last | class_of) != ""))
+                | map({X: (split("/")[0]), N: (split("/") | last), rel: ., depth: (split("/") | length)})) as $desc
+        | ($top - ([$desc[].X] | unique)) as $flat
+        | [ $desc | group_by(.X)[] | group_by(.N)[] as $g
+            | {X: $g[0].X, N: $g[0].N, direct: any($g[]; .depth == 2), nested: any($g[]; .depth >= 3)}
+            | if (.nested and (($childcount[.X] // 0) >= 2))
+                then [{pattern: ("^" + (.X | re_escape) + "/" + (if .direct then "(.+/)?" else ".+/" end) + (.N | re_escape) + "/"), class: (.N | class_of), tag: .X}]
+                else [$g[] | {pattern: ("^" + (.rel | re_escape) + "/"), class: (.N | class_of), tag: .X}]
+              end ]
+            | flatten
+            + [ $flat[] | {pattern: ("^" + (re_escape) + "/"), class: (class_of), tag: .} ]
+        | sort_by(.pattern | split("") | map(select(. == "/")) | length) | reverse
+    '
+}
 
 # Run the interactive config builder for .parcel.json.
 # Scans the password store, suggests rules, and lets the user edit.
