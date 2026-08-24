@@ -128,9 +128,10 @@ test-syntax:
 test-setup: require-shellcheck
 	bash -n src/parcel-setup.sh
 	shellcheck -x src/parcel-setup.sh
+	node --test $(TEST_FLAGS) test/setup/*.test.js
 
 .PHONY: test
-test: test-syntax test-setup
+test: test-syntax
 	node --test $(TEST_FLAGS) \
 		test/chrome-api-mock.test.js \
 		test/helpers.test.js \
