@@ -487,8 +487,9 @@ export class Agent extends EventTarget {
             if (!rule.color) {
                 // auto-generate tag colours for rules that don't have one defined
                 let hash = 0;
-                for (let i = 0; i < rule.pattern.length; i++) {
-                    hash = ((hash << 5) - hash + rule.pattern.charCodeAt(i)) | 0;
+                const hashString = rule?.tag ?? rule.pattern;
+                for (let i = 0; i < hashString.length; i++) {
+                    hash = ((hash << 5) - hash + hashString.charCodeAt(i)) | 0;
                 }
                 rule.color = Math.abs(hash).toString(16).padStart(6, "0").slice(0, 6);
             }
