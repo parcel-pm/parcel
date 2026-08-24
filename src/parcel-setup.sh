@@ -2305,4 +2305,7 @@ main() {
     esac
 }
 
-main "$@"
+# Only run when invoked as a script, not when sourced for testing.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
