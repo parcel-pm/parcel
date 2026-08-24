@@ -64,8 +64,10 @@ PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-}"
 PASS_DIR_EXPLICIT=false
 CUSTOM_GPG=""
 CUSTOM_JQ=""
+CUSTOM_OPENSSL=""
 FORCE_GPG=false
 FORCE_JQ=false
+FORCE_OPENSSL=false
 CUSTOM_PASSWORD_STORE_DIR=""
 WANTS_HOST_HASH=false
 REVOKE_FLATPAK_DBUS=false
@@ -828,23 +830,25 @@ detect_password_store() {
     fi
 }
 
-# Detect gpg and jq paths.
+# Detect gpg, jq, and openssl paths.
 # Priority: existing parcelrc value (if working) > default path > command -v > macOS fallbacks > interactive.
-# If a parcelrc value is set but broken, it is clobbered (FORCE_GPG/FORCE_JQ).
-# Sets CUSTOM_GPG, CUSTOM_JQ, FORCE_GPG, FORCE_JQ.
+# If a parcelrc value is set but broken, it is clobbered (FORCE_GPG/FORCE_JQ/FORCE_OPENSSL).
+# Sets CUSTOM_GPG, CUSTOM_JQ, CUSTOM_OPENSSL, FORCE_GPG, FORCE_JQ, FORCE_OPENSSL.
 # @since 1.0.7
 detect_tool_paths() {
     local parcelrc="$CONFIG_DIR/parcelrc"
-    local existing_gpg="" existing_jq=""
+    local existing_gpg="" existing_jq="" existing_openssl=""
 
     # Read existing parcelrc values if the file exists
     if [ -f "$parcelrc" ]; then
         existing_gpg="$(sed -n 's/^GPG="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
         existing_jq="$(sed -n 's/^JQ="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
+        existing_openssl="$(sed -n 's/^OPENSSL="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
     fi
 
     detect_single_tool_path "gpg" "$existing_gpg" "/usr/bin/gpg" CUSTOM_GPG FORCE_GPG
     detect_single_tool_path "jq" "$existing_jq" "/usr/bin/jq" CUSTOM_JQ FORCE_JQ
+    detect_single_tool_path "openssl" "$existing_openssl" "/usr/bin/openssl" CUSTOM_OPENSSL FORCE_OPENSSL
 }
 
 # Detect a single tool's path.
@@ -1100,6 +1104,13 @@ preview_install() {
                 rc_changes="${rc_changes}JQ=$CUSTOM_JQ (overwrite)$newline"
             else
                 rc_changes="${rc_changes}JQ=$CUSTOM_JQ$newline"
+            fi
+        fi
+        if [ -n "$CUSTOM_OPENSSL" ]; then
+            if $FORCE_OPENSSL; then
+                rc_changes="${rc_changes}OPENSSL=$CUSTOM_OPENSSL (overwrite)$newline"
+            else
+                rc_changes="${rc_changes}OPENSSL=$CUSTOM_OPENSSL$newline"
             fi
         fi
         $WANTS_HOST_HASH && rc_changes="${rc_changes}HOST_HASH=$SIGNED_HOST_SHA256$newline"
@@ -1660,7 +1671,7 @@ PARCELRC_BACKUP=""
 
 # Apply parcelrc customisations for tool paths and password store.
 # Applied before the second smoke test so they are included in verification.
-# GPG/JQ are only overwritten if the existing value was broken (FORCE_GPG/FORCE_JQ).
+# GPG/JQ/OPENSSL are only overwritten if the existing value was broken (FORCE_GPG/FORCE_JQ/FORCE_OPENSSL).
 # PASSWORD_STORE_DIR always uses force mode (user explicitly chose a different path).
 # @since 1.0.7
 apply_parcelrc_customisations() {
@@ -1704,6 +1715,18 @@ apply_parcelrc_customisations() {
             APPLIED_PARCELRC_CHANGES="$APPLIED_PARCELRC_CHANGES JQ"
         else
             log_info "JQ already set in parcelrc - leaving as-is"
+        fi
+    fi
+
+    # OPENSSL path
+    if [ -n "$CUSTOM_OPENSSL" ]; then
+        local openssl_force=""
+        $FORCE_OPENSSL && openssl_force="force"
+        if set_parcelrc_var "$parcelrc" "OPENSSL" "$CUSTOM_OPENSSL" "$openssl_force"; then
+            log_success "Set OPENSSL=$CUSTOM_OPENSSL in parcelrc"
+            APPLIED_PARCELRC_CHANGES="$APPLIED_PARCELRC_CHANGES OPENSSL"
+        else
+            log_info "OPENSSL already set in parcelrc - leaving as-is"
         fi
     fi
 
