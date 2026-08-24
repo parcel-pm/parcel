@@ -255,6 +255,30 @@ prompt_yesno() {
     esac
 }
 
+# Prompt for a boolean value, accepting common truthy/falsy spellings
+# (t/true/y/yes/1 and f/false/n/no/0, case-insensitive; empty uses the
+# default) and re-prompting until a recognised value is given.
+# @param {string} prompt_msg - Prompt text.
+# @param {string} default_val - Default answer ("true" or "false").
+# @returns {string} "true" or "false".
+# @since 1.0.8
+prompt_bool() {
+    local prompt_msg="$1" default_val="$2"
+    if $YES; then
+        printf '%s' "$default_val"
+        return
+    fi
+    while true; do
+        local response
+        response="$(printf '%s' "$(prompt "$prompt_msg" "$default_val")" | tr '[:upper:]' '[:lower:]')"
+        case "$response" in
+            t|true|y|yes|1) printf 'true'; return ;;
+            f|false|n|no|0) printf 'false'; return ;;
+            *) log_warn "Please answer yes/no or true/false" ;;
+        esac
+    done
+}
+
 # Check if a browser is in the user-specified filter.
 # @param {string} name - Browser name.
 # @returns {boolean} 0 if browser should be processed.
@@ -2110,15 +2134,15 @@ run_config_builder() {
     local fill_related disable_context_popup
 
     passkey_dir="$(prompt "passkeyDir" "$(printf '%s' "$config_json" | jq -r '.passkeyDir // "passkeys"')")"
-    allow_links="$(prompt "allowLinks (true/false)" "$(printf '%s' "$config_json" | jq -r '.allowLinks // false')")"
-    allow_external_links="$(prompt "allowExternalLinks (true/false)" "$(printf '%s' "$config_json" | jq -r '.allowExternalLinks // false')")"
-    audit_decrypt="$(prompt "auditDecrypt (true/false)" "$(printf '%s' "$config_json" | jq -r '.auditDecrypt // false')")"
-    git_in_passkey="$(prompt "gitInPasskeyCommand (true/false)" "$(printf '%s' "$config_json" | jq -r '.gitInPasskeyCommand // false')")"
-    handle_http_auth="$(prompt "handleHttpAuth (true/false)" "$(printf '%s' "$config_json" | jq -r '.handleHttpAuth // true')")"
-    handle_passkeys="$(prompt "handlePasskeys (true/false)" "$(printf '%s' "$config_json" | jq -r '.handlePasskeys // true')")"
-    save_history="$(prompt "saveHistory (true/false)" "$(printf '%s' "$config_json" | jq -r '.saveHistory // true')")"
-    fill_related="$(prompt "fillRelated (true/false)" "$(printf '%s' "$config_json" | jq -r '.fillRelated // true')")"
-    disable_context_popup="$(prompt "disableContextPopup (true/false)" "$(printf '%s' "$config_json" | jq -r '.disableContextPopup // false')")"
+    allow_links="$(prompt_bool "allowLinks (true/false)" "$(printf '%s' "$config_json" | jq -r '.allowLinks // false')")"
+    allow_external_links="$(prompt_bool "allowExternalLinks (true/false)" "$(printf '%s' "$config_json" | jq -r '.allowExternalLinks // false')")"
+    audit_decrypt="$(prompt_bool "auditDecrypt (true/false)" "$(printf '%s' "$config_json" | jq -r '.auditDecrypt // false')")"
+    git_in_passkey="$(prompt_bool "gitInPasskeyCommand (true/false)" "$(printf '%s' "$config_json" | jq -r '.gitInPasskeyCommand // false')")"
+    handle_http_auth="$(prompt_bool "handleHttpAuth (true/false)" "$(printf '%s' "$config_json" | jq -r '.handleHttpAuth // true')")"
+    handle_passkeys="$(prompt_bool "handlePasskeys (true/false)" "$(printf '%s' "$config_json" | jq -r '.handlePasskeys // true')")"
+    save_history="$(prompt_bool "saveHistory (true/false)" "$(printf '%s' "$config_json" | jq -r '.saveHistory // true')")"
+    fill_related="$(prompt_bool "fillRelated (true/false)" "$(printf '%s' "$config_json" | jq -r '.fillRelated // true')")"
+    disable_context_popup="$(prompt_bool "disableContextPopup (true/false)" "$(printf '%s' "$config_json" | jq -r '.disableContextPopup // false')")"
 
     # Normalise a truthy/falsy string to "true" or "false".
     # @param {string} value - Input value to interpret as boolean.
