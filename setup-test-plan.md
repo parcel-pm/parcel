@@ -153,8 +153,12 @@ and the parcelrc path (`set_parcelrc_var` + `apply_parcelrc_customisations` +
 - [ ] `harness.js` helpers:
     - `sourceScript(code)` — spawn `bash -c 'source …; <code>'` with a controlled env,
     returning `{ stdout, stderr, code }`.
-    - `makeTempHome()` — `mkdtemp` isolated HOME with a fake password-store tree,
-    `parcelrc`, and `.parcel.json` fixtures.
+    - `makeTempHome()` — `mkdtemp` isolated HOME. Deliberately **empty** at this
+    stage: it returns a clean-slate HOME (plus a `cleanup()` remover) with no
+    fixtures. Fixture population (fake password-store tree, `parcelrc`,
+    `.parcel.json`) is added in Stage 3/4, where concrete assertions pin the
+    exact fixture shape. Tests must pass `HOME` via `sourceScript`/`runBash`
+    `opts.env` — it is not read from `process.env` (see §6).
     - `writeMockBin(dir, name, script)` — drop shim binaries (`gpg`, `jq`, `openssl`,
     `uname`, `sudo`) into a `bin/` dir and prepend to `PATH`.
     - `withSrcLoaded(fn)` — pattern to source once, run multiple assertions, in a
