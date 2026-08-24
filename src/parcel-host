@@ -41,7 +41,7 @@ CONFIG_MODIFIED=-1
 REPORT_MODIFIED=0
 
 # dedicated state file for persisting non-sensitive runtime state between host invocations
-STATEFILE="${STATEFILE:-$HOME/.config/parcel/state}"
+STATEFILE="${STATEFILE:-${XDG_CONFIG_HOME:-$HOME/.config}/parcel/state}"
 
 function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1"

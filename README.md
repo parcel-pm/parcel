@@ -119,7 +119,7 @@ See your browser's native-messaging documentation for manifest location details:
 
 Example host manifests for both browsers are provided in the `example/` directory (`chrome/com.github.erayd.parcel.json` and `firefox/com.github.erayd.parcel.json`). Copy the relevant one to your browser's native-messaging directory and adjust the `path` to point at your installed `parcel-host` binary. The filename stem must match the value of the `name` field inside the file: `com.github.erayd.parcel.json`.
 
-The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
+The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set) if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
 
 > **Note:** If you use **Chromium Snap** or a **Flatpak** browser, the standard setup above will not work because the browser runs in a sandbox. See [Using Parcel with Chromium Snap & Flatpak browsers](#using-parcel-with-chromium-snap--flatpak-browsers) for container-specific instructions. Firefox Snap works with the standard setup.
 
@@ -182,7 +182,7 @@ Parcel uses two separate configuration files: one for the bootstrap host environ
 
 `parcelrc` is a bash startup script read by the bootstrap host (`parcel-host`) before it enters its main loop. This sets environment-level options such as binary paths and signer trust.
 
-**Location:** `~/.config/parcel/parcelrc`
+**Location:** `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set)
 If this file does not exist, the bootstrap host creates a commented template on first run.
 
 | Option | Default | Description |

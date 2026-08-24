@@ -140,7 +140,7 @@ Additional protections specific to HTTP auth:
 
 ### `parcelrc` options
 
-Located at `~/.config/parcel/parcelrc`. This file is sourced as a bash script on host startup.
+Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set). This file is sourced as a bash script on host startup.
 
 | Option | Description |
 |--------|-------------|

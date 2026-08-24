@@ -34,8 +34,12 @@ function parcel_transmit() {
     printf '%b%s' "$b" "$s"
 }
 
+# resolve the config directory, respecting $XDG_CONFIG_HOME per the XDG Base
+# Directory Specification (defaults to $HOME/.config when unset or empty)
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/parcel"
+
 # create default startup config file if it doesn't exist
-PARCELRC="$HOME/.config/parcel/parcelrc"
+PARCELRC="$CONFIG_DIR/parcelrc"
 if [ ! -e "$PARCELRC" ]; then
     mkdir -p "$(dirname "$PARCELRC")"
     cat > "$PARCELRC" <<EOT
