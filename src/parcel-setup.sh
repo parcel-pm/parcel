@@ -277,22 +277,49 @@ manifest_key() {
     printf '%s-%s' "$os_key" "$RESOLVED_LEVEL"
 }
 
-# Append a detected rule to the rule list, regex-escaping the pattern inside jq
-# so a directory name containing shell or regex metacharacters is treated as
-# opaque data rather than filter syntax.
-# Reads the current rule array on stdin and writes the updated array.
-# @param {string} rel_pattern - Store-relative directory path.
-# @param {string} class - Entry class (login, passkey, card).
-# @param {string} tag - Rule tag.
-# @since 1.0.7
-add_rule() {
-    local rel_pattern="$1" class="$2" tag="$3"
-    jq --arg pattern "$rel_pattern" --arg class "$class" --arg tag "$tag" '
+# Detect and consolidate rule patterns from the password-store layout,
+# emitting a jq array of {pattern, class, tag} sorted most-specific first.
+# Direct class directories (e.g. erayd/login) become literal rules. Class
+# directories nested under a container consolidate into a single wildcard
+# (^clients/.+/login/, or ^family/(.+/)?login/ when the container also holds
+# the class directly) only when the container has two or more direct
+# subdirectories; otherwise they stay literal. Containers with no class
+# directories fall back to a single top-level rule (^monica/).
+# @returns {string} jq array of rule objects.
+# @since 1.0.8
+detect_rules() {
+    local top_level nested_dirs
+    top_level="$(find "$PASSWORD_STORE_DIR" -maxdepth 1 -mindepth 1 -type d ! -path '*/.git/*' ! -name '.git' ! -name '.*' 2>/dev/null | while IFS= read -r d; do printf '%s\n' "${d##*/}"; done | sort)"
+    nested_dirs="$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -name '.*' 2>/dev/null | while IFS= read -r d; do printf '%s\n' "${d#"$PASSWORD_STORE_DIR"/}"; done | sort)"
+
+    printf '%s\n' "$nested_dirs" | jq -R -s --arg tl "$top_level" '
         def re_escape:
             split("")
             | map(. as $c | if (("\\" + ".^$*+?{}[]()|") | contains($c)) then "\\" + $c else $c end)
             | join("");
-        . + [{pattern: ("^" + ($pattern | re_escape) + "/"), class: $class, tag: $tag}]
+        def class_of:
+            if (. == "passkey" or . == "passkeys" or . == "webauthn") then "passkey"
+            elif (. == "card" or . == "cards") then "card"
+            elif (. == "login" or . == "logins" or . == "credentials") then "login"
+            else "" end;
+        (($tl | split("\n")) | map(select(length > 0))) as $top
+        | (split("\n") | map(select(length > 0))) as $rels
+        | ($rels | map(select((split("/") | length) == 2))
+                | group_by(split("/")[0])
+                | map({key: (.[0] | split("/")[0]), value: length})
+                | from_entries) as $childcount
+        | ($rels | map(select((split("/") | last | class_of) != ""))
+                | map({X: (split("/")[0]), N: (split("/") | last), rel: ., depth: (split("/") | length)})) as $desc
+        | ($top - ([$desc[].X] | unique)) as $flat
+        | [ $desc | group_by(.X)[] | group_by(.N)[] as $g
+            | {X: $g[0].X, N: $g[0].N, direct: any($g[]; .depth == 2), nested: any($g[]; .depth >= 3)}
+            | if (.nested and (($childcount[.X] // 0) >= 2))
+                then [{pattern: ("^" + (.X | re_escape) + "/" + (if .direct then "(.+/)?" else ".+/" end) + (.N | re_escape) + "/"), class: (.N | class_of), tag: .X}]
+                else [$g[] | {pattern: ("^" + (.rel | re_escape) + "/"), class: (.N | class_of), tag: .X}]
+              end ]
+            | flatten
+            + [ $flat[] | {pattern: ("^" + (re_escape) + "/"), class: (class_of), tag: .} ]
+        | sort_by(.pattern | split("") | map(select(. == "/")) | length) | reverse
     '
 }
 
@@ -2032,57 +2059,8 @@ run_config_builder() {
     fi
 
     # Auto-detect rules based on common patterns
-    local rules_json="[]"
-
-    # Detect top-level credential-type subdirs
-    # Skip the password-store root itself and any dotfile/dotdir
-    local top_level
-    top_level="$(find "$PASSWORD_STORE_DIR" -maxdepth 1 -mindepth 1 -type d ! -path '*/.git/*' ! -name '.git' ! -name '.*' 2>/dev/null | sort)"
-    while IFS= read -r dir; do
-        [ -z "$dir" ] && continue
-        local basename_dir rel_pattern
-        basename_dir="${dir##*/}"
-        # Skip dotfile dirs (basename starts with .)
-        case "$basename_dir" in .*) continue ;; esac
-        rel_pattern="${dir#"$PASSWORD_STORE_DIR"/}"
-
-        # Detect credential type from directory name
-        local entry_class="login"
-        case "$basename_dir" in
-            passkey|passkeys|webauthn) entry_class="passkey" ;;
-            card|cards) entry_class="card" ;;
-            login|logins|credentials) entry_class="login" ;;
-        esac
-
-        # Create a rule for this directory
-        rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "$entry_class" "$basename_dir")"
-    done <<< "$top_level"
-
-    # Also check for nested login/passkey/card dirs
-    while IFS= read -r dir; do
-        [ -z "$dir" ] && continue
-        local basename_dir rel_pattern
-        basename_dir="${dir##*/}"
-        # Skip dotfile dirs (basename starts with .)
-        case "$basename_dir" in .*) continue ;; esac
-        rel_pattern="${dir#"$PASSWORD_STORE_DIR"/}"
-
-        case "$basename_dir" in
-            login|logins)
-                rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "login" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
-                ;;
-            passkey|passkeys)
-                rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "passkey" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
-                ;;
-            card|cards)
-                rules_json="$(printf '%s' "$rules_json" | add_rule "$rel_pattern" "card" "$(printf '%s' "$rel_pattern" | cut -d/ -f1)")"
-                ;;
-        esac
-    done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -name '.*' 2>/dev/null | sort)"
-
-    # Sort rules by specificity: deeper paths (more path elements) first,
-    # so that e.g. ^clients/help/cards/ matches before ^clients/
-    rules_json="$(printf '%s' "$rules_json" | jq 'sort_by(.pattern | split("") | map(select(. == "/")) | length) | reverse')"
+    local rules_json
+    rules_json="$(detect_rules)"
 
     # Present suggested rules
     printf '\n' >&2
