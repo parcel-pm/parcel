@@ -51,6 +51,8 @@ HOST_BIN_DIR=""
 SERVICES_USER="${SUDO_USER:-}"
 # Invoking user's PATH, threaded through sudo to resolve bare tool names.
 USER_PATH="${USER_PATH:-${PATH:-}}"
+# Parcel config directory, mirroring the host's XDG Base Directory resolution.
+CONFIG_DIR=""
 
 # Detected browsers
 DETECTED_BROWSERS=""
@@ -407,7 +409,7 @@ resolve_install_level() {
     [ "$ACTION" = "uninstall" ] && verb="Uninstall"
     if prompt_yesno "$verb system-wide? (requires sudo)" true; then
         log_info "Re-running with sudo for system-wide $ACTION..."
-        exec sudo env "USER_PATH=$USER_PATH" bash "$0" --system "$@"
+        exec sudo env "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" --system "$@"
     fi
     INSTALL_LEVEL="user"
 }
@@ -484,7 +486,7 @@ parse_args() {
             die "System install requires root (re-run with sudo, or use --user)"
         fi
         log_info "Re-running with sudo for system-wide $ACTION..."
-        exec sudo env "USER_PATH=$USER_PATH" bash "$0" "${orig_args[@]}"
+        exec sudo env "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" "${orig_args[@]}"
     fi
 
     RESOLVED_LEVEL="$INSTALL_LEVEL"
@@ -793,7 +795,7 @@ detect_password_store() {
     # A prior installation persists PASSWORD_STORE_DIR in parcelrc; it ranks
     # above the environment but below an explicit --passdir flag.
     if ! $PASS_DIR_EXPLICIT; then
-        local parcelrc="$HOME/.config/parcel/parcelrc"
+        local parcelrc="$CONFIG_DIR/parcelrc"
         local rc_passdir=""
         if [ -f "$parcelrc" ]; then
             rc_passdir="$(sed -n 's/^PASSWORD_STORE_DIR="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
@@ -832,7 +834,7 @@ detect_password_store() {
 # Sets CUSTOM_GPG, CUSTOM_JQ, FORCE_GPG, FORCE_JQ.
 # @since 1.0.7
 detect_tool_paths() {
-    local parcelrc="$HOME/.config/parcel/parcelrc"
+    local parcelrc="$CONFIG_DIR/parcelrc"
     local existing_gpg="" existing_jq=""
 
     # Read existing parcelrc values if the file exists
@@ -1003,7 +1005,7 @@ offer_host_hash() {
 
     # Check if HOST_HASH is already set in the parcelrc
     local parcelrc
-    parcelrc="$HOME/.config/parcel/parcelrc"
+    parcelrc="$CONFIG_DIR/parcelrc"
     if [ -f "$parcelrc" ] && grep -q '^HOST_HASH=' "$parcelrc" 2>/dev/null; then
         log_info "HOST_HASH already set in parcelrc - leaving as-is"
         return
@@ -1103,7 +1105,7 @@ preview_install() {
         $WANTS_HOST_HASH && rc_changes="${rc_changes}HOST_HASH=$SIGNED_HOST_SHA256$newline"
         if [ -n "$CUSTOM_PASSWORD_STORE_DIR" ]; then
             local parcelrc_check existing_passdir
-            parcelrc_check="$HOME/.config/parcel/parcelrc"
+            parcelrc_check="$CONFIG_DIR/parcelrc"
             existing_passdir=""
             if [ -f "$parcelrc_check" ]; then
                 existing_passdir="$(sed -n 's/^PASSWORD_STORE_DIR="\(.*\)"$/\1/p' "$parcelrc_check" 2>/dev/null)"
@@ -1125,11 +1127,11 @@ preview_install() {
         fi
 
         local parcelrc
-        parcelrc="$HOME/.config/parcel/parcelrc"
+        parcelrc="$CONFIG_DIR/parcelrc"
         if [ -f "$parcelrc" ]; then
             log_info "  Smoke test will verify the existing parcelrc"
         else
-            log_info "  Smoke test will create ~/.config/parcel/parcelrc"
+            log_info "  Smoke test will create $CONFIG_DIR/parcelrc"
         fi
         printf '\n' >&2
     fi
@@ -1221,7 +1223,7 @@ preview_uninstall() {
 
     # Config files
     if $REMOVE_CONFIG; then
-        local parcelrc="$HOME/.config/parcel"
+        local parcelrc="$CONFIG_DIR"
         local parcelfile="$PASSWORD_STORE_DIR/.parcel.json"
         log_info "  $parcelrc (directory)"
         if [ -f "$parcelfile" ]; then
@@ -1529,7 +1531,7 @@ run_host_as_user() {
     local host_bin="$1"
 
     if [ -n "$SERVICES_USER" ]; then
-        printf '' | sudo -u "$SERVICES_USER" env "HOME=$HOME" "$host_bin" >/dev/null 2>/dev/null
+        printf '' | sudo -u "$SERVICES_USER" env "HOME=$HOME" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" "$host_bin" >/dev/null 2>/dev/null
         return $?
     else
         printf '' | "$host_bin" >/dev/null 2>/dev/null
@@ -1548,7 +1550,7 @@ first_smoke_test() {
     local rc=$?
 
     local parcelrc
-    parcelrc="$HOME/.config/parcel/parcelrc"
+    parcelrc="$CONFIG_DIR/parcelrc"
 
     if [ $rc -ne 0 ] && [ ! -f "$parcelrc" ]; then
         log_error "First smoke test failed and parcelrc was not created"
@@ -1582,7 +1584,7 @@ second_smoke_test() {
         log_error "Second smoke test failed (exit code $rc)"
 
         # Revert parcelrc customisations if we have a backup
-        local parcelrc="$HOME/.config/parcel/parcelrc"
+        local parcelrc="$CONFIG_DIR/parcelrc"
         if [ -n "$PARCELRC_BACKUP" ] && [ -f "$PARCELRC_BACKUP" ]; then
             cp "$PARCELRC_BACKUP" "$parcelrc"
             log_error "Reverted parcelrc customisations: $APPLIED_PARCELRC_CHANGES"
@@ -1663,7 +1665,7 @@ PARCELRC_BACKUP=""
 # @since 1.0.7
 apply_parcelrc_customisations() {
     local parcelrc
-    parcelrc="$HOME/.config/parcel/parcelrc"
+    parcelrc="$CONFIG_DIR/parcelrc"
 
     if [ ! -f "$parcelrc" ]; then
         log_warn "parcelrc not found at $parcelrc - skipping customisations"
@@ -1721,7 +1723,7 @@ apply_parcelrc_customisations() {
 # @since 1.0.7
 apply_host_hash() {
     local parcelrc
-    parcelrc="$HOME/.config/parcel/parcelrc"
+    parcelrc="$CONFIG_DIR/parcelrc"
 
     if [ ! -f "$parcelrc" ]; then
         log_warn "parcelrc not found at $parcelrc - skipping HOST_HASH"
@@ -1764,7 +1766,7 @@ summary_report() {
     fi
 
     printf '\n' >&2
-    log_info "parcelrc: $HOME/.config/parcel/parcelrc"
+    log_info "parcelrc: $CONFIG_DIR/parcelrc"
     log_info "Log file: $HOME/.local/log/parcel-host.log"
     printf '\n' >&2
 
@@ -1924,10 +1926,10 @@ do_uninstall() {
 
     # Remove config if requested
     if $REMOVE_CONFIG; then
-        local parcelrc_dir="$HOME/.config/parcel"
+        local parcelrc_dir="$CONFIG_DIR"
         local parcelfile="$PASSWORD_STORE_DIR/.parcel.json"
         case "$parcelrc_dir" in
-            /*/.config/parcel)
+            /*/parcel)
                 if [ -d "$parcelrc_dir" ]; then
                     rm -rf "$parcelrc_dir"
                     log_success "Removed: $parcelrc_dir"
@@ -2235,6 +2237,14 @@ main() {
     # Override HOME for the real user when running under sudo
     if [ -n "$SERVICES_USER" ]; then
         HOME="$(get_user_home)"
+    fi
+
+    # Resolve the config directory, mirroring the host: an absolute
+    # $XDG_CONFIG_HOME wins, otherwise fall back to $HOME/.config.
+    if [[ "${XDG_CONFIG_HOME:-}" == /* ]]; then
+        CONFIG_DIR="$XDG_CONFIG_HOME/parcel"
+    else
+        CONFIG_DIR="$HOME/.config/parcel"
     fi
     parse_args "$@"
     check_dependencies
