@@ -2080,9 +2080,9 @@ run_config_builder() {
         esac
     done <<< "$(find "$PASSWORD_STORE_DIR" -mindepth 2 -type d ! -name '.*' 2>/dev/null | sort)"
 
-    # Sort rules by specificity: longer (more-specific) patterns first,
+    # Sort rules by specificity: deeper paths (more path elements) first,
     # so that e.g. ^clients/help/cards/ matches before ^clients/
-    rules_json="$(printf '%s' "$rules_json" | jq 'sort_by(.pattern | length) | reverse')"
+    rules_json="$(printf '%s' "$rules_json" | jq 'sort_by(.pattern | split("") | map(select(. == "/")) | length) | reverse')"
 
     # Present suggested rules
     printf '\n' >&2
