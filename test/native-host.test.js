@@ -232,6 +232,7 @@ function spawnBootstrap(env, extraEnv = {}) {
         env: {
             ...process.env,
             HOME: env.home,
+            XDG_CONFIG_HOME: join(env.home, ".config"),
             PATH: `${env.bin}:${process.env.PATH}`,
             ...extraEnv,
         },

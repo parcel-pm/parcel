@@ -73,9 +73,8 @@ export class Schema {
                                 throw new Error(`Invalid value for ${path}: must be a valid regular expression.`);
                             }
                     }
-                    break;
                 }
-                // falls through
+                break;
             }
             case "number":
                 {

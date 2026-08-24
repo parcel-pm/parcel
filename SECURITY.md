@@ -43,7 +43,7 @@ The bootstrap host (`parcel-host`) receives the main host script (`src/parcel-ho
 
 1. Verifies the GPG detached signature shipped alongside the script.
 2. Extracts the primary fingerprint from the GPG status output.
-3. Checks that the fingerprint is present in the `VALID_SIGNERS` list configured in `~/.config/parcel/parcelrc`.
+3. Checks that the fingerprint is present in the `VALID_SIGNERS` list configured in `parcelrc`.
 
 If any step fails, the script is discarded and the host refuses to start.
 
@@ -75,7 +75,7 @@ Enabling `auditDecrypt: true` in `.parcel.json` causes the native host to log ev
 
 The native host uses a token-bucket rate limiter to restrict how frequently password entries can be decrypted, with the aim of reducing the potential damage in the event of a successful exfiltration attack. Each decryption costs one token. The bucket holds up to `decryptBucket` tokens and refills at `decryptRate` tokens per second. With the defaults (`decryptBucket: 24`, `decryptRate: 0.006667`), the host allows an initial burst of 24 decryptions and then sustains roughly one decryption every 150 seconds thereafter.
 
-The token-bucket state (current token count and last-refill timestamp) is persisted to a dedicated state file (`~/.config/parcel/state`) so that it survives across host process restarts. This prevents a compromised extension from resetting the bucket by killing and reconnecting the native host between decrypts. The state file is bash-sourceable with `0600` permissions and contains only non-sensitive numeric values — never any part of the user's decrypted credential files. The file location can be overridden via `STATEFILE` in `parcelrc`.
+The token-bucket state (current token count and last-refill timestamp) is persisted to a dedicated state file (`$XDG_CONFIG_HOME/parcel/state`, or `~/.config/parcel/state` when `XDG_CONFIG_HOME` is unset) so that it survives across host process restarts. This prevents a compromised extension from resetting the bucket by killing and reconnecting the native host between decrypts. The state file is bash-sourceable with `0600` permissions and contains only non-sensitive numeric values - never any part of the user's decrypted credential files. The file location can be overridden via `STATEFILE` in `parcelrc`.
 
 Setting either `decryptBucket` or `decryptRate` to `0` disables rate limiting entirely.
 
@@ -140,7 +140,7 @@ Additional protections specific to HTTP auth:
 
 ### `parcelrc` options
 
-Located at `~/.config/parcel/parcelrc`. This file is sourced as a bash script on host startup.
+Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set). This file is sourced as a bash script on host startup.
 
 | Option | Description |
 |--------|-------------|
