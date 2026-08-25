@@ -296,8 +296,9 @@ prompt_bool() {
         return
     fi
     while true; do
-        local response
-        response="$(printf '%s' "$(prompt "$prompt_msg" "$default_val")" | tr '[:upper:]' '[:lower:]')"
+        local response raw
+        raw="$(prompt "$prompt_msg" "$default_val")" || exit $?
+        response="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
         case "$response" in
             t|true|y|yes|1) printf 'true'; return ;;
             f|false|n|no|0) printf 'false'; return ;;
