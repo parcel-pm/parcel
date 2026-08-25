@@ -40,8 +40,16 @@ CONFIG="{}"
 CONFIG_MODIFIED=-1
 REPORT_MODIFIED=0
 
+# resolve the config directory per the XDG Base Directory Specification
+# (falls back to $HOME/.config when XDG_CONFIG_HOME is unset, empty, or relative)
+if [[ "${XDG_CONFIG_HOME:-}" == /* ]]; then
+    CONFIG_DIR="$XDG_CONFIG_HOME/parcel"
+else
+    CONFIG_DIR="$HOME/.config/parcel"
+fi
+
 # dedicated state file for persisting non-sensitive runtime state between host invocations
-STATEFILE="${STATEFILE:-$HOME/.config/parcel/state}"
+STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 
 function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1"

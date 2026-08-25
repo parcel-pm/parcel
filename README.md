@@ -73,9 +73,19 @@ The easiest way to install Parcel is directly from your browser's webstore:
 - **[Mozilla Firefox — Parcel](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/)** (recommended)
 - **[Google Chrome — Parcel](https://chromewebstore.google.com/detail/parcel/ciifpadakeohfnnneflckhojbldkkllp)** (recommended)
 
-After installing from the webstore, you will still need to set up the [native host](#install-the-native-host) and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
+After installing from the webstore, you will still need to set up the native host from [distro package](#install-from-distro-package) or manually [from source](#install-the-native-host), and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
 
 > **Note:** If you install from the webstore you will receive automatic updates. If you prefer to run a local build from source, follow the steps below instead.
+
+### Install from distro package
+
+Distro packages are available for the native host and, optionally, for the extension itself. When extension is installed from the distro package, the updates are managed by the distro package manager, not by the browser.
+
+#### Arch Linux
+
+[![AUR parcel package](https://repology.org/badge/version-for-repo/aur/parcel.svg?header=AUR%20parcel)](https://aur.archlinux.org/packages/parcel)
+[![AUR parcel-firefox package](https://repology.org/badge/version-for-repo/aur/parcel-firefox.svg?header=AUR%20parcel-firefox)](https://aur.archlinux.org/packages/parcel-firefox)
+[![AUR parcel-chromium package](https://repology.org/badge/version-for-repo/aur/parcel-chromium.svg?header=AUR%20parcel-chromium)](https://aur.archlinux.org/packages/parcel-chromium)
 
 ### Installation from source
 
@@ -115,11 +125,11 @@ Parcel uses a native-messaging host to communicate with `gpg` and your password 
 
 See your browser's native-messaging documentation for manifest location details:
 - [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
-- [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging)
+- [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_manifests#manifest_location)
 
-Example host manifests for both browsers are provided in the `example/` directory (`com.github.erayd.parcel.chrome.json` and `com.github.erayd.parcel.firefox.json`). Copy the relevant one to your browser's native-messaging directory, adjust the `path` to point at your installed `parcel-host` binary, and rename it to `com.github.erayd.parcel.json`.
+Example host manifests for both browsers are provided in the `example/` directory (`chrome/com.github.erayd.parcel.json` and `firefox/com.github.erayd.parcel.json`). Copy the relevant one to your browser's native-messaging directory and adjust the `path` to point at your installed `parcel-host` binary. The filename stem must match the value of the `name` field inside the file: `com.github.erayd.parcel.json`.
 
-The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
+The first time the bootstrap host runs, it creates a default configuration file at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set) if one does not already exist. You can customize `gpg` and `jq` paths, valid signers, and other options there.
 
 > **Note:** If you use **Chromium Snap** or a **Flatpak** browser, the standard setup above will not work because the browser runs in a sandbox. See [Using Parcel with Chromium Snap & Flatpak browsers](#using-parcel-with-chromium-snap--flatpak-browsers) for container-specific instructions. Firefox Snap works with the standard setup.
 
@@ -182,7 +192,7 @@ Parcel uses two separate configuration files: one for the bootstrap host environ
 
 `parcelrc` is a bash startup script read by the bootstrap host (`parcel-host`) before it enters its main loop. This sets environment-level options such as binary paths and signer trust.
 
-**Location:** `~/.config/parcel/parcelrc`
+**Location:** `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set)
 If this file does not exist, the bootstrap host creates a commented template on first run.
 
 | Option | Default | Description |
@@ -317,15 +327,14 @@ Flatpak browsers can use `flatpak-spawn --host` to launch `parcel-host` on the h
    ```bash
    # Firefox Flatpak:
    MANIFEST_DIR=~/.var/app/$APP_ID/.mozilla/native-messaging-hosts
-   MANIFEST_TEMPLATE=example/com.github.erayd.parcel.flatpak.firefox.json
+   MANIFEST_TEMPLATE=example/flatpak/firefox/com.github.erayd.parcel.json
 
    # Chromium-based Flatpak (ungoogled-chromium, Brave, etc.):
    # MANIFEST_DIR=~/.var/app/$APP_ID/config/chromium/NativeMessagingHosts
-   # MANIFEST_TEMPLATE=example/com.github.erayd.parcel.flatpak.chrome.json
+   # MANIFEST_TEMPLATE=example/flatpak/chrome/com.github.erayd.parcel.json
 
    mkdir -p "$MANIFEST_DIR"
-   cp "$MANIFEST_TEMPLATE" \
-       "$MANIFEST_DIR/com.github.erayd.parcel.json"
+   cp "$MANIFEST_TEMPLATE" "$MANIFEST_DIR/"
    ```
 
 6. Edit the manifest: replace `USER` with your username and `BROWSER_APP_ID` with your browser's Flatpak app ID (e.g. `org.mozilla.firefox` for Firefox, `io.github.ungoogled_software.ungoogled_chromium` for ungoogled-chromium). The `path` field should point to the wrapper script created in step 3. Separate manifest templates are provided for Firefox and Chrome.
