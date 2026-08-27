@@ -36,7 +36,7 @@ jobs:
     needs: make-test
     if: always()
     steps:
-      - name: Check matric status
+      - name: Check matrix status
         run: |
           if [ "${{ needs.make-test.result }}" != "success" ]; then
             echo "Some matrix test branches failed or were cancelled"

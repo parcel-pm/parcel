@@ -890,19 +890,13 @@ function dd() {
     local PID=$!
     exec 3<&-
     # The watchdog kills dd if no data arrives within TIMEOUT seconds. Its
-    # sleep runs as a captured child ($SLEEP_PID) beneath a TERM trap: when
-    # this function kills the watchdog after dd finishes normally, the trap
-    # forwards the signal so the sleep is reaped too. An untrapped subshell
-    # would leave the sleep orphaned on every message received, leaking one
-    # stray process per message for up to TIMEOUT seconds.
-    # All of the watchdog's fds must be redirected so it holds neither the
-    # write end of the dd | od pipe (which would delay od's EOF until the
-    # sleep finishes) nor any other inherited descriptor.
+    # sleep runs as a backgrounded job beneath a TERM trap: when this function
+    # kills the watchdog after dd finishes normally, the trap forwards the
+    # signal so the sleep is reaped too.
     (
-        trap 'kill "$SLEEP_PID" 2>/dev/null; exit' TERM
+        trap 'kill %1 2>/dev/null; exit' TERM
         sleep "$TIMEOUT" &
-        SLEEP_PID=$!
-        wait "$SLEEP_PID" 2>/dev/null
+        wait 2>/dev/null
         kill "$PID" 2>/dev/null
     ) </dev/null >/dev/null 2>&1 &
     local WATCHDOG=$!
