@@ -12,6 +12,7 @@ permissions:
 jobs:
   make-test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -35,21 +36,26 @@ jobs:
         # full suite with a 4-minute ceiling; a fresh attempt gets a fresh
         # process tree, so a wedged attempt cannot block the successor.
         run: |
-          TIMEOUT_BIN="$(command -v gtimeout || command -v timeout)"
           rc=1
           for attempt in 1 2 3; do
             echo "--- test attempt $attempt of 3"
-            if [ -n "$TIMEOUT_BIN" ]; then
-              if "$TIMEOUT_BIN" -k 10s 240s make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"; then
-                rc=0
-                break
-              fi
-            else
-              if make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"; then
-                rc=0
-                break
-              fi
+            # Monitor mode puts make in its own process group so the step
+            # watchdog can kill the whole tree (make, node, test-spawned
+            # hosts) with a group signal on timeout.
+            set -m
+            make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint" &
+            TESTPID=$!
+            ( sleep 240; kill -TERM -"$TESTPID" 2>/dev/null; sleep 10; kill -KILL -"$TESTPID" 2>/dev/null ) &
+            WATCHDOG=$!
+            set +m
+            if wait "$TESTPID"; then
+              rc=0
+              kill -- -"$WATCHDOG" 2>/dev/null || true
+              wait "$WATCHDOG" 2>/dev/null || true
+              break
             fi
+            kill -- -"$WATCHDOG" 2>/dev/null || true
+            wait "$WATCHDOG" 2>/dev/null || true
             echo "--- attempt $attempt failed or timed out; retrying"
           done
           exit "$rc"
