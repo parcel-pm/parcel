@@ -889,26 +889,28 @@ function dd() {
     command dd "$@" <&3 &
     local PID=$!
     exec 3<&-
-    # The watchdog kills dd if no data arrives within TIMEOUT seconds. Its
-    # sleep runs as a captured child ($SLEEP_PID) beneath a TERM trap: when
-    # this function kills the watchdog after dd finishes normally, the trap
-    # forwards the signal so the sleep is reaped too. An untrapped subshell
-    # would leave the sleep orphaned on every message received, leaking one
-    # stray process per message for up to TIMEOUT seconds.
-    # All of the watchdog's fds must be redirected so it holds neither the
-    # write end of the dd | od pipe (which would delay od's EOF until the
-    # sleep finishes) nor any other inherited descriptor.
+    # The watchdog kills dd if no data arrives within TIMEOUT seconds. It runs
+    # in its own process group (via set -m) so killing the group reaps both the
+    # watchdog and its foreground sleep; without monitor mode the group kill is
+    # disabled to avoid signalling the caller's group.
+    local MONITOR_WAS_ON=false
+    [[ -o monitor ]] && MONITOR_WAS_ON=true
+    set -m
+    local GROUP_KILL=false
+    [[ -o monitor ]] && GROUP_KILL=true
     (
-        trap 'kill "$SLEEP_PID" 2>/dev/null; exit' TERM
-        sleep "$TIMEOUT" &
-        SLEEP_PID=$!
-        wait "$SLEEP_PID" 2>/dev/null
+        sleep "$TIMEOUT"
         kill "$PID" 2>/dev/null
     ) </dev/null >/dev/null 2>&1 &
     local WATCHDOG=$!
+    $MONITOR_WAS_ON || set +m
     wait "$PID" 2>/dev/null
     local RETURN_CODE=$?
-    kill "$WATCHDOG" 2>/dev/null || true
+    if $GROUP_KILL; then
+        kill -- -"$WATCHDOG" 2>/dev/null || kill "$WATCHDOG" 2>/dev/null || true
+    else
+        kill "$WATCHDOG" 2>/dev/null || true
+    fi
     wait "$WATCHDOG" 2>/dev/null || true
     return $RETURN_CODE
 }
