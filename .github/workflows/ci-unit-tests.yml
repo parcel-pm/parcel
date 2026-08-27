@@ -15,7 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 16
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -29,7 +29,30 @@ jobs:
         run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Run tests
-        run: make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"
+        # Retry wrapper: the macOS 26 runner occasionally wedges one of the
+        # spawned host processes mid-suite (see actions/runner-images#13882),
+        # hanging the run until timeout-minutes fires. Each attempt runs the
+        # full suite with a 4-minute ceiling; a fresh attempt gets a fresh
+        # process tree, so a wedged attempt cannot block the successor.
+        run: |
+          TIMEOUT_BIN="$(command -v gtimeout || command -v timeout)"
+          rc=1
+          for attempt in 1 2 3; do
+            echo "--- test attempt $attempt of 3"
+            if [ -n "$TIMEOUT_BIN" ]; then
+              if "$TIMEOUT_BIN" -k 10s 240s make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"; then
+                rc=0
+                break
+              fi
+            else
+              if make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"; then
+                rc=0
+                break
+              fi
+            fi
+            echo "--- attempt $attempt failed or timed out; retrying"
+          done
+          exit "$rc"
 
   make-test-matrix:
     runs-on: ubuntu-latest

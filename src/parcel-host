@@ -893,6 +893,18 @@ function dd() {
     # sleep runs as a backgrounded job beneath a TERM trap: when this function
     # kills the watchdog after dd finishes normally, the trap forwards the
     # signal so the sleep is reaped too.
+    # The watchdog is spawned with monitor mode briefly enabled so it gets its
+    # own process group; killing the group (-PID) then reaps the watchdog and
+    # its sleep atomically, even if the TERM trap was never armed. Group
+    # assignment happens atomically at job creation, so the group kill itself
+    # has no timing dependency; if monitor mode is unavailable we keep the
+    # group kill disabled and fall back to signalling only the subshell, never
+    # the caller's group.
+    local MONITOR_WAS_ON=false
+    [[ -o monitor ]] && MONITOR_WAS_ON=true
+    set -m
+    GROUP_KILL=false
+    [[ -o monitor ]] && GROUP_KILL=true
     (
         trap 'kill %1 2>/dev/null; exit' TERM
         sleep "$TIMEOUT" &
@@ -900,9 +912,14 @@ function dd() {
         kill "$PID" 2>/dev/null
     ) </dev/null >/dev/null 2>&1 &
     local WATCHDOG=$!
+    $MONITOR_WAS_ON || set +m
     wait "$PID" 2>/dev/null
     local RETURN_CODE=$?
-    kill "$WATCHDOG" 2>/dev/null || true
+    if $GROUP_KILL; then
+        kill -- -"$WATCHDOG" 2>/dev/null || kill "$WATCHDOG" 2>/dev/null || true
+    else
+        kill "$WATCHDOG" 2>/dev/null || true
+    fi
     wait "$WATCHDOG" 2>/dev/null || true
     return $RETURN_CODE
 }
