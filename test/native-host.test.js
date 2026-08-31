@@ -25,7 +25,7 @@ import {
     existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -275,6 +275,94 @@ async function installMainScript(env, extraEnv = {}) {
     assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
 
     return { proc, read, send };
+}
+
+/**
+ * Write a mock osascript that records invocations. Setter invocations consume
+ * stdin and emit a fake pasteboard change count on stdout; auto-clear watcher
+ * invocations (identified by the sleepForTimeInterval call) exit immediately.
+ */
+function writeMockOsascript(path, captureStdin, captureArgs) {
+    writeFileSync(
+        path,
+        `#!/bin/bash
+printf '%s\\n' "$*" >> "${captureArgs}"
+if [[ "$*" == *sleepForTimeInterval* ]]; then
+    exit 0
+fi
+cat > "${captureStdin}"
+echo 12345
+exit 0
+`,
+    );
+    chmodSync(path, 0o755);
+}
+
+/**
+ * Write an executable mock tool into the test environment's PATH shim dir.
+ */
+function mockTool(env, name, content) {
+    writeFileSync(join(env.bin, name), content);
+    chmodSync(join(env.bin, name), 0o755);
+}
+
+/**
+ * Install Wayland mocks: wl-copy records args + captures stdin, wl-paste
+ * records args and returns pasteOutput, and sleep runs instantly (recording args).
+ */
+function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/dev/null") {
+    mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
+    mockTool(
+        env,
+        "wl-copy",
+        // only capture stdin on the set invocation; --clear must not clobber it
+        `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nif [[ "$*" != *--clear* ]]; then\n    cat > "${captureStdin}"\nfi\nexit 0\n`,
+    );
+    mockTool(env, "wl-paste", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\necho '${pasteOutput}'\nexit 0\n`);
+    mockTool(env, "sleep", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`);
+}
+
+/**
+ * Install X11 mocks: xclip records args + captures stdin (or returns pasteOutput
+ * on -o), and sleep runs instantly (recording args).
+ */
+function mockClipboardX11(env, captureArgs, pasteOutput, captureStdin = "/dev/null") {
+    mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
+    mockTool(
+        env,
+        "xclip",
+        // only capture stdin on the set invocation; -o and the /dev/null clear must not clobber it
+        `#!/bin/bash
+printf '%s\\n' "$*" >> "${captureArgs}"
+if [[ "$*" == *" -o"* ]]; then
+    echo '${pasteOutput}'
+    exit 0
+fi
+if [[ "$*" != */dev/null* ]]; then
+    cat > "${captureStdin}"
+fi
+exit 0
+`,
+    );
+    mockTool(env, "sleep", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`);
+}
+
+/**
+ * Poll a file until it contains the given text (or time out), returning the
+ * file contents on success, null otherwise.
+ */
+async function pollFile(file, needle, timeoutMs = 3000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (existsSync(file)) {
+            const contents = readFileSync(file, "utf8");
+            if (contents.includes(needle)) {
+                return contents;
+            }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -827,6 +915,237 @@ VALID_SIGNERS="${env.knownSigner}"
             proc.kill();
             env.cleanup();
         }
+    });
+
+    test("action_clipboard pipes the value to osascript via stdin and uses concealed pasteboard types", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const captureStdin = join(env.home, "osascript-stdin");
+        const captureArgs = join(env.home, "osascript-args");
+        writeMockOsascript(join(env.bin, "osascript"), captureStdin, captureArgs);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const value = 'secret value with "quotes" & newline\nchar';
+            send({ action: "clipboard", value, timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), value, "value should be piped to osascript stdin verbatim");
+            const args = await pollFile(captureArgs, "ConcealedType");
+            assert.ok(args !== null, "pasteboard should be declared concealed");
+            assert.ok(args.includes("TransientType"), "pasteboard should be declared transient so history managers skip it");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard spawns an auto-clear watcher with the configured timeout", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const captureStdin = join(env.home, "osascript-stdin");
+        const captureArgs = join(env.home, "osascript-args");
+        writeMockOsascript(join(env.bin, "osascript"), captureStdin, captureArgs);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 7 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            const args = await pollFile(captureArgs, "sleepForTimeInterval(7)");
+            assert.ok(args !== null, "auto-clear watcher should run with the configured timeout");
+            assert.ok(args.includes("changeCount == 12345"), "watcher should compare against the changeCount captured when setting");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard clamps oversized timeouts and rejects missing/invalid ones", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const captureStdin = join(env.home, "osascript-stdin");
+        const captureArgs = join(env.home, "osascript-args");
+        writeMockOsascript(join(env.bin, "osascript"), captureStdin, captureArgs);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 7200 });
+            assert.deepStrictEqual((await read()).data, { ok: true }, "oversized timeout should still succeed");
+            assert.ok((await pollFile(captureArgs, "sleepForTimeInterval(3600)")) !== null, "oversized timeout should be clamped to 3600");
+
+            for (const timeout of [undefined, -5, 1.5, "abc", 0]) {
+                const request = { action: "clipboard", value: "secret" };
+                if (timeout !== undefined) {
+                    request.timeout = timeout;
+                }
+                send(request);
+                const msg = await read();
+                assert.ok(
+                    msg.error?.includes("Invalid clipboard timeout"),
+                    `Expected invalid timeout error for ${JSON.stringify(timeout)}, got: ${JSON.stringify(msg)}`,
+                );
+            }
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard fails when osascript fails", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const mockOsascript = join(env.bin, "osascript");
+        writeFileSync(mockOsascript, "#!/bin/bash\nexit 1\n");
+        chmodSync(mockOsascript, 0o755);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Failed to set clipboard contents"), `Expected clipboard failure, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard fails when osascript is missing", async () => {
+        const env = createTestEnv();
+        // build a PATH with uname reporting Darwin, but excluding osascript entirely so command -v fails
+        const limitedBin = join(env.home, "limitedbin");
+        mkdirSync(limitedBin, { recursive: true });
+        symlinkSync(env.mockGpgPath, join(limitedBin, "gpg"));
+        writeFileSync(join(limitedBin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(limitedBin, "uname"), 0o755);
+        for (const dir of ["/usr/bin", "/bin", "/sbin", "/usr/sbin", dirname(execSync("command -v jq", { encoding: "utf8" }).trim())]) {
+            for (const entry of readdirSync(dir)) {
+                if (entry !== "osascript" && !existsSync(join(limitedBin, entry))) {
+                    symlinkSync(join(dir, entry), join(limitedBin, entry));
+                }
+            }
+        }
+
+        const { proc, read, send } = await installMainScript(env, { PATH: limitedBin });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Cannot find osascript"), `Expected missing osascript error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard uses wl-copy on Wayland with a timed auto-clear watcher", async () => {
+        const env = createTestEnv();
+        const captureStdin = join(env.home, "wl-copy-stdin");
+        const captureArgs = join(env.home, "wl-args");
+        mockClipboardWayland(env, captureArgs, "secret", captureStdin);
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to wl-copy stdin verbatim");
+            const args = await pollFile(captureArgs, "--clear");
+            assert.ok(args !== null, "watcher should clear the clipboard after the timeout when the value is unchanged");
+            assert.ok(args.includes("45"), "watcher should use the requested timeout");
+            assert.ok(!args.includes("paste-once"), "wl-copy must not use --paste-once (it burns pastes when watchers read eagerly)");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard watcher does not clear the Wayland clipboard when the value changed", async () => {
+        const env = createTestEnv();
+        const captureArgs = join(env.home, "wl-args");
+        mockClipboardWayland(env, captureArgs, "something-else");
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            // wl-paste appearing means the watcher completed its comparison
+            const args = await pollFile(captureArgs, "-n");
+            assert.ok(args !== null, "watcher should have checked the clipboard contents");
+            assert.ok(!args.includes("--clear"), "watcher must not clear a clipboard that no longer holds our value");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard uses xclip on X11 with a timed auto-clear watcher", async () => {
+        const env = createTestEnv();
+        const captureStdin = join(env.home, "xclip-stdin");
+        const captureArgs = join(env.home, "xclip-args");
+        mockClipboardX11(env, captureArgs, "secret", captureStdin);
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to xclip stdin verbatim");
+            const args = await pollFile(captureArgs, "/dev/null");
+            assert.ok(args !== null, "watcher should empty the clipboard after the timeout when the value is unchanged");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard watcher does not clear the X11 clipboard when the value changed", async () => {
+        const env = createTestEnv();
+        const captureArgs = join(env.home, "xclip-args");
+        mockClipboardX11(env, captureArgs, "something-else");
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            const args = await pollFile(captureArgs, "-o");
+            assert.ok(args !== null, "watcher should have checked the clipboard contents");
+            assert.ok(!args.includes("/dev/null"), "watcher must not clear a clipboard that no longer holds our value");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard reports availability errors on Linux without suitable tools", async () => {
+        const env = createTestEnv();
+        mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
+
+        const cases = [
+            { extraEnv: { WAYLAND_DISPLAY: "wayland-1", DISPLAY: "" }, error: "Cannot find wl-copy" },
+            { extraEnv: { WAYLAND_DISPLAY: "", DISPLAY: ":0" }, error: "Cannot find xclip" },
+            { extraEnv: { WAYLAND_DISPLAY: "", DISPLAY: "" }, error: "No privacy-enhancing clipboard tool available" },
+        ];
+        for (const testCase of cases) {
+            const { proc, read, send } = await installMainScript(env, testCase.extraEnv);
+            try {
+                send({ action: "clipboard", value: "secret", timeout: 45 });
+                const msg = await read();
+                assert.ok(msg.error?.includes(testCase.error), `Expected "${testCase.error}" error, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+            }
+        }
+        env.cleanup();
     });
 
     test("action_list returns filtered entries sorted by name", async () => {

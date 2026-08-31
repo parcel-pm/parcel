@@ -232,7 +232,112 @@ function action_ping() {
     parcel_send '{"ok": true}'
 }
 
-# check whether there have been any changes to the password store since the last time the list was generated
+# copy a value to the system clipboard, using platform-specific secure mechanisms where available
+# @param {string} $1 - request JSON containing the .value to copy and .timeout (auto-clear delay in seconds, clamped to 3600)
+# @since 1.0.7
+function action_clipboard() {
+    local VALUE
+    if ! VALUE="$(jq -r '.value' <<< "$1")"; then
+        parcel_error "Invalid clipboard request"
+        return 0
+    fi
+    local TIMEOUT_MAX=3600
+    local TIMEOUT="$(jq -r '.timeout' <<< "$1")"
+    # the extension always sends .timeout; reject anything that is not a positive integer
+    if [[ ! "$TIMEOUT" =~ ^[0-9]+$ ]] || [ "$TIMEOUT" -lt 1 ]; then
+        parcel_error "Invalid clipboard timeout: $TIMEOUT"
+        return 0
+    elif [ "$TIMEOUT" -gt "$TIMEOUT_MAX" ]; then
+        TIMEOUT="$TIMEOUT_MAX"
+    fi
+    case "$(uname -s)" in
+        Darwin)
+            clipboard_macos "$VALUE" "$TIMEOUT"
+            ;;
+        Linux)
+            clipboard_linux "$VALUE" "$TIMEOUT"
+            ;;
+        *)
+            parcel_error "Unsupported platform for clipboard: $(uname -s)"
+            ;;
+    esac
+}
+
+# set the clipboard on macOS using concealed mode so clipboard syncing tools ignore it
+# @param {string} $1 - the value to copy
+# @param {string} $2 - validated seconds until the clipboard is auto-cleared
+# @since 1.0.7
+function clipboard_macos() {
+    if ! command -v osascript &>/dev/null; then
+        parcel_error "Cannot find osascript: the clipboard action requires macOS"
+        return 0
+    fi
+    local OUT
+    # the value is piped via stdin so it never appears in the process list (e.g. ps)
+    if ! OUT="$(printf %s "$1" | osascript -l JavaScript -e '
+ObjC.import("AppKit")
+const data = $.NSFileHandle.fileHandleWithStandardInput.availableData
+const value = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js
+const pb = $.NSPasteboard.generalPasteboard
+pb.clearContents
+pb.declareTypesOwner($(["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "public.utf8-plain-text"]), $())
+if (!pb.setStringForType($(value), "public.utf8-plain-text") || pb.stringForType("public.utf8-plain-text").js !== value) {
+    $.exit(1)
+}
+$.NSFileHandle.fileHandleWithStandardOutput.writeData($("" + pb.changeCount + "\n").dataUsingEncoding($.NSUTF8StringEncoding))
+')" || [[ ! "$OUT" =~ ^[0-9]+$ ]]; then
+        parcel_error "Failed to set clipboard contents"
+        return 0
+    fi
+    local COUNT="$OUT"
+    parcel_send '{"ok": true}'
+    # detached auto-clear watcher: clear the clipboard after the timeout, but only if our value
+    # is still the current clipboard contents (i.e. the pasteboard has not been touched since)
+    ( osascript -l JavaScript -e "
+ObjC.import('AppKit')
+\$.NSThread.sleepForTimeInterval($2)
+const pb = \$.NSPasteboard.generalPasteboard
+if (pb.changeCount == $COUNT) pb.clearContents
+" </dev/null >/dev/null 2>&1 & )
+}
+
+# set the clipboard on Linux via Wayland wl-copy or X11 xclip, with a timed auto-clear
+# @param {string} $1 - the value to copy
+# @param {string} $2 - validated seconds until the clipboard is auto-cleared
+# @since 1.0.7
+function clipboard_linux() {
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+        if ! command -v wl-copy &>/dev/null || ! command -v wl-paste &>/dev/null; then
+            parcel_error "Cannot find wl-copy/wl-paste: no privacy-enhancing clipboard tool available"
+            return 0
+        fi
+        if ! printf %s "$1" | wl-copy; then
+            parcel_error "Failed to set clipboard contents (wl-copy)"
+            return 0
+        fi
+        parcel_send '{"ok": true}'
+        # detached auto-clear watcher: clear the clipboard after the timeout, but only if our value
+        # is still the current clipboard contents. The value enters the watcher via stdin (a process
+        # substitution), so it never appears in the process list (e.g. ps).
+        ( VALUE="$(cat)"; sleep "$2"; if [[ "$(wl-paste -n 2>/dev/null)" == "$VALUE" ]]; then wl-copy --clear; fi ) < <(printf %s "$1") >/dev/null 2>&1 &
+        return 0
+    fi
+    if [ -n "$DISPLAY" ]; then
+        if ! command -v xclip &>/dev/null; then
+            parcel_error "Cannot find xclip: no privacy-enhancing clipboard tool available"
+            return 0
+        fi
+        if ! printf %s "$1" | xclip -selection clipboard; then
+            parcel_error "Failed to set clipboard contents (xclip)"
+            return 0
+        fi
+        parcel_send '{"ok": true}'
+        # same auto-clear watcher as above; clearing sets an empty clipboard, as xclip has no release/reset
+        ( VALUE="$(cat)"; sleep "$2"; if [[ "$(xclip -selection clipboard -o 2>/dev/null)" == "$VALUE" ]]; then xclip -selection clipboard /dev/null; fi ) < <(printf %s "$1") >/dev/null 2>&1 &
+        return 0
+    fi
+    parcel_error "No privacy-enhancing clipboard tool available: requires Wayland with wl-copy or X11 with xclip"
+}
 function action_changes_since() {
     update_config
     local SINCE="$(jq -r '.since' <<< "$1")"
