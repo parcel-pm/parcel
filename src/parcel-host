@@ -276,7 +276,7 @@ function clipboard_macos() {
     # the value is piped via stdin so it never appears in the process list (e.g. ps)
     if ! OUT="$(printf %s "$1" | osascript -l JavaScript -e '
 ObjC.import("AppKit")
-const data = $.NSFileHandle.fileHandleWithStandardInput.availableData
+const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile
 const value = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js
 const pb = $.NSPasteboard.generalPasteboard
 pb.clearContents
