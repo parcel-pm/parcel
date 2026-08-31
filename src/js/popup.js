@@ -330,7 +330,7 @@
 
             this.#root.querySelector(".copy").addEventListener("click", async (ev) => {
                 ev.stopPropagation();
-                await navigator.clipboard.writeText(this.getValue());
+                await copyValue(this.getValue());
                 window.close();
             });
             if (document.querySelector(".context-popup")) {
@@ -455,7 +455,7 @@
 
             this.#root.querySelector(".copy").addEventListener("click", async (ev) => {
                 ev.stopPropagation();
-                await navigator.clipboard.writeText(this.#root.querySelector(".value").textContent);
+                await copyValue(this.#root.querySelector(".value").textContent);
                 window.close();
             });
             if (document.querySelector(".context-popup")) {
@@ -824,6 +824,42 @@
         }
         port.onMessage.addListener(versionListener);
     });
+
+    /**
+     * Copy a secret to the clipboard via the native host, which marks it concealed
+     * (macOS) and auto-clears it after the configured `clipboardTimeout`. When the host reports an error
+     * (unsupported platform, missing tool, bad request), log it and fall back to the
+     * page clipboard so the copy still succeeds.
+     * @since 1.0.7
+     * @param {string} text - The secret to copy.
+     * @returns {Promise<boolean>} `true` when the copy succeeded (native or fallback).
+     */
+    async function copyValue(text) {
+        try {
+            const requestId = crypto.randomUUID();
+            const response = new Promise((resolve) => {
+                const listener = (msg) => {
+                    if (msg?.action === "clipboard-result" && msg?.requestId === requestId) {
+                        port.onMessage.removeListener(listener);
+                        resolve(msg);
+                    }
+                };
+                port.onMessage.addListener(listener);
+                // safety timeout: fall back when the agent/host never responds
+                setTimeout(() => {
+                    port.onMessage.removeListener(listener);
+                    resolve({ ok: false, error: "clipboard action timed out" });
+                }, 3000);
+            });
+            port.postMessage({ action: "clipboard", value: text, timeout: (await config).clipboardTimeout, requestId });
+            const msg = await response;
+            if (msg?.ok) return true;
+            console.info(`Native clipboard unavailable: ${msg?.error ?? "unknown error"}`);
+        } catch (err) {
+            console.info(`Native clipboard unavailable: ${err.message}`);
+        }
+        return copyText(text);
+    }
 
     /**
      * Copy text to the clipboard, falling back to a hidden textarea and

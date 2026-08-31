@@ -198,6 +198,92 @@ describe("Agent", () => {
         assert.strictEqual(digest.hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
     });
 
+    test("clipboard relays value and timeout to the native host", async () => {
+        uninstallNativeHandler(mock, handler);
+        let nativeCall = null;
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "clipboard") {
+                nativeCall = msg;
+                return { ok: true };
+            }
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+
+        const roundTrip = async (value) => {
+            const requestId = crypto.randomUUID();
+            const resultPromise = nextMessage(popup, "clipboard-result");
+            popup.postMessage({ action: "clipboard", value, timeout: 60, requestId });
+            const result = await resultPromise;
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.requestId, requestId, "requestId echoed for response correlation");
+            assert.strictEqual(nativeCall?.timeout, 60);
+            return nativeCall;
+        };
+
+        assert.strictEqual((await roundTrip("hunter2")).value, "hunter2");
+        assert.strictEqual((await roundTrip(123456)).value, "123456", "TOTP-style numeric values are relayed as strings");
+    });
+
+    test("clipboard errors are reported via clipboard-result, not the generic error path", async () => {
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        const errorListener = (msg) => {
+            if (msg.action === "clipboard") {
+                nativePort.receiver.onMessage.removeListener(errorListener);
+                nativePort.receiver.postMessage({
+                    token: msg.token,
+                    error: "No privacy-enhancing clipboard tool available: requires Wayland with wl-copy or X11 with xclip",
+                });
+            }
+        };
+        nativePort.receiver.onMessage.addListener(errorListener);
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const messages = [];
+        popup.onMessage.addListener((msg) => messages.push(msg));
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-2" });
+        const result = await resultPromise;
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.requestId, "req-2");
+        assert.ok(result.error?.includes("clipboard tool"), "host error message relayed");
+        await settleAsync();
+        assert.ok(!messages.some((msg) => msg.action === "error"), "clipboard failure must not post a generic error to the popup");
+    });
+
+    test("invalid clipboard requests are rejected without calling the native host", async () => {
+        let nativeCalls = 0;
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        const counter = (msg) => {
+            if (msg.action === "clipboard") nativeCalls++;
+        };
+        nativePort.receiver.onMessage.addListener(counter);
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const results = [];
+        popup.onMessage.addListener((msg) => {
+            if (msg.action === "clipboard-result") results.push(msg);
+        });
+        popup.postMessage({ action: "clipboard", value: { pin: 42 }, timeout: 60, requestId: "bad-1" }); // value not a string or number
+        popup.postMessage({ action: "clipboard", timeout: 60, requestId: "bad-2" }); // value missing
+        // wait for both results (nextMessage only supports a single awaited message)
+        for (let i = 0; i < 50 && results.length < 2; i++) await settleAsync();
+        assert.strictEqual(results.length, 2, "one result per request");
+        for (const result of results) assert.strictEqual(result.ok, false);
+        assert.ok(results.find((r) => r.requestId === "bad-1")?.error?.includes("clipboard value"));
+        assert.ok(results.find((r) => r.requestId === "bad-2")?.error?.includes("clipboard value"));
+        assert.strictEqual(nativeCalls, 0, "invalid requests must not reach the native host");
+        nativePort.receiver.onMessage.removeListener(counter);
+    });
+
     test("decrypt from authorised popup", async () => {
         const popup = mock.chrome.runtime.connect({ name: "popup" });
         await settleAsync();

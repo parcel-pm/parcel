@@ -680,7 +680,7 @@ export class Agent extends EventTarget {
         // content-script (`integration`) ports may only request `config`.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
-            popup: ["auth", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
+            popup: ["auth", "clipboard", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
             integration: ["config"],
             passkey: ["passkey"],
         };
@@ -919,6 +919,16 @@ export class Agent extends EventTarget {
                         port.postMessage({ action: "passkey-result", result });
                     } else {
                         throw new Error(`Unknown passkey phase: ${message.phase}`);
+                    }
+                } else if (message?.action === "clipboard") {
+                    // Copy a secret via the host's privacy-enhancing clipboard action.
+                    try {
+                        if (typeof message.value !== "string" && typeof message.value !== "number")
+                            throw new Error("Invalid clipboard value");
+                        await this.#callNative("clipboard", { value: String(message.value), timeout: message.timeout });
+                        port.postMessage({ action: "clipboard-result", ok: true, requestId: message.requestId });
+                    } catch (err) {
+                        port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
                     }
                 } else if (message?.action === "sha256") {
                     // provide a SHA-256 hash of the given value
