@@ -862,6 +862,7 @@
      * @returns {Promise<boolean>} `true` when a copy succeeded (native or fallback).
      */
     async function copyValue(text) {
+        document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
         try {
             const requestId = crypto.randomUUID();
             const response = new Promise((resolve) => {
