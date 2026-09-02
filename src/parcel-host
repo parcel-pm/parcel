@@ -334,8 +334,7 @@ function clipboard_linux() {
         # substitution), so it never appears in the process list (e.g. ps).
         ( VALUE="$(cat)"; sleep "$2"; if [[ "$(wl-paste -n 2>/dev/null)" == "$VALUE" ]]; then wl-copy --clear; fi ) < <(printf %s "$1") >/dev/null 2>&1 &
         return 0
-    fi
-    if [ -n "$DISPLAY" ]; then
+    elif [ -n "$DISPLAY" ]; then
         if ! command -v xclip &>/dev/null; then
             clipboard_refuse "Cannot find xclip: no privacy-enhancing clipboard tool available"
             return 0
