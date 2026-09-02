@@ -217,6 +217,7 @@ export const ConfigSchema = {
         allowLinks: { type: "boolean", required: true, default: false },
         auditDecrypt: { type: "boolean", required: true, default: false },
         cacheTTL: { type: "number", required: true, minimum: 0, default: 10 },
+        clipboardTimeout: { type: "integer", required: true, minimum: 1, maximum: 3600, default: 60 }, // maximum mirrors the host-side TIMEOUT_MAX clamp
         decryptBucket: { type: "integer", required: true, minimum: 0, default: 24 }, // default also set in parcel-host (DECRYPT_BUCKET_SIZE_DEFAULT)
         decryptRate: { type: "number", required: true, minimum: 0, default: 0.006667 }, // default also set in parcel-host (DECRYPT_BUCKET_RATE_DEFAULT)
         decryptTimeout: { type: "number", required: true, minimum: 1, default: 60 },

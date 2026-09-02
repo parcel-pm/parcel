@@ -248,6 +248,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `allowExternalLinks` | boolean | `false` | If `true` (and `allowLinks` is also `true`), includes symlinks that point outside the password store directory. |
 | `auditDecrypt` | boolean | `false` | If `true`, logs every decryption attempt (success or failure) to the host log file. |
 | `cacheTTL` | number | `10` | Seconds the extension caches the entry list before re-querying the host. |
+| `clipboardTimeout` | integer | `60` | Seconds before the host auto-clears a password copied via the privacy-enhancing clipboard action (1-3600). |
 | `decryptTimeout` | number | `60` | Seconds before a decryption request is aborted. |
 | `decryptBucket` | integer | `24` | Token-bucket capacity for decryption rate limiting (one token per GPG decrypt). |
 | `decryptRate` | number | `0.006667` (24 per hour) | Token refill rate in tokens per second for decryption rate limiting. |

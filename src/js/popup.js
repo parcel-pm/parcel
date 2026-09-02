@@ -330,8 +330,7 @@
 
             this.#root.querySelector(".copy").addEventListener("click", async (ev) => {
                 ev.stopPropagation();
-                await navigator.clipboard.writeText(this.getValue());
-                window.close();
+                if (await copyValue(this.getValue())) window.close();
             });
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
@@ -455,8 +454,7 @@
 
             this.#root.querySelector(".copy").addEventListener("click", async (ev) => {
                 ev.stopPropagation();
-                await navigator.clipboard.writeText(this.#root.querySelector(".value").textContent);
-                window.close();
+                if (await copyValue(this.#root.querySelector(".value").textContent)) window.close();
             });
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
@@ -824,6 +822,80 @@
         }
         port.onMessage.addListener(versionListener);
     });
+
+    /**
+     * Show an error banner at the top of the popup, replacing any existing banner.
+     * @since 1.0.7
+     * @param {string} message - The error message to display.
+     * @param {string} [category=null] - Optional category class for targeted clearing.
+     * @returns {void}
+     */
+    function showError(message, category = null) {
+        document.querySelector("#status").textContent = "Error";
+        document.querySelectorAll("p.error").forEach((el) => {
+            if (el._errorTimer) clearTimeout(el._errorTimer);
+            el.remove();
+        });
+        const p = document.createElement("p");
+        p.classList.add("error");
+        if (category !== null) p.classList.add(`error-category-${category}`);
+        p.textContent = message;
+        document.body.insertAdjacentElement("afterbegin", p);
+        document.getElementById("modal-shade").classList.add("hidden");
+        p.scrollIntoView({ behavior: "instant", block: "nearest" });
+        p._errorTimer = setTimeout(() => {
+            delete p._errorTimer;
+            p.remove();
+        }, 10000);
+    }
+
+    /**
+     * Copy a secret to the clipboard via the native host, which marks it concealed
+     * (macOS) and auto-clears it after the configured `clipboardTimeout`.
+     *
+     * Falls back to the page clipboard only when the host refused the request before writing
+     * anything; an unknown outcome (timeout, disconnect, or a failure after the copy was
+     * attempted) is surfaced as an error instead, because a fallback copy could overwrite a
+     * clipboard state that can no longer be verified.
+     * @since 1.0.7
+     * @param {string} text - The secret to copy.
+     * @returns {Promise<boolean>} `true` when a copy succeeded (native or fallback).
+     */
+    async function copyValue(text) {
+        document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
+        try {
+            const requestId = crypto.randomUUID();
+            const response = new Promise((resolve) => {
+                const listener = (msg) => {
+                    if (msg?.action === "clipboard-result" && msg?.requestId === requestId) {
+                        port.onMessage.removeListener(listener);
+                        resolve(msg);
+                    }
+                };
+                port.onMessage.addListener(listener);
+                // safety timeout: no response means the copy's outcome is unknown;
+                // the agent's shorter dispatch window keeps a queued copy from landing after this
+                setTimeout(() => {
+                    port.onMessage.removeListener(listener);
+                    resolve({ ok: false, indeterminate: true, error: "clipboard action timed out" });
+                }, 3000);
+            });
+            port.postMessage({ action: "clipboard", value: text, timeout: (await config).clipboardTimeout, requestId });
+            const msg = await response;
+            if (msg?.ok) return true;
+            if (msg?.indeterminate) {
+                showError(
+                    `Clipboard state is unknown - the copy may or may not have been applied. No fallback copy was made. (${msg?.error ?? "unknown error"})`,
+                );
+                return false;
+            }
+            console.info(`Native clipboard unavailable: ${msg?.error ?? "unknown error"}`);
+        } catch (_err) {
+            // the port failed before the request was sent, so the host cannot have made a copy
+            console.info("Native clipboard unavailable: popup port disconnected");
+        }
+        return copyText(text);
+    }
 
     /**
      * Copy text to the clipboard, falling back to a hidden textarea and
@@ -1372,22 +1444,7 @@
             tabPort.postMessage({ action: "close-popup" });
         } else if (msg.action === "error") {
             if (suppressErrors) return;
-            document.querySelector("#status").textContent = "Error";
-            const p = document.createElement("p");
-            p.classList.add("error");
-            if (Object.prototype.hasOwnProperty.call(msg, "category")) p.classList.add(`error-category-${msg.category}`);
-            p.textContent = msg.error;
-            document.querySelectorAll("p.error").forEach((el) => {
-                if (el._errorTimer) clearTimeout(el._errorTimer);
-                el.remove();
-            });
-            document.body.insertAdjacentElement("afterbegin", p);
-            document.getElementById("modal-shade").classList.add("hidden");
-            p.scrollIntoView({ behavior: "instant", block: "nearest" });
-            p._errorTimer = setTimeout(() => {
-                delete p._errorTimer;
-                p.remove();
-            }, 10000);
+            showError(msg.error, Object.prototype.hasOwnProperty.call(msg, "category") ? msg.category : null);
         } else if (msg.action === "clear-errors") {
             const selector = Object.prototype.hasOwnProperty.call(msg, "category") ? `p.error.error-category-${msg.category}` : "p.error";
             document.querySelectorAll(selector).forEach((el) => {

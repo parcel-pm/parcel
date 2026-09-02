@@ -31,6 +31,7 @@ function makeValidConfig() {
         passdir: "/home/test/.password-store",
         rules: [{ pattern: "^test/.*$", class: "login", color: "ff0000", ignore: false }],
         cacheTTL: 10,
+        clipboardTimeout: 60,
         decryptTimeout: 60,
         auditDecrypt: false,
         disableContextPopup: false,
@@ -104,6 +105,7 @@ before(async () => {
 
     Object.defineProperty(globalThis, "crypto", {
         value: {
+            randomUUID: () => nodeCrypto.randomUUID(),
             get subtle() {
                 return {
                     async digest(algorithm, data) {

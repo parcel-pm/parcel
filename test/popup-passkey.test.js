@@ -80,6 +80,7 @@ before(async () => {
 
     Object.defineProperty(globalThis, "crypto", {
         value: {
+            randomUUID: () => nodeCrypto.randomUUID(),
             get subtle() {
                 return {
                     async digest(algorithm, data) {
