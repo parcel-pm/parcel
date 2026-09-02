@@ -3,6 +3,23 @@ import { Schema, ConfigSchema, classDefaults } from "./schema.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
 
+// Drop a clipboard request that cannot be dispatched within this window, so a queued copy
+// never lands after the popup's no-response safety net (3s, see copyValue in popup.js) fires.
+const CLIPBOARD_DISPATCH_WINDOW = 2500;
+
+/**
+ * Build an error for a native call that failed before its message was posted to the host.
+ * Carries `notDispatched`, so callers can tell it apart from failures that may have reached the host.
+ * @since 1.0.7
+ * @param {string} text - The error message.
+ * @returns {Error} The flagged error.
+ */
+function notDispatchedError(text) {
+    const err = new Error(text);
+    err.notDispatched = true;
+    return err;
+}
+
 /**
  * Main agent class.
  *
@@ -308,15 +325,19 @@ export class Agent extends EventTarget {
      * @param {string} action - The action to send to the native host.
      * @param {object} [message={}] - The message to send to the native host.
      * @param {number} [timeout=2000] - The timeout for the call in milliseconds.
+     * @param {number} [deadline=null] - Epoch-ms deadline; the call is dropped if it has passed once the lock is free.
      * @returns {Promise<*>} The native host response payload.
-     * @throws {Error} If not connected to the native host, the call times out, or the host returns an error.
+     * @throws {Error} If not connected, the dispatch deadline has passed, the call times out, or the host errors.
      */
-    async #callNative(action, message = {}, timeout = 2000) {
+    async #callNative(action, message = {}, timeout = 2000, deadline = null) {
         // executed only once the previous call has settled
-        const run = () =>
-            new Promise((resolve, reject) => {
+        const run = () => {
+            if (deadline !== null && Date.now() > deadline) {
+                throw notDispatchedError(`Native call deadline expired: ${action}`);
+            }
+            return new Promise((resolve, reject) => {
                 if (!this.#connectedNative) {
-                    reject(new Error("Not connected to native host"));
+                    reject(notDispatchedError("Not connected to native host"));
                     return;
                 }
                 const token = crypto.randomUUID();
@@ -340,6 +361,7 @@ export class Agent extends EventTarget {
                 this.addEventListener(token, onMessage, { once: true });
                 this.#host.postMessage({ ...message, token, action });
             });
+        };
 
         const result = this.#nativeCallLock.then(run);
         this.#nativeCallLock = result.then(
@@ -931,8 +953,19 @@ export class Agent extends EventTarget {
                                 "clipboard",
                                 { value: String(message.value), timeout: message.timeout },
                                 10_000,
+                                Date.now() + CLIPBOARD_DISPATCH_WINDOW,
                             );
                         } catch (err) {
+                            if (err.notDispatched) {
+                                // the request never left the agent, so no native copy can have happened
+                                port.postMessage({
+                                    action: "clipboard-result",
+                                    ok: false,
+                                    error: err.message,
+                                    requestId: message.requestId,
+                                });
+                                return;
+                            }
                             // Timeout, disconnect, or a failure after the host attempted the copy: the clipboard
                             // state is unknown, so the popup must not overwrite it with an insecure fallback copy
                             port.postMessage({

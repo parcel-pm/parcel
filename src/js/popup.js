@@ -872,7 +872,8 @@
                     }
                 };
                 port.onMessage.addListener(listener);
-                // safety timeout: no response means the copy's outcome is unknown
+                // safety timeout: no response means the copy's outcome is unknown;
+                // the agent's shorter dispatch window keeps a queued copy from landing after this
                 setTimeout(() => {
                     port.onMessage.removeListener(listener);
                     resolve({ ok: false, indeterminate: true, error: "clipboard action timed out" });

@@ -299,6 +299,51 @@ describe("Agent", () => {
         assert.ok(!messages.some((msg) => msg.action === "error"), "must not post a generic error to the popup");
     });
 
+    test("a clipboard request queued behind a slow native call is dropped once its dispatch window passes", async () => {
+        uninstallNativeHandler(mock, handler);
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        let decryptToken = null;
+        let clipboardSeen = false;
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "decrypt") {
+                decryptToken = msg.token; // kept pending so it holds the serialisation lock
+                return undefined;
+            }
+            if (msg.action === "clipboard") {
+                clipboardSeen = true;
+                return undefined;
+            }
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+            return {};
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        popup.postMessage({ action: "decrypt", path: "example.com/admin", intent: "fill" });
+        for (let i = 0; i < 10 && decryptToken === null; i++) await settleAsync();
+        assert.ok(decryptToken !== null, "decrypt call should be in flight, holding the serialisation lock");
+
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-5" });
+        await settleAsync(); // queued behind the pending decrypt; the deadline is captured at real time
+
+        const realNow = Date.now;
+        try {
+            Date.now = () => realNow() + 10_000; // the dispatch window elapsed while the request waited on the lock
+            nativePort.receiver.postMessage({ token: decryptToken, data: { plaintext: { password: "hunter2" } } }); // release the lock
+            const result = await resultPromise;
+            assert.strictEqual(result.ok, false);
+            assert.strictEqual(result.requestId, "req-5");
+            assert.strictEqual(result.indeterminate, undefined, "an undispatched request cannot have written anything");
+            assert.ok(result.error?.includes("deadline expired"), "deadline expiry reported");
+        } finally {
+            Date.now = realNow;
+        }
+        assert.ok(!clipboardSeen, "the clipboard action must never reach the host");
+    });
+
     test("invalid clipboard requests are rejected without calling the native host", async () => {
         let nativeCalls = 0;
         const nativePort = mock.getNativePort("com.github.erayd.parcel");
