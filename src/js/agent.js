@@ -8,19 +8,6 @@ import { Plaintext } from "./plaintext.js";
 const CLIPBOARD_DISPATCH_WINDOW = 2500;
 
 /**
- * Build an error for a native call that failed before its message was posted to the host.
- * Carries `notDispatched`, so callers can tell it apart from failures that may have reached the host.
- * @since 1.0.7
- * @param {string} text - The error message.
- * @returns {Error} The flagged error.
- */
-function notDispatchedError(text) {
-    const err = new Error(text);
-    err.notDispatched = true;
-    return err;
-}
-
-/**
  * Main agent class.
  *
  * Coordinates the native host, validates & caches config, brokers runtime ports, and
@@ -333,11 +320,15 @@ export class Agent extends EventTarget {
         // executed only once the previous call has settled
         const run = () => {
             if (deadline !== null && Date.now() > deadline) {
-                throw notDispatchedError(`Native call deadline expired: ${action}`);
+                const err = new Error(`Native call deadline expired: ${action}`);
+                err.notDispatched = true;
+                throw err;
             }
             return new Promise((resolve, reject) => {
                 if (!this.#connectedNative) {
-                    reject(notDispatchedError("Not connected to native host"));
+                    const err = new Error("Not connected to native host");
+                    err.notDispatched = true;
+                    reject(err);
                     return;
                 }
                 const token = crypto.randomUUID();
