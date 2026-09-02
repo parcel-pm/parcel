@@ -43,6 +43,7 @@ function makeValidConfig(overrides = {}) {
         passdir: "/home/test/.password-store",
         rules: [{ pattern: "^test/.*$", class: "login", color: "ff0000", ignore: false }],
         cacheTTL: 10,
+        clipboardTimeout: 60,
         decryptTimeout: 60,
         auditDecrypt: false,
         disableContextPopup: false,
@@ -148,6 +149,7 @@ before(async () => {
     // Replace JSDOM's crypto.subtle (which hangs in Node) with a working one
     Object.defineProperty(globalThis, "crypto", {
         value: {
+            randomUUID: () => nodeCrypto.randomUUID(),
             get subtle() {
                 return {
                     async digest(algorithm, data) {
@@ -426,6 +428,139 @@ describe("Popup script", { concurrency: false }, () => {
         const detail = document.querySelector("parcel-detail");
         const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
         assert.ok(lines.length >= 2, "at least two plaintext lines rendered");
+    });
+
+    // -----------------------------------------------------------------------
+    // secure clipboard copy flow
+    // -----------------------------------------------------------------------
+
+    test("copy button posts the clipboard action and skips the page clipboard on success", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "detail",
+            plaintext: "user: alice\npassword: secret123\n",
+        });
+        await settleAsync();
+
+        let closed = false;
+        window.close = () => {
+            closed = true;
+        };
+        const written = [];
+        Object.defineProperty(window.navigator, "clipboard", {
+            value: { writeText: async (text) => written.push(text) },
+            configurable: true,
+        });
+
+        const detail = document.querySelector("parcel-detail");
+        const line = [...detail.shadowRoot.querySelectorAll("parcel-plaintext-line")].find((el) =>
+            el.shadowRoot.querySelector(".line").textContent.includes("secret123"),
+        );
+        const clipboardPromise = nextMessage(popupReceiver, "clipboard", 3000);
+        line.shadowRoot.querySelector(".copy").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+        const msg = await clipboardPromise;
+        assert.strictEqual(msg.value, "secret123", "key prefix stripped before copying");
+        assert.strictEqual(msg.timeout, 60, "auto-clear timeout sent with the request");
+        assert.ok(msg.requestId, "requestId included for response correlation");
+
+        popupReceiver.postMessage({ action: "clipboard-result", ok: true, requestId: msg.requestId });
+        await settleAsync();
+        assert.ok(closed, "window closes once the host confirms");
+        assert.deepStrictEqual(written, [], "page clipboard untouched on host success");
+    });
+
+    test("copy button falls back to the page clipboard when the host reports an error", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "detail",
+            plaintext: "user: alice\npassword: secret123\n",
+        });
+        await settleAsync();
+
+        let closed = false;
+        window.close = () => {
+            closed = true;
+        };
+        const written = [];
+        Object.defineProperty(window.navigator, "clipboard", {
+            value: { writeText: async (text) => written.push(text) },
+            configurable: true,
+        });
+        const infoLogs = [];
+        const origInfo = globalThis.console.info;
+        globalThis.console.info = (...args) => infoLogs.push(args.join(" "));
+
+        try {
+            const detail = document.querySelector("parcel-detail");
+            const value = [...detail.shadowRoot.querySelectorAll("parcel-value")].find(
+                (el) => el.shadowRoot.querySelector(".value").textContent === "secret123",
+            );
+            const clipboardPromise = nextMessage(popupReceiver, "clipboard", 3000);
+            value.shadowRoot.querySelector(".copy").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+            const msg = await clipboardPromise;
+            assert.strictEqual(msg.value, "secret123");
+            popupReceiver.postMessage({
+                action: "clipboard-result",
+                ok: false,
+                error: "Cannot find osascript: the clipboard action requires macOS",
+                requestId: msg.requestId,
+            });
+            await settleAsync();
+            assert.deepStrictEqual(written, ["secret123"], "page clipboard used as fallback");
+            assert.ok(
+                infoLogs.some((line) => line.includes("osascript")),
+                "host error logged via console.info",
+            );
+            assert.ok(closed, "window closes after the fallback copy");
+        } finally {
+            globalThis.console.info = origInfo;
+        }
+    });
+
+    test("copy button shows an error and does not fall back on an indeterminate result", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "detail",
+            plaintext: "user: alice\npassword: secret123\n",
+        });
+        await settleAsync();
+
+        let closed = false;
+        window.close = () => {
+            closed = true;
+        };
+        const written = [];
+        Object.defineProperty(window.navigator, "clipboard", {
+            value: { writeText: async (text) => written.push(text) },
+            configurable: true,
+        });
+
+        const detail = document.querySelector("parcel-detail");
+        const line = [...detail.shadowRoot.querySelectorAll("parcel-plaintext-line")].find((el) =>
+            el.shadowRoot.querySelector(".line").textContent.includes("secret123"),
+        );
+        const clipboardPromise = nextMessage(popupReceiver, "clipboard", 3000);
+        line.shadowRoot.querySelector(".copy").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+        const msg = await clipboardPromise;
+        assert.strictEqual(msg.value, "secret123");
+        popupReceiver.postMessage({
+            action: "clipboard-result",
+            ok: false,
+            indeterminate: true,
+            error: "Native host call timed out: clipboard",
+            requestId: msg.requestId,
+        });
+        await settleAsync();
+        assert.deepStrictEqual(written, [], "page clipboard must not be used when the outcome is unknown");
+        const banner = document.querySelector("p.error");
+        assert.ok(banner?.textContent.includes("Clipboard state is unknown"), "indeterminate outcome surfaced as an error banner");
+        assert.ok(!closed, "window stays open so the user can see the error and retry");
     });
 
     // -----------------------------------------------------------------------
