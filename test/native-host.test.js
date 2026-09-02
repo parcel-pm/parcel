@@ -309,14 +309,17 @@ function mockTool(env, name, content) {
 /**
  * Install Wayland mocks: wl-copy records args + captures stdin, wl-paste
  * records args and returns pasteOutput, and sleep runs instantly (recording args).
+ * `sensitiveInHelp` controls whether wl-copy's --help output advertises --sensitive
+ * (as wl-clipboard master does; released wl-clipboard versions do not).
  */
-function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/dev/null") {
+function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/dev/null", sensitiveInHelp = false) {
     mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
     mockTool(
         env,
         "wl-copy",
-        // only capture stdin on the set invocation; --clear must not clobber it
-        `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nif [[ "$*" != *--clear* ]]; then\n    cat > "${captureStdin}"\nfi\nexit 0\n`,
+        // only capture stdin on the set invocation; --clear must not clobber it, and --help must
+        // exit before consuming stdin (else it would eat the host's JSON message stream)
+        `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nif [[ "$*" == *--help* ]]; then\n    echo 'usage: wl-copy [-hinopf]${sensitiveInHelp ? " [--sensitive]" : ""}'\n    exit 0\nfi\nif [[ "$*" != *--clear* ]]; then\n    cat > "${captureStdin}"\nfi\nexit 0\n`,
     );
     mockTool(env, "wl-paste", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\necho '${pasteOutput}'\nexit 0\n`);
     mockTool(env, "sleep", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`);
@@ -1062,6 +1065,33 @@ VALID_SIGNERS="${env.knownSigner}"
             assert.ok(args !== null, "watcher should clear the clipboard after the timeout when the value is unchanged");
             assert.ok(args.includes("45"), "watcher should use the requested timeout");
             assert.ok(!args.includes("paste-once"), "wl-copy must not use --paste-once (it burns pastes when watchers read eagerly)");
+            assert.ok(!args.includes("--sensitive"), "wl-copy without --sensitive support must not receive the flag");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard passes --sensitive to wl-copy when its --help advertises it", async () => {
+        const env = createTestEnv();
+        const captureStdin = join(env.home, "wl-copy-stdin");
+        const captureArgs = join(env.home, "wl-args");
+        mockClipboardWayland(env, captureArgs, "secret", captureStdin, true);
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to wl-copy stdin verbatim");
+            const args = await pollFile(captureArgs, "--sensitive");
+            assert.ok(args !== null, "copy invocation should include --sensitive when supported");
+            // per-line check: the watcher's --clear invocation must never carry --sensitive
+            const copyLine = args.split("\n").find((line) => line.includes("--sensitive"));
+            assert.strictEqual(copyLine, "--sensitive", "only the plain copy invocation should carry --sensitive");
+            const clearArgs = await pollFile(captureArgs, "--clear");
+            assert.ok(clearArgs !== null, "watcher should still clear the clipboard after the timeout");
             await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
         } finally {
             proc.kill();

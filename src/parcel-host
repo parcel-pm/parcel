@@ -319,7 +319,12 @@ function clipboard_linux() {
             clipboard_refuse "Cannot find wl-copy/wl-paste: no privacy-enhancing clipboard tool available"
             return 0
         fi
-        if ! printf %s "$1" | wl-copy; then
+        # pass --sensitive (asks clipboard managers not to persist the contents) only when this wl-copy supports it
+        local WL_COPY_FLAGS=()
+        if wl-copy --help </dev/null 2>&1 | grep -q -- --sensitive; then
+            WL_COPY_FLAGS+=(--sensitive)
+        fi
+        if ! printf %s "$1" | wl-copy "${WL_COPY_FLAGS[@]}"; then
             parcel_error "Failed to set clipboard contents (wl-copy)"
             return 0
         fi

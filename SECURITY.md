@@ -162,7 +162,7 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `allowLinks` | Include symlinked entries in the entry list (default: `false`). |
 | `allowExternalLinks` | Include symlinks pointing outside the password store (default: `false`; requires `allowLinks`). |
 | `cacheTTL` | Seconds the extension caches the entry list before re-querying the host (default: `10`). |
-| `clipboardTimeout` | Seconds before the host auto-clears a password copied via the privacy-enhancing clipboard action (default: `60`; permitted range 1–3600). |
+| `clipboardTimeout` | Seconds before the host auto-clears a password copied via the privacy-enhancing clipboard action (default: `60`; permitted range 1-3600). On Wayland, the copy additionally carries wl-copy's `--sensitive` hint when the installed version supports it; the hint is purely advisory, so auto-clear remains the enforced mitigation. |
 | `handlePasskeys` | Enable WebAuthn passkey ceremonies. When `false`, Parcel does not intercept passkey requests at all (default: `true`). |
 | `handleHttpAuth` | Enable HTTP authentication interception (HTTP 401). When `false`, Parcel does not intercept browser auth challenges (default: `true`). Proxy auth (HTTP 407) is never intercepted. |
 | `decryptTimeout` | Seconds before a decryption request is aborted (default: `60`). |
