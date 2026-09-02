@@ -83,8 +83,8 @@ Setting either `decryptBucket` or `decryptRate` to `0` disables rate limiting en
 
 Copies triggered from the popup are performed via the native host's privacy-enhancing clipboard action where possible, rather than the browser's clipboard API (this also means the extension itself never needs clipboard access). Where the host has the required platform tooling (`osascript` on macOS, `wl-copy` on Wayland, `xclip` on X11), it applies two protections:
 
-1. **Auto-clear** — the host clears the clipboard again after `clipboardTimeout` seconds, unless something else has been copied in the meantime.
-2. **Sensitivity hint** — where the platform supports it (concealed and transient pasteboard types on macOS; wl-copy's `--sensitive` hint on Wayland, when the installed version supports it), the copy is flagged so clipboard managers that honour the hint skip displaying or persisting it.
+1. **Auto-clear**: the host clears the clipboard again after `clipboardTimeout` seconds, unless something else has been copied in the meantime.
+2. **Sensitivity hint**: where the platform supports it (concealed and transient pasteboard types on macOS; wl-copy's `--sensitive` hint on Wayland, when the installed version supports it), the copy is flagged so clipboard managers that honour the hint skip displaying or persisting it.
 
 Where that tooling is not available, the copy falls back to the browser's own clipboard API, which provides neither a timeout nor a hint.
 
