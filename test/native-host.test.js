@@ -309,8 +309,8 @@ function mockTool(env, name, content) {
 /**
  * Install Wayland mocks: wl-copy records args + captures stdin, wl-paste
  * records args and returns pasteOutput, and sleep runs instantly (recording args).
- * `sensitiveInHelp` controls whether wl-copy's --help output advertises --sensitive
- * (as wl-clipboard master does; released wl-clipboard versions do not).
+ * `sensitiveInHelp` controls whether wl-copy's --help output advertises --sensitive;
+ * it does from wl-clipboard 2.3.0 onward, but not in 2.2.x and older.
  */
 function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/dev/null", sensitiveInHelp = false) {
     mockTool(env, "uname", "#!/bin/bash\necho Linux\n");

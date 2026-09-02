@@ -232,7 +232,7 @@ function action_ping() {
     parcel_send '{"ok": true}'
 }
 
-# refuse a clipboard request before anything was written; sent as data rather than an
+# Refuse a clipboard request before anything was written; sent as data rather than an
 # error, so the extension knows falling back to an insecure copy is reasonable
 # @param {string} $1 - the refusal reason
 # @since 1.0.7
@@ -240,7 +240,7 @@ function clipboard_refuse() {
     parcel_send "$(jq -nc --arg msg "$1" '{ok: false, message: $msg}')"
 }
 
-# copy a value to the system clipboard, using platform-specific secure mechanisms where available
+# Copy a value to the system clipboard, using platform-specific secure mechanisms where available
 # @param {string} $1 - request JSON containing the .value to copy and .timeout (auto-clear delay in seconds, clamped to 3600)
 # @since 1.0.7
 function action_clipboard() {
@@ -271,7 +271,7 @@ function action_clipboard() {
     esac
 }
 
-# set the clipboard on macOS using concealed mode so clipboard syncing tools ignore it
+# Set the clipboard on macOS using concealed mode so clipboard syncing tools ignore it
 # @param {string} $1 - the value to copy
 # @param {string} $2 - validated seconds until the clipboard is auto-cleared
 # @since 1.0.7
@@ -309,7 +309,7 @@ if (pb.changeCount == $COUNT) pb.clearContents
 " </dev/null >/dev/null 2>&1 & )
 }
 
-# set the clipboard on Linux via Wayland wl-copy or X11 xclip, with a timed auto-clear
+# Set the clipboard on Linux via Wayland wl-copy or X11 xclip, with a timed auto-clear
 # @param {string} $1 - the value to copy
 # @param {string} $2 - validated seconds until the clipboard is auto-cleared
 # @since 1.0.7
