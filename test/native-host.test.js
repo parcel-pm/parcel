@@ -25,7 +25,7 @@ import {
     existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -322,7 +322,12 @@ function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/de
         `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nif [[ "$*" == *--help* ]]; then\n    echo 'usage: wl-copy [-hinopf]${sensitiveInHelp ? " [--sensitive]" : ""}'\n    exit 0\nfi\nif [[ "$*" != *--clear* ]]; then\n    cat > "${captureStdin}"\nfi\nexit 0\n`,
     );
     mockTool(env, "wl-paste", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\necho '${pasteOutput}'\nexit 0\n`);
-    mockTool(env, "sleep", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`);
+    mockTool(
+        env,
+        "sleep",
+        // skip the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value)
+        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && exit 0\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
+    );
 }
 
 /**
@@ -347,7 +352,83 @@ fi
 exit 0
 `,
     );
-    mockTool(env, "sleep", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`);
+    mockTool(
+        env,
+        "sleep",
+        // skip the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value)
+        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && exit 0\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
+    );
+}
+
+/**
+ * External tools invoked by the bootstrap host and the main host script; keep in sync with both.
+ * gpg and uname are resolved separately: the whitelist maps gpg to the test env's mock, and each
+ * test installs its own uname mock.
+ * @constant {string[]}
+ * @since 1.0.7
+ */
+const HOST_TOOLS = [
+    "awk",
+    "bash",
+    "base64",
+    "basename",
+    "cat",
+    "chmod",
+    "cut",
+    "date",
+    "dd",
+    "dirname",
+    "find",
+    "grep",
+    "head",
+    "install",
+    "jq",
+    "mkdir",
+    "mktemp",
+    "od",
+    "openssl",
+    "readlink",
+    "rm",
+    "sed",
+    "sleep",
+    "stat",
+    "tail",
+    "touch",
+    "tr",
+    "xargs",
+];
+
+/**
+ * Build a whitelist PATH bin dir: symlinks each tool in HOST_TOOLS, resolved from the machine
+ * running the tests, plus the mock gpg. The resulting PATH contains nothing else, so the host
+ * cannot see machine-specific tools (e.g. osascript on macOS, or wl-copy/xclip when installed),
+ * even if they exist on the test machine.
+ * @param {object} env - Test environment from createTestEnv().
+ * @returns {string} Bin dir to use as the complete PATH.
+ * @since 1.0.7
+ */
+function buildWhitelistPath(env) {
+    const bin = join(env.home, "allowlistbin");
+    mkdirSync(bin, { recursive: true });
+    symlinkSync(env.mockGpgPath, join(bin, "gpg"));
+    const lines = execSync(
+        `for t in ${HOST_TOOLS.join(" ")}; do p="$(command -v "$t" 2>/dev/null)" && printf '%s=%s\\n' "$t" "$p" || printf 'MISSING=%s\\n' "$t"; done`,
+        { encoding: "utf8" },
+    )
+        .split("\n")
+        .filter(Boolean);
+    for (const line of lines) {
+        const sep = line.indexOf("=");
+        const name = line.slice(0, sep);
+        const path = line.slice(sep + 1);
+        if (name === "MISSING") throw new Error(`Host tool not found on this machine: ${path}`);
+        symlinkSync(path, join(bin, name));
+    }
+    // the bootstrap falls back from sha256sum to sha256; expose whichever the machine has
+    const sha = execSync("command -v sha256sum 2>/dev/null || command -v sha256 2>/dev/null", { encoding: "utf8" }).trim();
+    if (!sha) throw new Error("Host tool not found on this machine: sha256sum / sha256");
+    symlinkSync(sha, join(bin, basename(sha)));
+    return bin;
 }
 
 /**
@@ -1020,19 +1101,10 @@ VALID_SIGNERS="${env.knownSigner}"
 
     test("action_clipboard fails when osascript is missing", async () => {
         const env = createTestEnv();
-        // build a PATH with uname reporting Darwin, but excluding osascript entirely so command -v fails
-        const limitedBin = join(env.home, "limitedbin");
-        mkdirSync(limitedBin, { recursive: true });
-        symlinkSync(env.mockGpgPath, join(limitedBin, "gpg"));
+        // whitelist PATH with uname reporting Darwin: osascript is not whitelisted, so command -v fails
+        const limitedBin = buildWhitelistPath(env);
         writeFileSync(join(limitedBin, "uname"), "#!/bin/bash\necho Darwin\n");
         chmodSync(join(limitedBin, "uname"), 0o755);
-        for (const dir of ["/usr/bin", "/bin", "/sbin", "/usr/sbin", dirname(execSync("command -v jq", { encoding: "utf8" }).trim())]) {
-            for (const entry of readdirSync(dir)) {
-                if (entry !== "osascript" && !existsSync(join(limitedBin, entry))) {
-                    symlinkSync(join(dir, entry), join(limitedBin, entry));
-                }
-            }
-        }
 
         const { proc, read, send } = await installMainScript(env, { PATH: limitedBin });
         try {
@@ -1087,11 +1159,15 @@ VALID_SIGNERS="${env.knownSigner}"
             assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to wl-copy stdin verbatim");
             const args = await pollFile(captureArgs, "--sensitive");
             assert.ok(args !== null, "copy invocation should include --sensitive when supported");
-            // per-line check: the watcher's --clear invocation must never carry --sensitive
-            const copyLine = args.split("\n").find((line) => line.includes("--sensitive"));
-            assert.strictEqual(copyLine, "--sensitive", "only the plain copy invocation should carry --sensitive");
             const clearArgs = await pollFile(captureArgs, "--clear");
             assert.ok(clearArgs !== null, "watcher should still clear the clipboard after the timeout");
+            // per-line check: only the plain copy invocation may carry --sensitive; in particular
+            // the watcher's --clear invocation must never receive it
+            assert.deepStrictEqual(
+                clearArgs.split("\n").filter((line) => line.includes("--sensitive")),
+                ["--sensitive"],
+                "only the plain copy invocation should carry --sensitive",
+            );
             await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
         } finally {
             proc.kill();
@@ -1104,16 +1180,21 @@ VALID_SIGNERS="${env.knownSigner}"
         const captureArgs = join(env.home, "wl-args");
         mockClipboardWayland(env, captureArgs, "something-else");
 
-        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1" });
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1", PARCEL_IDLE_TIMEOUT: "299" });
         try {
             send({ action: "clipboard", value: "secret", timeout: 45 });
             const msg = await read();
             assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
-            // wl-paste appearing means the watcher completed its comparison
+            // wl-paste appearing means the watcher ran its comparison read
             const args = await pollFile(captureArgs, "-n");
             assert.ok(args !== null, "watcher should have checked the clipboard contents");
-            assert.ok(!args.includes("--clear"), "watcher must not clear a clipboard that no longer holds our value");
-            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before judging it
+            // the copy invocation is recorded as an empty line ($* of a bare wl-copy), dropped by filter(Boolean)
+            assert.deepStrictEqual(
+                readFileSync(captureArgs, "utf8").split("\n").filter(Boolean),
+                ["--help", "45", "-n"],
+                "watcher must query but never clear a clipboard that no longer holds our value",
+            );
         } finally {
             proc.kill();
             env.cleanup();
@@ -1126,7 +1207,7 @@ VALID_SIGNERS="${env.knownSigner}"
         const captureArgs = join(env.home, "xclip-args");
         mockClipboardX11(env, captureArgs, "secret", captureStdin);
 
-        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0" });
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0", PARCEL_IDLE_TIMEOUT: "299" });
         try {
             send({ action: "clipboard", value: "secret", timeout: 45 });
             const msg = await read();
@@ -1134,6 +1215,16 @@ VALID_SIGNERS="${env.knownSigner}"
             assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to xclip stdin verbatim");
             const args = await pollFile(captureArgs, "/dev/null");
             assert.ok(args !== null, "watcher should empty the clipboard after the timeout when the value is unchanged");
+            assert.deepStrictEqual(
+                args.split("\n").filter(Boolean),
+                [
+                    "-selection clipboard", // the copy must target CLIPBOARD, not xclip's XA_PRIMARY default
+                    "45", // the watcher waits the requested timeout before clearing
+                    "-selection clipboard -o", // the watcher re-reads the clipboard for comparison
+                    "-selection clipboard /dev/null", // the watcher clears by emptying the same selection
+                ],
+                "expected xclip invocations, in order",
+            );
             await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
         } finally {
             proc.kill();
@@ -1146,15 +1237,19 @@ VALID_SIGNERS="${env.knownSigner}"
         const captureArgs = join(env.home, "xclip-args");
         mockClipboardX11(env, captureArgs, "something-else");
 
-        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0" });
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0", PARCEL_IDLE_TIMEOUT: "299" });
         try {
             send({ action: "clipboard", value: "secret", timeout: 45 });
             const msg = await read();
             assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
             const args = await pollFile(captureArgs, "-o");
             assert.ok(args !== null, "watcher should have checked the clipboard contents");
-            assert.ok(!args.includes("/dev/null"), "watcher must not clear a clipboard that no longer holds our value");
-            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before judging it
+            assert.deepStrictEqual(
+                readFileSync(captureArgs, "utf8").split("\n").filter(Boolean),
+                ["-selection clipboard", "45", "-selection clipboard -o"],
+                "watcher must query but never clear a clipboard that no longer holds our value",
+            );
         } finally {
             proc.kill();
             env.cleanup();
@@ -1163,7 +1258,10 @@ VALID_SIGNERS="${env.knownSigner}"
 
     test("action_clipboard reports availability errors on Linux without suitable tools", async () => {
         const env = createTestEnv();
-        mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
+        // whitelist PATH: real wl-copy/xclip binaries on the host machine must not mask the refusals
+        const hermeticBin = buildWhitelistPath(env);
+        writeFileSync(join(hermeticBin, "uname"), "#!/bin/bash\necho Linux\n");
+        chmodSync(join(hermeticBin, "uname"), 0o755);
 
         const cases = [
             { extraEnv: { WAYLAND_DISPLAY: "wayland-1", DISPLAY: "" }, error: "Cannot find wl-copy" },
@@ -1171,7 +1269,7 @@ VALID_SIGNERS="${env.knownSigner}"
             { extraEnv: { WAYLAND_DISPLAY: "", DISPLAY: "" }, error: "No privacy-enhancing clipboard tool available" },
         ];
         for (const testCase of cases) {
-            const { proc, read, send } = await installMainScript(env, testCase.extraEnv);
+            const { proc, read, send } = await installMainScript(env, { ...testCase.extraEnv, PATH: hermeticBin });
             try {
                 send({ action: "clipboard", value: "secret", timeout: 45 });
                 const msg = await read();
