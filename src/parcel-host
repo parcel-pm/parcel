@@ -232,20 +232,28 @@ function action_ping() {
     parcel_send '{"ok": true}'
 }
 
+# refuse a clipboard request before anything was written; sent as data rather than an
+# error, so the extension knows falling back to an insecure copy is reasonable
+# @param {string} $1 - the refusal reason
+# @since 1.0.7
+function clipboard_refuse() {
+    parcel_send "$(jq -nc --arg msg "$1" '{ok: false, message: $msg}')"
+}
+
 # copy a value to the system clipboard, using platform-specific secure mechanisms where available
 # @param {string} $1 - request JSON containing the .value to copy and .timeout (auto-clear delay in seconds, clamped to 3600)
 # @since 1.0.7
 function action_clipboard() {
     local VALUE
     if ! VALUE="$(jq -r '.value' <<< "$1")"; then
-        parcel_error "Invalid clipboard request"
+        clipboard_refuse "Invalid clipboard request"
         return 0
     fi
     local TIMEOUT_MAX=3600
     local TIMEOUT="$(jq -r '.timeout' <<< "$1")"
     # the extension always sends .timeout; reject anything that is not a positive integer
     if [[ ! "$TIMEOUT" =~ ^[0-9]+$ ]] || [ "$TIMEOUT" -lt 1 ]; then
-        parcel_error "Invalid clipboard timeout: $TIMEOUT"
+        clipboard_refuse "Invalid clipboard timeout: $TIMEOUT"
         return 0
     elif [ "$TIMEOUT" -gt "$TIMEOUT_MAX" ]; then
         TIMEOUT="$TIMEOUT_MAX"
@@ -258,7 +266,7 @@ function action_clipboard() {
             clipboard_linux "$VALUE" "$TIMEOUT"
             ;;
         *)
-            parcel_error "Unsupported platform for clipboard: $(uname -s)"
+            clipboard_refuse "Unsupported platform for clipboard: $(uname -s)"
             ;;
     esac
 }
@@ -269,7 +277,7 @@ function action_clipboard() {
 # @since 1.0.7
 function clipboard_macos() {
     if ! command -v osascript &>/dev/null; then
-        parcel_error "Cannot find osascript: the clipboard action requires macOS"
+        clipboard_refuse "Cannot find osascript: the clipboard action requires macOS"
         return 0
     fi
     local OUT
@@ -308,7 +316,7 @@ if (pb.changeCount == $COUNT) pb.clearContents
 function clipboard_linux() {
     if [ -n "$WAYLAND_DISPLAY" ]; then
         if ! command -v wl-copy &>/dev/null || ! command -v wl-paste &>/dev/null; then
-            parcel_error "Cannot find wl-copy/wl-paste: no privacy-enhancing clipboard tool available"
+            clipboard_refuse "Cannot find wl-copy/wl-paste: no privacy-enhancing clipboard tool available"
             return 0
         fi
         if ! printf %s "$1" | wl-copy; then
@@ -324,7 +332,7 @@ function clipboard_linux() {
     fi
     if [ -n "$DISPLAY" ]; then
         if ! command -v xclip &>/dev/null; then
-            parcel_error "Cannot find xclip: no privacy-enhancing clipboard tool available"
+            clipboard_refuse "Cannot find xclip: no privacy-enhancing clipboard tool available"
             return 0
         fi
         if ! printf %s "$1" | xclip -selection clipboard; then
@@ -336,7 +344,7 @@ function clipboard_linux() {
         ( VALUE="$(cat)"; sleep "$2"; if [[ "$(xclip -selection clipboard -o 2>/dev/null)" == "$VALUE" ]]; then xclip -selection clipboard /dev/null; fi ) < <(printf %s "$1") >/dev/null 2>&1 &
         return 0
     fi
-    parcel_error "No privacy-enhancing clipboard tool available: requires Wayland with wl-copy or X11 with xclip"
+    clipboard_refuse "No privacy-enhancing clipboard tool available: requires Wayland with wl-copy or X11 with xclip"
 }
 function action_changes_since() {
     update_config

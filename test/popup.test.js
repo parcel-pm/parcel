@@ -521,6 +521,48 @@ describe("Popup script", { concurrency: false }, () => {
         }
     });
 
+    test("copy button shows an error and does not fall back on an indeterminate result", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "detail",
+            plaintext: "user: alice\npassword: secret123\n",
+        });
+        await settleAsync();
+
+        let closed = false;
+        window.close = () => {
+            closed = true;
+        };
+        const written = [];
+        Object.defineProperty(window.navigator, "clipboard", {
+            value: { writeText: async (text) => written.push(text) },
+            configurable: true,
+        });
+
+        const detail = document.querySelector("parcel-detail");
+        const line = [...detail.shadowRoot.querySelectorAll("parcel-plaintext-line")].find((el) =>
+            el.shadowRoot.querySelector(".line").textContent.includes("secret123"),
+        );
+        const clipboardPromise = nextMessage(popupReceiver, "clipboard", 3000);
+        line.shadowRoot.querySelector(".copy").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+        const msg = await clipboardPromise;
+        assert.strictEqual(msg.value, "secret123");
+        popupReceiver.postMessage({
+            action: "clipboard-result",
+            ok: false,
+            indeterminate: true,
+            error: "Native host call timed out: clipboard",
+            requestId: msg.requestId,
+        });
+        await settleAsync();
+        assert.deepStrictEqual(written, [], "page clipboard must not be used when the outcome is unknown");
+        const banner = document.querySelector("p.error");
+        assert.ok(banner?.textContent.includes("Clipboard state is unknown"), "indeterminate outcome surfaced as an error banner");
+        assert.ok(!closed, "window stays open so the user can see the error and retry");
+    });
+
     // -----------------------------------------------------------------------
     // fill flow
     // -----------------------------------------------------------------------

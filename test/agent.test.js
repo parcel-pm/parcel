@@ -236,7 +236,7 @@ describe("Agent", () => {
                 nativePort.receiver.onMessage.removeListener(errorListener);
                 nativePort.receiver.postMessage({
                     token: msg.token,
-                    error: "No privacy-enhancing clipboard tool available: requires Wayland with wl-copy or X11 with xclip",
+                    error: "Failed to set clipboard contents (wl-copy)",
                 });
             }
         };
@@ -252,9 +252,51 @@ describe("Agent", () => {
         const result = await resultPromise;
         assert.strictEqual(result.ok, false);
         assert.strictEqual(result.requestId, "req-2");
-        assert.ok(result.error?.includes("clipboard tool"), "host error message relayed");
+        assert.strictEqual(result.indeterminate, true, "failures after a write was attempted are indeterminate");
+        assert.ok(result.error?.includes("clipboard contents"), "host error message relayed");
         await settleAsync();
         assert.ok(!messages.some((msg) => msg.action === "error"), "clipboard failure must not post a generic error to the popup");
+    });
+
+    test("clipboard pre-write refusals are relayed as fallback-safe results", async () => {
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "clipboard") return { ok: false, message: "Cannot find osascript: the clipboard action requires macOS" };
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-3" });
+        const result = await resultPromise;
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.requestId, "req-3");
+        assert.strictEqual(result.indeterminate, undefined, "pre-write refusals are safe to fall back from");
+        assert.ok(result.error?.includes("osascript"), "refusal reason relayed");
+    });
+
+    test("clipboard requests that fail before dispatch fall back without an error banner", async () => {
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        nativePort.caller.disconnect();
+        await settleAsync();
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const messages = [];
+        popup.onMessage.addListener((msg) => messages.push(msg));
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-4" });
+        const result = await resultPromise;
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.requestId, "req-4");
+        assert.strictEqual(result.indeterminate, undefined, "an undispatched request cannot have written anything");
+        assert.ok(result.error?.includes("Not connected to native host"), "pre-dispatch failure relayed");
+        await settleAsync();
+        assert.ok(!messages.some((msg) => msg.action === "error"), "must not post a generic error to the popup");
     });
 
     test("invalid clipboard requests are rejected without calling the native host", async () => {

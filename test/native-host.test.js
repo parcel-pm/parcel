@@ -984,9 +984,10 @@ VALID_SIGNERS="${env.knownSigner}"
                 }
                 send(request);
                 const msg = await read();
+                assert.strictEqual(msg.data?.ok, false, `Expected refusal for ${JSON.stringify(timeout)}, got: ${JSON.stringify(msg)}`);
                 assert.ok(
-                    msg.error?.includes("Invalid clipboard timeout"),
-                    `Expected invalid timeout error for ${JSON.stringify(timeout)}, got: ${JSON.stringify(msg)}`,
+                    msg.data?.message?.includes("Invalid clipboard timeout"),
+                    `Expected invalid timeout refusal for ${JSON.stringify(timeout)}, got: ${JSON.stringify(msg)}`,
                 );
             }
         } finally {
@@ -1034,7 +1035,11 @@ VALID_SIGNERS="${env.knownSigner}"
         try {
             send({ action: "clipboard", value: "secret", timeout: 45 });
             const msg = await read();
-            assert.ok(msg.error?.includes("Cannot find osascript"), `Expected missing osascript error, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data?.ok, false, `Expected refusal, got: ${JSON.stringify(msg)}`);
+            assert.ok(
+                msg.data?.message?.includes("Cannot find osascript"),
+                `Expected missing osascript refusal, got: ${JSON.stringify(msg)}`,
+            );
         } finally {
             proc.kill();
             env.cleanup();
@@ -1140,7 +1145,12 @@ VALID_SIGNERS="${env.knownSigner}"
             try {
                 send({ action: "clipboard", value: "secret", timeout: 45 });
                 const msg = await read();
-                assert.ok(msg.error?.includes(testCase.error), `Expected "${testCase.error}" error, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(
+                    msg.data?.ok,
+                    false,
+                    `Expected refusal for ${JSON.stringify(testCase.extraEnv)}, got: ${JSON.stringify(msg)}`,
+                );
+                assert.ok(msg.data?.message?.includes(testCase.error), `Expected "${testCase.error}" refusal, got: ${JSON.stringify(msg)}`);
             } finally {
                 proc.kill();
             }

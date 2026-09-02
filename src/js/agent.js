@@ -925,9 +925,37 @@ export class Agent extends EventTarget {
                     try {
                         if (typeof message.value !== "string" && typeof message.value !== "number")
                             throw new Error("Invalid clipboard value");
-                        await this.#callNative("clipboard", { value: String(message.value), timeout: message.timeout });
-                        port.postMessage({ action: "clipboard-result", ok: true, requestId: message.requestId });
+                        let result;
+                        try {
+                            result = await this.#callNative(
+                                "clipboard",
+                                { value: String(message.value), timeout: message.timeout },
+                                10_000,
+                            );
+                        } catch (err) {
+                            // Timeout, disconnect, or a failure after the host attempted the copy: the clipboard
+                            // state is unknown, so the popup must not overwrite it with an insecure fallback copy
+                            port.postMessage({
+                                action: "clipboard-result",
+                                ok: false,
+                                indeterminate: true,
+                                error: err.message,
+                                requestId: message.requestId,
+                            });
+                            return;
+                        }
+                        // The host only replies with data on success or a pre-write refusal, so a
+                        // {ok: false} response means the clipboard was never modified: fallback is safe
+                        if (result?.ok) port.postMessage({ action: "clipboard-result", ok: true, requestId: message.requestId });
+                        else
+                            port.postMessage({
+                                action: "clipboard-result",
+                                ok: false,
+                                error: result?.message,
+                                requestId: message.requestId,
+                            });
                     } catch (err) {
+                        // Nothing was sent to the host, so no native copy can have happened
                         port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
                     }
                 } else if (message?.action === "sha256") {
@@ -946,7 +974,13 @@ export class Agent extends EventTarget {
                 if (Object.prototype.hasOwnProperty.call(err, "logAs")) console[err.logAs](err);
                 else console.error(err);
                 try {
-                    port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
+                    if (message?.action === "clipboard") {
+                        // The call was never dispatched (e.g. no host connection), so the host cannot
+                        // have written anything; report it as a fallback-safe refusal rather than an error
+                        port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
+                    } else {
+                        port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
+                    }
                 } catch (_err) {
                     chrome.runtime.lastError;
                 }
