@@ -890,7 +890,7 @@
             }
             console.info(`Native clipboard unavailable: ${msg?.error ?? "unknown error"}`);
         } catch (_err) {
-            // the port failed before the request was sent, so no native copy can have happened
+            // the port failed before the request was sent, so the host cannot have made a copy
             console.info("Native clipboard unavailable: popup port disconnected");
         }
         return copyText(text);

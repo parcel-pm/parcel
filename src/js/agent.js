@@ -948,7 +948,7 @@ export class Agent extends EventTarget {
                             );
                         } catch (err) {
                             if (err.notDispatched) {
-                                // the request never left the agent, so no native copy can have happened
+                                // the request never left the agent, so the host cannot have made a copy
                                 port.postMessage({
                                     action: "clipboard-result",
                                     ok: false,
@@ -979,7 +979,7 @@ export class Agent extends EventTarget {
                                 requestId: message.requestId,
                             });
                     } catch (err) {
-                        // Nothing was sent to the host, so no native copy can have happened
+                        // Nothing was sent to the host, so it cannot have copied anything
                         port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
                     }
                 } else if (message?.action === "sha256") {
