@@ -2060,6 +2060,9 @@ run_config_builder() {
     local config_json
     if [ -f "$parcelfile" ]; then
         config_json="$(cat "$parcelfile")"
+        if ! printf '%s' "$config_json" | jq empty 2>/dev/null; then
+            die "Existing .parcel.json is not valid JSON: $parcelfile"
+        fi
         log_info "Loaded existing .parcel.json"
     else
         config_json="{}"
