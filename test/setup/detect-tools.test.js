@@ -7,7 +7,7 @@
  *
  * The macOS `/opt/homebrew|/usr/local` fallbacks and the interactive prompt
  * fallback are not exercised — they depend on host paths/state that cannot be
- * shimmed portably (see questions.md).
+ * shimmed portably.
  *
  * @since 1.0.7
  */

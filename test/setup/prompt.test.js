@@ -4,7 +4,7 @@
  * Behavioural tests for the interactive prompt helpers. Covers the --yes
  * short-circuit and no-TTY hard-fail guard for all three, plus prompt_bool's
  * accept-list and re-prompt loop via a stubbed `prompt`. prompt_yesno's inline
- * accept-list is left untested (low value — see questions.md).
+ * accept-list is left untested (low value).
  *
  * @since 1.0.7
  */
