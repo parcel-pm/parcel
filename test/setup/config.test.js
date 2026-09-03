@@ -15,7 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { runBash, SETUP_SCRIPT, makeTempHome, writeMockBin } from "./harness.js";
@@ -25,16 +25,20 @@ import { runBash, SETUP_SCRIPT, makeTempHome, writeMockBin } from "./harness.js"
  * @param {string} home - Temp HOME (bin dir is derived under it).
  * @param {string} store - Password store directory.
  * @param {string} [existing] - Optional pre-seeded .parcel.json content.
+ * @param {number} [existingMode] - Optional mode to chmod the seed to (e.g. 0o644).
  * @returns {{code:number|null, stderr:string, json:object|null, raw:string|null}}
  *   The exit code, stderr, parsed final config, and raw bytes of .parcel.json.
  * @since 1.0.7
  */
-function runCreateConfig(home, store, existing) {
+function runCreateConfig(home, store, existing, existingMode) {
     mkdirSync(store, { recursive: true });
 
     const parcelfile = join(store, ".parcel.json");
     if (existing !== undefined) {
         writeFileSync(parcelfile, existing);
+        if (existingMode !== undefined) {
+            chmodSync(parcelfile, existingMode);
+        }
     }
 
     // gpg must exist for check_dependencies; jq is the host's real jq.
@@ -93,7 +97,7 @@ test("create-config preserves existing values and unknown keys, and strips inter
             modified: "2026-01-01",
             defaultRules: [1, 2, 3],
         });
-        const { code, stderr, json } = runCreateConfig(home, store, existing);
+        const { code, stderr, json } = runCreateConfig(home, store, existing, 0o644);
 
         assert.strictEqual(code, 0, `create-config must exit 0 (stderr:\n${stderr})`);
 
@@ -109,11 +113,14 @@ test("create-config preserves existing values and unknown keys, and strips inter
         for (const field of ["passdir", "modified", "defaultRules"]) {
             assert.ok(!(field in json), `${field} must be stripped`);
         }
+
+        // The in-place write preserves the pre-existing (loose) mode, so the
+        // builder's unconditional chmod is the only thing re-privatising the file.
+        assert.strictEqual(statSync(join(store, ".parcel.json")).mode & 0o777, 0o600, "loose 0644 seed must be re-privatised to 0600");
     } finally {
         cleanup();
     }
 });
-
 /** Verifies rule auto-detection on a fresh store and rule preservation on an existing one. */
 test("create-config detects rules on a fresh store and keeps pre-existing rules", () => {
     const { home, cleanup } = makeTempHome();
@@ -160,6 +167,26 @@ test("create-config aborts on a corrupt .parcel.json without modifying it", () =
             corrupt,
             "the corrupt file must be left byte-for-byte unchanged",
         );
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies a missing password store fails cleanly, naming the path and creating nothing. */
+test("create-config with no password store fails without side effects", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        writeMockBin(join(home, "bin"), "gpg", `[ "\${1:-}" = "--version" ] && echo "gpg (GnuPG) 2.4.0"`);
+
+        // PASSWORD_STORE_DIR deliberately unset: detection falls through to the
+        // --yes prompt default ($HOME/.password-store), which does not exist.
+        const res = runBash(`"${SETUP_SCRIPT}" --create-config --yes`, {
+            env: { PATH: `${join(home, "bin")}:${process.env.PATH}`, HOME: home, TMPDIR: home },
+        });
+
+        assert.notStrictEqual(res.code, 0, "a missing store must be a hard failure");
+        assert.match(res.stderr, /Password store not found/, "the failure must name the missing store");
+        assert.ok(!existsSync(join(home, ".password-store")), "the default store path must not be created");
     } finally {
         cleanup();
     }
