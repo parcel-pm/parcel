@@ -142,7 +142,7 @@ bash parcel-setup.sh
 
 The script will:
 
-- Detect your operating system and architecture.
+- Detect your operating system.
 - Check that `jq` and `gpg` are installed.
 - Ask whether to install system-wide (requires `sudo`) or user-level.
 - Detect installed browsers and ask which ones to set up.
