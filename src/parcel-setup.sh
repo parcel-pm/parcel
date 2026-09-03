@@ -1639,8 +1639,9 @@ set_parcelrc_var() {
     tmpfile="$(make_temp)"
 
     if [ "$force" = "force" ] && grep -q "^${varname}=" "$parcelrc_path" 2>/dev/null; then
-        # Replace the existing uncommented line
-        awk -v var="$varname" -v val="$value" '
+        # Replace the existing uncommented line (ENVIRON, not -v: -v escape-processes its values)
+        var="$varname" val="$value" awk '
+            BEGIN { var = ENVIRON["var"]; val = ENVIRON["val"] }
             $0 ~ "^" var "=" { print var "=\"" val "\""; next }
             { print }
         ' "$parcelrc_path" > "$tmpfile"
@@ -1651,7 +1652,8 @@ set_parcelrc_var() {
         fi
 
         # Insert below the commented-out default line, or append to end
-        awk -v var="$varname" -v val="$value" '
+        var="$varname" val="$value" awk '
+            BEGIN { var = ENVIRON["var"]; val = ENVIRON["val"] }
             {
                 print
                 if (!found && $0 ~ "^#[[:space:]]*" var "=") {
