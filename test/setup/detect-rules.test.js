@@ -41,6 +41,8 @@ test("detect_rules sorts by path depth and consolidates/falls back correctly", (
             "family/login", // direct *and* nested -> ^family/(.+/)?login/
             "family/member/login",
             "springbroker/client/login", // single subdir -> stays literal
+            "a/login", // short-name container, direct class -> literal (length-sort discriminator)
+            "verylongtagname", // long name, no class dirs -> top-level fallback (length-sort discriminator)
             "monica/notes", // no class dirs -> top-level fallback
             ".git/objects", // must never yield a rule
         ]);
@@ -56,6 +58,8 @@ test("detect_rules sorts by path depth and consolidates/falls back correctly", (
             "^clients/.+/login/": { class: "login", tag: "clients" },
             "^family/(.+/)?login/": { class: "login", tag: "family" },
             "^springbroker/client/login/": { class: "login", tag: "springbroker" },
+            "^a/login/": { class: "login", tag: "a" },
+            "^verylongtagname/": { class: "", tag: "verylongtagname" },
             "^monica/": { class: "", tag: "monica" },
         };
         assert.strictEqual(rules.length, Object.keys(expected).length, "exactly the expected rules are emitted");
@@ -85,6 +89,12 @@ test("detect_rules sorts by path depth and consolidates/falls back correctly", (
         assert.ok(
             rules.findIndex((r) => r.pattern === "^springbroker/client/login/") < rules.findIndex((r) => r.pattern === "^erayd/login/"),
             "a deeper string must sort before the shallower ^erayd/login/ (depth, not length)",
+        );
+        // A raw length sort would place ^verylongtagname/ (17 chars, 1 slash) before
+        // ^a/login/ (9 chars, 2 slashes); depth sorting must keep them this way round.
+        assert.ok(
+            rules.findIndex((r) => r.pattern === "^a/login/") < rules.findIndex((r) => r.pattern === "^verylongtagname/"),
+            "a deeper (shorter) pattern must sort before the longer, shallower ^verylongtagname/ (depth, not length)",
         );
     } finally {
         cleanup();
