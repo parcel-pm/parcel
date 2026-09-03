@@ -101,3 +101,21 @@ second_smoke_test`,
         cleanup();
     }
 });
+
+/** Verifies main refuses a bare `sudo parcel-setup.sh` (root via sudo, not self-elevated). */
+test("main refuses a manual sudo with guidance to run without it", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        // Pretend to be root so the guard's id -u check fires.
+        writeMockBin(bin, "id", 'printf "0\\n"');
+
+        const noMarker = sourceScript(`main`, {
+            env: { HOME: home, SUDO_USER: "alice", PATH: `${bin}:${process.env.PATH}` },
+        });
+        assert.strictEqual(noMarker.code, 1, "a bare sudo must be refused with exit 1");
+        assert.match(noMarker.stderr, /without sudo/, "the refusal must advise running without sudo");
+    } finally {
+        cleanup();
+    }
+});

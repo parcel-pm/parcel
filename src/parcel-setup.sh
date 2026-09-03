@@ -435,7 +435,7 @@ resolve_install_level() {
     [ "$ACTION" = "uninstall" ] && verb="Uninstall"
     if prompt_yesno "$verb system-wide? (requires sudo)" true; then
         log_info "Re-running with sudo for system-wide $ACTION..."
-        exec sudo env "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" --system "$@"
+        exec sudo env "PARCEL_SUDO_ELEVATED=1" "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" --system "$@"
     fi
     INSTALL_LEVEL="user"
 }
@@ -512,7 +512,7 @@ parse_args() {
             die "System install requires root (re-run with sudo, or use --user)"
         fi
         log_info "Re-running with sudo for system-wide $ACTION..."
-        exec sudo env "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" "${orig_args[@]}"
+        exec sudo env "PARCEL_SUDO_ELEVATED=1" "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" "${orig_args[@]}"
     fi
 
     RESOLVED_LEVEL="$INSTALL_LEVEL"
@@ -2255,6 +2255,14 @@ main() {
 '
     trap on_signal INT TERM
     trap cleanup EXIT
+
+    # Refuse a bare `sudo parcel-setup.sh`: only the script's own self-elevation
+    # (which threads the invoking user's PATH and XDG_CONFIG_HOME through
+    # `sudo env`) sets PARCEL_SUDO_ELEVATED. A manual sudo resets those and
+    # breaks dependency and tool detection, so abort with guidance instead.
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "${PARCEL_SUDO_ELEVATED:-}" != "1" ]; then
+        die "Please run parcel-setup.sh without sudo - the script invokes sudo itself when it needs elevated privileges."
+    fi
 
     detect_nixos
     load_dev_fallback
