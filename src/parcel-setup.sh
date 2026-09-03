@@ -2063,6 +2063,8 @@ run_config_builder() {
         if ! printf '%s' "$config_json" | jq empty 2>/dev/null; then
             die "Existing .parcel.json is not valid JSON: $parcelfile"
         fi
+        # A parseable non-object (e.g. [] or 42) is deliberately clobbered: it is
+        # by definition not a parcel config, so it cannot hold anything of value.
         log_info "Loaded existing .parcel.json"
     else
         config_json="{}"
