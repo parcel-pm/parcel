@@ -498,7 +498,12 @@ parse_args() {
 
     # Resolve install level when not explicitly specified
     if [ -z "$INSTALL_LEVEL" ]; then
-        resolve_install_level "${orig_args[@]}"
+        # Empty-array expansion trips set -u on bash < 4.4 (macOS bash 3.2)
+        if [ "${#orig_args[@]}" -gt 0 ]; then
+            resolve_install_level "${orig_args[@]}"
+        else
+            resolve_install_level
+        fi
     fi
 
     # Refuse system-level install on NixOS
