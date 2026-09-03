@@ -74,7 +74,7 @@ The easiest way to install Parcel is directly from your browser's webstore:
 - **[Mozilla Firefox — Parcel](https://addons.mozilla.org/en-GB/firefox/addon/parcel-pm/)** (recommended)
 - **[Google Chrome — Parcel](https://chromewebstore.google.com/detail/parcel/ciifpadakeohfnnneflckhojbldkkllp)** (recommended)
 
-After installing from the webstore, you will still need to set up the native host from [distro package](#install-from-distro-package) or manually [from source](#install-the-native-host), and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
+After installing from the webstore, you will still need to set up the native host from [distro package](#install-from-distro-package) or manually [from source](#set-up-the-native-host), and [configure entry visibility](#configure-entry-visibility). Skip to those sections now.
 
 > **Note:** If you install from the webstore you will receive automatic updates. If you prefer to run a local build from source, follow the steps below instead.
 
