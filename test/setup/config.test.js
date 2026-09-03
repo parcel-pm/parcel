@@ -15,7 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { runBash, SETUP_SCRIPT, makeTempHome, writeMockBin } from "./harness.js";
@@ -52,12 +52,13 @@ function runCreateConfig(home, store, existing) {
 
     let json = null;
     let raw = null;
-    try {
+    if (existsSync(parcelfile)) {
         raw = readFileSync(parcelfile, "utf8");
-        json = JSON.parse(raw);
-    } catch {
-        // Corrupt config: the file still exists but does not parse.
-        raw = raw === null ? readFileSync(parcelfile, "utf8") : raw;
+        try {
+            json = JSON.parse(raw);
+        } catch {
+            // Existing but unparseable: raw stays set, json stays null.
+        }
     }
 
     return { code: res.code, stderr: res.stderr, json, raw };
@@ -85,7 +86,8 @@ test("create-config preserves existing values and unknown keys, and strips inter
     try {
         const store = join(home, "store");
         const existing = JSON.stringify({
-            allowLinks: true,
+            allowLinks: true, // non-default value -> preserved via the `!=` half of the guard
+            handleHttpAuth: true, // present-but-default -> preserved via the has() half of the guard
             customThing: 1,
             passdir: "/should/be/dropped",
             modified: "2026-01-01",
@@ -95,8 +97,11 @@ test("create-config preserves existing values and unknown keys, and strips inter
 
         assert.strictEqual(code, 0, `create-config must exit 0 (stderr:\n${stderr})`);
 
-        // Present-but-default values are preserved; absent defaults are not added.
+        // Present-but-default values are preserved via the has() half of the
+        // guard (a regression dropping it silently empties pinned-default
+        // configs); absent defaults are not added.
         assert.strictEqual(json.allowLinks, true, "existing allowLinks must be preserved");
+        assert.strictEqual(json.handleHttpAuth, true, "present-but-default handleHttpAuth must be preserved");
         assert.strictEqual(json.customThing, 1, "unknown keys must pass through untouched");
         assert.ok(!("allowExternalLinks" in json), "absent default must not be added");
 
