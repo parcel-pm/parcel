@@ -25,7 +25,7 @@ install-deps:
 
 .PHONY: prettier
 prettier:
-	$(PRETTIER) --write 'test/*.{js,json}'
+	$(PRETTIER) --write 'test/*.{js,json}' 'test/setup/*.js'
 	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier
 
 .PHONY: lint
@@ -120,7 +120,7 @@ test-application:
 
 .PHONY: test-syntax
 test-syntax:
-	$(PRETTIER) --check 'test/*.{js,json}'
+	$(PRETTIER) --check 'test/*.{js,json}' 'test/setup/*.js'
 	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier-check
 	$(ESLINT) .
 
