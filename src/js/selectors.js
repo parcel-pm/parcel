@@ -75,9 +75,11 @@ export const targetSelectors = [
 
     // type: cardexp-month
     { selector: "input[autocomplete~=cc-exp-month i]", type: "cardexp-month" },
+    { selector: "select[autocomplete~=cc-exp-month i]", type: "cardexp-month" },
 
     // type: cardexp-year
     { selector: "input[autocomplete~=cc-exp-year i]", type: "cardexp-year" },
+    { selector: "select[autocomplete~=cc-exp-year i]", type: "cardexp-year" },
 
     // type: cardcsc
     { selector: "input[autocomplete~=cc-csc i]", type: "cardcsc" },
