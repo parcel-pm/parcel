@@ -48,6 +48,10 @@ export function runBash(code, opts = {}) {
     const res = spawnSync("bash", ["--noprofile", "--norc"], {
         input: code,
         encoding: "utf8",
+        // Decouple the child from any controlling terminal so `/dev/tty` reads
+        // (e.g. in `prompt`) fail deterministically, rather than hanging when
+        // the suite is run from an interactive shell.
+        detached: true,
         env: { PATH: process.env.PATH ?? "", ...(opts.env ?? {}) },
         cwd: opts.cwd,
     });
