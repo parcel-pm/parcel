@@ -325,8 +325,9 @@ function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/de
     mockTool(
         env,
         "sleep",
-        // skip the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value)
-        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && exit 0\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
+        // copy the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value), but
+        // delay briefly so dd gets a chance to read the next message before the watchdog kills it
+        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && { /bin/sleep 1; exit 0; }\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
     );
 }
 
@@ -355,8 +356,9 @@ exit 0
     mockTool(
         env,
         "sleep",
-        // skip the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value)
-        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && exit 0\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
+        // copy the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value), but
+        // delay briefly so dd gets a chance to read the next message before the watchdog kills it
+        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && { /bin/sleep 1; exit 0; }\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
     );
 }
 
