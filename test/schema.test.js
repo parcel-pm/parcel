@@ -152,6 +152,42 @@ describe("Schema.validate", () => {
     });
 
     // ----------------------------------------------------------------
+    // typeless: type inferred from the data; constraints still apply
+    // ----------------------------------------------------------------
+    test("typeless: accepts any data type without constraints", () => {
+        Schema.validate({}, true);
+        Schema.validate({}, "hello");
+        Schema.validate({}, 42);
+        Schema.validate({}, { a: 1 });
+        Schema.validate({}, [1, 2]);
+    });
+
+    test("typeless: enforces string constraints against inferred type", () => {
+        Schema.validate({ minLength: 3 }, "abc");
+        assert.throws(() => Schema.validate({ minLength: 3 }, "ab"), /at least 3 characters/);
+        assert.throws(() => Schema.validate({ maxLength: 3 }, "abcd"), /at most 3 characters/);
+    });
+
+    test("typeless: ignores constraints that do not apply to the data type", () => {
+        Schema.validate({ minLength: 3 }, 42);
+        Schema.validate({ minimum: 10 }, "short");
+    });
+
+    test("typeless: enforces value constraint on inferred scalar type", () => {
+        Schema.validate({ value: 42 }, 42);
+        assert.throws(() => Schema.validate({ value: 42 }, 43), /Invalid value.*must be 42/);
+    });
+
+    // ----------------------------------------------------------------
+    // null
+    // ----------------------------------------------------------------
+    test("rejects null data with a validation error", () => {
+        assert.throws(() => Schema.validate({ type: "string" }, null), /null values are not allowed/);
+        assert.throws(() => Schema.validate({}, null), /null values are not allowed/);
+        assert.throws(() => Schema.validate({ type: "object", items: { type: "string" } }, null), /null values are not allowed/);
+    });
+
+    // ----------------------------------------------------------------
     // object
     // ----------------------------------------------------------------
     test("object: applies defaults for missing properties", () => {

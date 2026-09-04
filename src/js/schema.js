@@ -41,8 +41,8 @@ export class Schema {
         }
         let type = typeof data;
         if (type === "object" && Array.isArray(data)) type = "array";
-        if (schema.type === undefined) return; // Wildcard schemas accept any value.
-        if (type !== schema.type) {
+        if (data === null) throw new Error(`Invalid type for ${path}: null values are not allowed.`);
+        if (schema.type !== undefined && type !== schema.type) {
             if (schema.type === "integer" && type === "number" && Number.isInteger(data)) {
                 // Integer is a subtype of number; the local `type` variable is already
                 // "number", so all remaining validation (value, minimum, maximum) proceeds
