@@ -2055,6 +2055,98 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("stale orphaned state lock is recovered", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        // Simulate a crashed holder: lock file left behind with a stale mtime
+        const configdir = join(env.home, ".config", "parcel");
+        const lockedState = join(configdir, "state.locked");
+        writeFileSync(lockedState, "DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\n");
+        chmodSync(lockedState, 0o600);
+        const stale = new Date(Date.now() - 60000);
+        utimesSync(lockedState, stale, stale);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed despite stale lock: ${JSON.stringify(msg)}`);
+            assert.ok(!existsSync(lockedState), "Lock file should not remain after the request completes");
+            assert.ok(existsSync(join(configdir, "state")), "State file should exist after the request completes");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("concurrent hosts consume tokens atomically without lost updates", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.0001 }));
+
+        const hosts = await Promise.all([installMainScript(env), installMainScript(env), installMainScript(env)]);
+        try {
+            const testPath = join(env.passdir, "test-entry.gpg");
+            for (const host of hosts) {
+                host.send({ action: "list" });
+            }
+            await Promise.all(hosts.map((host) => host.read()));
+
+            for (const host of hosts) {
+                host.send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            }
+            const replies = await Promise.all(hosts.map((host) => host.read()));
+            for (const reply of replies) {
+                assert.strictEqual(reply.data?.plaintext, "test-decrypted-content", `Concurrent decrypt failed: ${JSON.stringify(reply)}`);
+            }
+
+            // Three consumes against a full 3-token bucket must leave zero tokens;
+            // a lost update between concurrent hosts would leave 1000+ behind.
+            const stateFile = join(env.home, ".config", "parcel", "state");
+            const tokens = Number((readFileSync(stateFile, "utf8").match(/^DECRYPT_BUCKET_TOKENS=(\d+)$/m) || [])[1]);
+            assert.ok(Number.isInteger(tokens), `State file should contain DECRYPT_BUCKET_TOKENS: ${readFileSync(stateFile, "utf8")}`);
+            assert.ok(tokens < 1000, `Bucket should be fully consumed, found ${tokens} tokens (lost update?)`);
+        } finally {
+            for (const host of hosts) {
+                host.proc.kill();
+            }
+            env.cleanup();
+        }
+    });
+
+    test("state lock exhaustion denies decrypt requests (fail closed)", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        // Simulate a live holder: lock file exists with a fresh mtime
+        const configdir = join(env.home, ".config", "parcel");
+        const lockedState = join(configdir, "state.locked");
+        writeFileSync(lockedState, "DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\n");
+        chmodSync(lockedState, 0o600);
+
+        const { proc, read, send } = await installMainScript(env, { STATE_LOCK_ATTEMPTS_MAX: "5" });
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("rate limit"), `Expected rate limit error, got: ${JSON.stringify(msg)}`);
+            assert.ok(existsSync(lockedState), "Lock file should remain untouched when the claim is exhausted");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("rate limit state file is created with 0600 permissions", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
