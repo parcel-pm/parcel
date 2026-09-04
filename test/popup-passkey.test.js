@@ -114,7 +114,16 @@ before(async () => {
             if (msg?.action === "config") {
                 receiver.postMessage({
                     action: "config",
-                    config: { passdir: "/home/test/.password-store", saveHistory: true, historyLength: 40 },
+                    config: {
+                        passdir: "/home/test/.password-store",
+                        saveHistory: true,
+                        historyLength: 40,
+                        auditDecrypt: true,
+                        hostPinned: true,
+                        decryptBucket: 24,
+                        decryptRate: 0.006667,
+                        suppressWarnings: [],
+                    },
                 });
             }
         });

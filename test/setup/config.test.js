@@ -96,6 +96,7 @@ test("create-config preserves existing values and unknown keys, and strips inter
             passdir: "/should/be/dropped",
             modified: "2026-01-01",
             defaultRules: [1, 2, 3],
+            hostPinned: true,
         });
         const { code, stderr, json } = runCreateConfig(home, store, existing, 0o644);
 
@@ -110,7 +111,7 @@ test("create-config preserves existing values and unknown keys, and strips inter
         assert.ok(!("allowExternalLinks" in json), "absent default must not be added");
 
         // Internal fields are never written.
-        for (const field of ["passdir", "modified", "defaultRules"]) {
+        for (const field of ["passdir", "modified", "defaultRules", "hostPinned"]) {
             assert.ok(!(field in json), `${field} must be stripped`);
         }
 

@@ -43,6 +43,7 @@ function makeValidConfig() {
         cacheTTL: 10,
         decryptTimeout: 60,
         auditDecrypt: false,
+        hostPinned: true,
         disableContextPopup: false,
         fillRelated: true,
         handleHttpAuth: true,

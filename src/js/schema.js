@@ -18,6 +18,16 @@ export const classDefaults = {
 };
 
 /**
+ * Security-warning thresholds; exceeding either triggers the rate-limit-high warning.
+ * @type {object}
+ * @since 1.0.7
+ */
+export const limits = {
+    rateBucketThreshold: 16, // decryptBucket tokens
+    rateRefillThreshold: 0.00444, // decryptRate tokens per second
+};
+
+/**
  * A basic data validation class.
  * @since 1.0.0
  */
@@ -228,14 +238,15 @@ export const ConfigSchema = {
         auditDecrypt: { type: "boolean", required: true, default: false },
         cacheTTL: { type: "number", required: true, minimum: 0, default: 10 },
         clipboardTimeout: { type: "integer", required: true, minimum: 1, maximum: 3600, default: 60 }, // maximum mirrors the host-side TIMEOUT_MAX clamp
-        decryptBucket: { type: "integer", required: true, minimum: 0, default: 24 }, // default also set in parcel-host (DECRYPT_BUCKET_SIZE_DEFAULT)
-        decryptRate: { type: "number", required: true, minimum: 0, default: 0.006667 }, // default also set in parcel-host (DECRYPT_BUCKET_RATE_DEFAULT)
+        decryptBucket: { type: "integer", required: true, minimum: 0, default: 10 }, // default also set in parcel-host (DECRYPT_BUCKET_SIZE_DEFAULT)
+        decryptRate: { type: "number", required: true, minimum: 0, default: 0.00277 }, // default also set in parcel-host (DECRYPT_BUCKET_RATE_DEFAULT)
         decryptTimeout: { type: "number", required: true, minimum: 1, default: 60 },
         defaultRules: { type: "boolean", required: true, default: false },
         disableContextPopup: { type: "boolean", required: true, default: false },
         fillRelated: { type: "boolean", required: true, default: true },
         historyLength: { type: "integer", required: true, minimum: 0, default: 40 },
         gitInPasskeyCommand: { type: "boolean", required: true, default: false },
+        hostPinned: { type: "boolean", required: true },
         modified: { type: "integer", required: true, minimum: 1 },
         passdir: { type: "string", required: true },
         passkeyDir: {
@@ -249,6 +260,12 @@ export const ConfigSchema = {
         handlePasskeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
+        suppressWarnings: {
+            type: "array",
+            items: { type: "string", enum: ["rate-limit-high", "rate-limit-disabled", "audit-disabled", "host-unpinned"] },
+            required: true,
+            default: [],
+        },
         rules: {
             type: "array",
             minItems: 1,

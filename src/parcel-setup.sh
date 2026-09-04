@@ -2198,7 +2198,7 @@ run_config_builder() {
     # Build the final config. Only include a setting if:
     #   - it was already present in the existing .parcel.json, OR
     #   - the user's value differs from the schema default
-    # passdir, modified, and defaultRules are internal, never written.
+    # passdir, modified, defaultRules, and hostPinned are internal, never written.
     local final_config
     final_config="$(printf '%s' "$config_json" | jq \
         --arg passkeyDir "$passkey_dir" \
@@ -2214,7 +2214,7 @@ run_config_builder() {
         --argjson rules "$rules_json" \
         '
         # Start from existing config, strip internal fields
-        del(.passdir, .modified, .defaultRules)
+        del(.passdir, .modified, .defaultRules, .hostPinned)
         # Only set each field if value differs from default or was already present
         | if $allowLinks != false or has("allowLinks") then .allowLinks = $allowLinks else del(.allowLinks) end
         | if $allowExternalLinks != false or has("allowExternalLinks") then .allowExternalLinks = $allowExternalLinks else del(.allowExternalLinks) end
