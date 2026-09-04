@@ -151,7 +151,7 @@ function lock_state() {
     WAIT_START="$(date +%s)"
     while true; do
         # existing state: the rename removes the source, so exactly one mv wins
-        if [ -f "$STATEFILE" ] && mv "$STATEFILE" "$LOCKED_STATEFILE" 2>/dev/null; then
+        if [ -f "$STATEFILE" ] && touch -c "$STATEFILE" 2>/dev/null && mv "$STATEFILE" "$LOCKED_STATEFILE" 2>/dev/null; then
             break
         fi
         # fresh install: noclobber redirection creates exclusively (O_EXCL), so
@@ -184,9 +184,6 @@ function lock_state() {
         sleep "0.0$(printf '%02d' $((RANDOM % 190 + 10)))"
     done
     STATE_LOCK_HELD=1
-    # rename preserves mtime: reset it to the claim time so the staleness check
-    # measures lock age, not the previous save's age
-    touch "$LOCKED_STATEFILE"
     return 0
 }
 
