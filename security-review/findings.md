@@ -24,7 +24,7 @@ No CRITICAL or HIGH vulnerabilities are exploitable in the v1.0.6 committed tree
 
 **Description:** `Helpers.generateTOTP` trusts `digits` verbatim; a store-controlled `otpauth://` URI with `digits=1e8` triggers a ~100 MB `padStart` allocation, hanging or OOM-crashing the popup (TM4). `period=0` defeats the `|| 30` default and drives 50 ms refresh churn. No credential or host impact.
 
-**Response:** Addressed in #170; `digits` is coerced and restricted to 6–10 and `period` to 1–3600, so pathological `otpauth://` values are rejected.
+**Response:** Addressed in #170; `digits` is type-coerced and restricted to 6–10 and `period` to 1–3600, so pathological `otpauth://` values are rejected.
 
 ### F55L — `clientDataJSON.crossOrigin` hardcoded `false` for cross-origin-iframe ceremonies (LOW)
 
