@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { sourceScript, makeTempHome, writeMockBin } from "./harness.js";
@@ -166,6 +166,76 @@ printf '%s' "$DETECTED_FLATPAK_BROWSERS"`,
 
         assert.strictEqual(res.code, 0, `empty list must be a clean no-op (stderr:\n${res.stderr})`);
         assert.strictEqual(res.stdout, "", "no apps must be recorded for an empty install list");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies detect_flatpak_browsers never invokes flatpak when the filter excludes every configured browser. */
+test("detect_flatpak_browsers skips the flatpak probe when every flatpak browser is filtered out", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        writeMockBin(bin, "flatpak", "exit 1");
+        const fullPath = `${bin}:${process.env.PATH}`;
+
+        const config = {
+            flatpak: {
+                browsers: [{ name: "firefox", appId: "org.mozilla.firefox" }],
+            },
+        };
+
+        const res = sourceScript(
+            `HAS_FLATPAK=true
+BROWSER_FILTER="vivaldi"
+detect_flatpak_browsers
+printf '%s' "$DETECTED_FLATPAK_BROWSERS"`,
+            { env: { PATH: fullPath, HOME: home, SETUP_CONFIG: JSON.stringify(config), newline: "\n", TMPDIR: home } },
+        );
+
+        assert.strictEqual(res.code, 0, `a fully filtered run must not probe flatpak (stderr:\n${res.stderr})`);
+        assert.strictEqual(res.stdout, "", "no apps must be recorded");
+        assert.ok(!res.stderr.includes("Failed to list installed flatpak apps"), "flatpak must not be invoked");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies detect_flatpak_browsers records the filtered apps, probing flatpak exactly once. */
+test("detect_flatpak_browsers records filtered apps from a single flatpak probe", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        const probeLog = join(home, "probe.log");
+        writeMockBin(
+            bin,
+            "flatpak",
+            `printf 'probe\\n' >> "\${HOME}/probe.log"
+if [ "\${1:-}" = "list" ]; then printf '%s\\n%s\\n%s\\n' org.mozilla.firefox org.chromium.Chromium com.brave.Browser; fi`,
+        );
+        const fullPath = `${bin}:${process.env.PATH}`;
+
+        const config = {
+            flatpak: {
+                browsers: [
+                    { name: "firefox", appId: "org.mozilla.firefox" },
+                    { name: "chromium", appId: "org.chromium.Chromium" },
+                    { name: "brave", appId: "com.brave.Browser" },
+                ],
+            },
+        };
+
+        const res = sourceScript(
+            `HAS_FLATPAK=true
+BROWSER_FILTER="firefox chromium"
+detect_flatpak_browsers
+printf '%s' "$DETECTED_FLATPAK_BROWSERS"`,
+            { env: { PATH: fullPath, HOME: home, SETUP_CONFIG: JSON.stringify(config), newline: "\n", TMPDIR: home } },
+        );
+
+        assert.strictEqual(res.code, 0, `filtered detection must succeed (stderr:\n${res.stderr})`);
+        assert.strictEqual(res.stdout, "org.mozilla.firefox\norg.chromium.Chromium", "only filtered apps must be recorded");
+        assert.strictEqual(readFileSync(probeLog, "utf8"), "probe\n", "flatpak must be probed exactly once");
     } finally {
         cleanup();
     }
