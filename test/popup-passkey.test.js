@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import nodeCrypto from "node:crypto";
 import { createChromeMock } from "./chrome-api-mock.js";
+import { ConfigSchema } from "../src/js/schema.js";
 
 /**
  * Tests for popup.js in passkey consent mode (?mode=passkey&token=...). The passkey
@@ -120,8 +121,8 @@ before(async () => {
                         historyLength: 40,
                         auditDecrypt: true,
                         hostPinned: true,
-                        decryptBucket: 24,
-                        decryptRate: 0.006667,
+                        decryptBucket: ConfigSchema.properties.decryptBucket.default,
+                        decryptRate: ConfigSchema.properties.decryptRate.default,
                         suppressWarnings: [],
                     },
                 });

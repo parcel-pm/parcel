@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import nodeCrypto from "node:crypto";
 import { createChromeMock } from "./chrome-api-mock.js";
+import { ConfigSchema } from "../src/js/schema.js";
 
 function settleAsync() {
     return new Promise((resolve) => setTimeout(resolve, 0));
@@ -35,8 +36,8 @@ function makeValidConfig() {
         decryptTimeout: 60,
         auditDecrypt: true,
         hostPinned: true,
-        decryptBucket: 24,
-        decryptRate: 0.006667,
+        decryptBucket: ConfigSchema.properties.decryptBucket.default,
+        decryptRate: ConfigSchema.properties.decryptRate.default,
         suppressWarnings: [],
         disableContextPopup: false,
         fillRelated: true,

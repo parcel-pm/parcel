@@ -5,6 +5,7 @@ import assert from "node:assert";
 import { JSDOM } from "jsdom";
 import nodeCrypto from "node:crypto";
 import { createChromeMock } from "./chrome-api-mock.js";
+import { ConfigSchema } from "../src/js/schema.js";
 
 function sha256Native(s) {
     return nodeCrypto.createHash("sha256").update(s).digest("hex");
@@ -47,8 +48,8 @@ function makeValidConfig(overrides = {}) {
         decryptTimeout: 60,
         auditDecrypt: true,
         hostPinned: true,
-        decryptBucket: 24,
-        decryptRate: 0.006667,
+        decryptBucket: ConfigSchema.properties.decryptBucket.default,
+        decryptRate: ConfigSchema.properties.decryptRate.default,
         suppressWarnings: [],
         disableContextPopup: false,
         fillRelated: true,
