@@ -156,7 +156,7 @@ function lock_state() {
         fi
         # fresh install: noclobber redirection creates exclusively (O_EXCL), so
         # exactly one creator wins and a live holder's lock file is never clobbered
-        if [ ! -e "$LOCKED_STATEFILE" ] && (set -C; : > "$LOCKED_STATEFILE" 2>/dev/null); then
+        if [ ! -e "$LOCKED_STATEFILE" ] && (set -C; : > "$LOCKED_STATEFILE") 2>/dev/null; then
             chmod 0600 "$LOCKED_STATEFILE"
             break
         fi
