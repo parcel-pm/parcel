@@ -377,7 +377,7 @@ describe("Meta-schema", () => {
     });
 
     test("Meta-schema validates itself", () => {
-        assert.doesNotThrow(() => Schema.validate(MetaSchema, MetaSchema));
+        Schema.validate(MetaSchema, MetaSchema);
     });
 });
 

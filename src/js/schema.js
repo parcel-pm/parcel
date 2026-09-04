@@ -34,7 +34,7 @@ export class Schema {
      * @throws {Error} If the data instance is invalid.
      */
     static validate(schema, data, path = "/") {
-        if (schema === data) return; // Self-referential schemas (e.g. MetaSchema) would recurse infinitely.
+        if (schema === data && path !== "/") return; // Cyclic re-entry (e.g. MetaSchema); at "/" the root call stays fully recursive.
         if (data === undefined) {
             if (schema.required) throw new Error(`Missing required property ${path}.`);
             return;
@@ -138,7 +138,7 @@ export class Schema {
 export const MetaSchema = {
     type: "object",
     properties: {
-        type: { type: "string", required: true, enum: ["string", "number", "boolean", "integer", "object", "array"] },
+        type: { type: "string", enum: ["string", "number", "boolean", "integer", "object", "array"] },
         required: { type: "boolean" },
         default: {},
         minLength: { type: "integer", minimum: 0 },
