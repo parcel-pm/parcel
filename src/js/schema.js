@@ -99,7 +99,8 @@ export class Schema {
                         }
                         for (const key of Object.keys(data)) {
                             const keyPath = `${path === "/" ? "" : path}/${key}`;
-                            if (!schema.properties[key]) throw new Error(`Unknown property ${keyPath}.`);
+                            if (!Object.prototype.hasOwnProperty.call(schema.properties, key))
+                                throw new Error(`Unknown property ${keyPath}.`);
                         }
                     }
                 }
