@@ -767,15 +767,29 @@ detect_browsers() {
 }
 
 # Detect flatpak browsers.
-# Populates DETECTED_FLATPAK_BROWSERS.
+# Populates DETECTED_FLATPAK_BROWSERS. Aborts if the flatpak probe or config
+# read fails rather than silently reporting no browsers. The probe is lazy:
+# it runs at most once, only after a configured browser passes the filter.
 # @since 1.0.7
 detect_flatpak_browsers() {
     if ! $HAS_FLATPAK; then
         return
     fi
 
+    local flatpak_list_cmd
+    if [ -n "$SERVICES_USER" ]; then
+        flatpak_list_cmd=("sudo" "-u" "$SERVICES_USER" "flatpak")
+    else
+        flatpak_list_cmd=("flatpak")
+    fi
+
     local fp_count
     fp_count="$(config_query '.flatpak.browsers | length')"
+    case "$fp_count" in
+        "" | *[!0-9]*) die "Failed to read flatpak browsers from config" ;;
+    esac
+
+    local err_file fp_apps fp_probed=false
 
     local i=0
     while [ "$i" -lt "$fp_count" ]; do
@@ -789,14 +803,18 @@ detect_flatpak_browsers() {
             continue
         fi
 
-        # Check if the flatpak app is installed
-        local flatpak_list_cmd
-        if [ -n "$SERVICES_USER" ]; then
-            flatpak_list_cmd=("sudo" "-u" "$SERVICES_USER" "flatpak")
-        else
-            flatpak_list_cmd=("flatpak")
+        # Probe at most once, after the filter check; a filter that excludes
+        # every flatpak browser never invokes flatpak, and a failed probe
+        # aborts instead of being mistaken for "no apps installed".
+        if ! $fp_probed; then
+            fp_probed=true
+            err_file="$(make_temp)"
+            if ! fp_apps="$("${flatpak_list_cmd[@]}" list --columns=application 2>"$err_file")"; then
+                die "Failed to list installed flatpak apps: $(tr '\n' ' ' <"$err_file")"
+            fi
         fi
-        if "${flatpak_list_cmd[@]}" list --columns=application 2>/dev/null | grep -F -x -q "$app_id"; then
+
+        if printf '%s\n' "$fp_apps" | grep -F -x -q "$app_id"; then
             if [ -n "$DETECTED_FLATPAK_BROWSERS" ]; then
                 DETECTED_FLATPAK_BROWSERS="$DETECTED_FLATPAK_BROWSERS$newline$app_id"
             else
