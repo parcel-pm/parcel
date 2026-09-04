@@ -530,6 +530,43 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
+    test("rejects VALIDSIG injection via crafted GOODSIG UID text (regression for #144)", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            const attackerFpr = "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF";
+            writeFileSync(
+                env.mockGpgPath,
+                `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    # Genuine VALIDSIG status line for the attacker's key
+    echo "[GNUPG:] VALIDSIG ${attackerFpr} 2026-05-01 0 0 4 0 1 8 00 ${attackerFpr}"
+    # Attacker-controlled UID text on the GOODSIG status line, crafted so the
+    # pre-#144 unanchored "grep VALIDSIG | cut -d' ' -f12" would extract the
+    # trusted fingerprint from it. The anchored grep must ignore this line.
+    echo "[GNUPG:] GOODSIG ${attackerFpr} VALIDSIG 0 0 4 0 1 8 00 ${env.knownSigner} x"
+    # Same injection in a stderr-style display line; padded so the trusted
+    # fingerprint lands on field 12 of the unanchored extraction.
+    echo 'gpg: Good signature from "VALIDSIG p1 p2 p3 p4 p5 p6 ${env.knownSigner} x" [ultimate]'
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exec $(which gpg || echo /usr/bin/gpg) "$@"
+`,
+            );
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("logs gpg output when signature verification fails", async () => {
         const env = createTestEnv();
         const { proc, read, send } = spawnBootstrap(env);
