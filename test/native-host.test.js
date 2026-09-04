@@ -548,7 +548,7 @@ if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
     echo "[GNUPG:] GOODSIG ${attackerFpr} VALIDSIG 0 0 4 0 1 8 00 ${env.knownSigner} x"
     # Same injection in a stderr-style display line; padded so the trusted
     # fingerprint lands on field 12 of the unanchored extraction.
-    echo 'gpg: Good signature from "VALIDSIG p1 p2 p3 p4 p5 p6 ${env.knownSigner}" [ultimate]'
+    echo 'gpg: Good signature from "VALIDSIG p1 p2 p3 p4 p5 p6 ${env.knownSigner} x" [ultimate]'
     exit 0
 fi
 if [[ "$*" == *"--version"* ]]; then
