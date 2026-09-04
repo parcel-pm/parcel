@@ -3,6 +3,10 @@ import { Schema, ConfigSchema, classDefaults } from "./schema.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
 
+// Drop a clipboard request that cannot be dispatched within this window, so a queued copy
+// never lands after the popup's no-response safety net (3s, see copyValue in popup.js) fires.
+const CLIPBOARD_DISPATCH_WINDOW = 2500;
+
 /**
  * Main agent class.
  *
@@ -308,15 +312,23 @@ export class Agent extends EventTarget {
      * @param {string} action - The action to send to the native host.
      * @param {object} [message={}] - The message to send to the native host.
      * @param {number} [timeout=2000] - The timeout for the call in milliseconds.
+     * @param {number} [deadline=null] - Epoch-ms deadline; the call is dropped if it has passed once the lock is free.
      * @returns {Promise<*>} The native host response payload.
-     * @throws {Error} If not connected to the native host, the call times out, or the host returns an error.
+     * @throws {Error} If not connected, the dispatch deadline has passed, the call times out, or the host errors.
      */
-    async #callNative(action, message = {}, timeout = 2000) {
+    async #callNative(action, message = {}, timeout = 2000, deadline = null) {
         // executed only once the previous call has settled
-        const run = () =>
-            new Promise((resolve, reject) => {
+        const run = () => {
+            if (deadline !== null && Date.now() > deadline) {
+                const err = new Error(`Native call deadline expired: ${action}`);
+                err.notDispatched = true;
+                throw err;
+            }
+            return new Promise((resolve, reject) => {
                 if (!this.#connectedNative) {
-                    reject(new Error("Not connected to native host"));
+                    const err = new Error("Not connected to native host");
+                    err.notDispatched = true;
+                    reject(err);
                     return;
                 }
                 const token = crypto.randomUUID();
@@ -340,6 +352,7 @@ export class Agent extends EventTarget {
                 this.addEventListener(token, onMessage, { once: true });
                 this.#host.postMessage({ ...message, token, action });
             });
+        };
 
         const result = this.#nativeCallLock.then(run);
         this.#nativeCallLock = result.then(
@@ -596,6 +609,23 @@ export class Agent extends EventTarget {
     }
 
     /**
+     * Resolve the top-level origin of the tab hosting a connected content-script port.
+     * @since 1.0.7
+     * @param {Port} port - The connected content-script port.
+     * @returns {string|null} The tab's top-level origin, or null when it cannot be determined.
+     */
+    #topOriginFor(port) {
+        const url = port.sender?.tab?.url;
+        if (typeof url !== "string" || !url) return null;
+        try {
+            const origin = new URL(url).origin;
+            return origin === "null" ? null : origin;
+        } catch (_err) {
+            return null;
+        }
+    }
+
+    /**
      * Handle incoming connections from the extension UI & content scripts.
      * @since 1.0.0
      * @param {Port} port - The connection port from the extension UI or a content script.
@@ -680,7 +710,7 @@ export class Agent extends EventTarget {
         // content-script (`integration`) ports may only request `config`.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
-            popup: ["auth", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
+            popup: ["auth", "clipboard", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
             integration: ["config"],
             passkey: ["passkey"],
         };
@@ -874,7 +904,9 @@ export class Agent extends EventTarget {
                             })
                             .map((entry) => ({ name: entry.name, path: entry.path, rule: entry.rule }));
                         clearStatus();
-                        port.postMessage({ action: "passkey-candidates", rpId, candidates });
+                        const reply = { action: "passkey-candidates", rpId, candidates };
+                        if (message.needTopOrigin) reply.topOrigin = this.#topOriginFor(port);
+                        port.postMessage(reply);
                     } else if (message.phase === "assert") {
                         // only rule-classed passkey entries may sign assertions; passkeyDir
                         // membership alone is not sufficient. The native host independently
@@ -920,6 +952,55 @@ export class Agent extends EventTarget {
                     } else {
                         throw new Error(`Unknown passkey phase: ${message.phase}`);
                     }
+                } else if (message?.action === "clipboard") {
+                    // Copy a secret via the host's privacy-enhancing clipboard action.
+                    try {
+                        if (typeof message.value !== "string" && typeof message.value !== "number")
+                            throw new Error("Invalid clipboard value");
+                        let result;
+                        try {
+                            result = await this.#callNative(
+                                "clipboard",
+                                { value: String(message.value), timeout: message.timeout },
+                                10_000,
+                                Date.now() + CLIPBOARD_DISPATCH_WINDOW,
+                            );
+                        } catch (err) {
+                            if (err.notDispatched) {
+                                // the request never left the agent, so the host cannot have made a copy
+                                port.postMessage({
+                                    action: "clipboard-result",
+                                    ok: false,
+                                    error: err.message,
+                                    requestId: message.requestId,
+                                });
+                                return;
+                            }
+                            // Timeout, disconnect, or a failure after the host attempted the copy: the clipboard
+                            // state is unknown, so the popup must not overwrite it with an insecure fallback copy
+                            port.postMessage({
+                                action: "clipboard-result",
+                                ok: false,
+                                indeterminate: true,
+                                error: err.message,
+                                requestId: message.requestId,
+                            });
+                            return;
+                        }
+                        // The host only replies with data on success or a pre-write refusal, so a
+                        // {ok: false} response means the clipboard was never modified: fallback is safe
+                        if (result?.ok) port.postMessage({ action: "clipboard-result", ok: true, requestId: message.requestId });
+                        else
+                            port.postMessage({
+                                action: "clipboard-result",
+                                ok: false,
+                                error: result?.message,
+                                requestId: message.requestId,
+                            });
+                    } catch (err) {
+                        // Nothing was sent to the host, so it cannot have copied anything
+                        port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
+                    }
                 } else if (message?.action === "sha256") {
                     // provide a SHA-256 hash of the given value
                     const hash = await Helpers.sha256(message.value);
@@ -936,7 +1017,13 @@ export class Agent extends EventTarget {
                 if (Object.prototype.hasOwnProperty.call(err, "logAs")) console[err.logAs](err);
                 else console.error(err);
                 try {
-                    port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
+                    if (message?.action === "clipboard") {
+                        // The call was never dispatched (e.g. no host connection), so the host cannot
+                        // have written anything; report it as a fallback-safe refusal rather than an error
+                        port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
+                    } else {
+                        port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
+                    }
                 } catch (_err) {
                     chrome.runtime.lastError;
                 }

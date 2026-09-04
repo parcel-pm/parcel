@@ -52,7 +52,7 @@ fi
 STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 
 function get_mtime() {
-    stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1"
+    stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1" 2>/dev/null
 }
 
 # get a millisecond timestamp with MacOS fallback to whole seconds
@@ -90,24 +90,19 @@ function validate_state_content() {
 # Load persisted state; require 0600 on the file, then read it into memory and
 # validate against a whitelist before evaluating, to prevent TOCTOU. Bad
 # permissions or corrupt values reset the bucket to defaults — a deliberate
-# fail-open for robustness.
+# fail-open for robustness. Only valid under the state lock (see lock_state),
+# which also guarantees that the file exists.
 function load_state() {
-    mkdir -p "$(dirname "$STATEFILE")"
-    if [ ! -f "$STATEFILE" ]; then
-        touch "$STATEFILE"
-        chmod 0600 "$STATEFILE"
-        return 0
-    fi
-    if [ "$STATEFILE" != "$(find "$STATEFILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ]; then
+    if [ "$LOCKED_STATEFILE" != "$(find "$LOCKED_STATEFILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ]; then
         printf '[%s] state file %s must have permissions 0600; refusing to load state\n' \
-            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$LOCKED_STATEFILE" >&5
         return 0
     fi
     local CONTENT
-    CONTENT="$(cat "$STATEFILE" 2>/dev/null)" || return 0
+    CONTENT="$(cat "$LOCKED_STATEFILE" 2>/dev/null)" || return 0
     if ! validate_state_content "$CONTENT"; then
         printf '[%s] state file %s contains invalid content; refusing to load state\n' \
-            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$LOCKED_STATEFILE" >&5
         return 0
     fi
     eval "$CONTENT"
@@ -122,11 +117,90 @@ function load_state() {
 
 # save current state variables to the state file (clobbers).
 # only non-sensitive numeric values are written.
+# Only valid under the state lock (see lock_state).
 function save_state() {
     printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\n' \
-        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" > "$STATEFILE"
-    chmod 0600 "$STATEFILE"
+        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" > "$LOCKED_STATEFILE"
+    chmod 0600 "$LOCKED_STATEFILE"
 }
+
+# path of the locked state file; never coexists with $STATEFILE (see lock_state)
+LOCKED_STATEFILE="$STATEFILE.locked"
+
+# 1 when this process holds the state lock, 0 otherwise
+STATE_LOCK_HELD=0
+
+# seconds to wait for the state lock before failing closed; must exceed the 5s
+# orphan-recovery age so a stale lock is always recoverable within the wait
+STATE_LOCK_TIMEOUT="${STATE_LOCK_TIMEOUT:-10}"
+# a non-numeric or zero value would disable the exhaustion check, looping forever
+[[ "$STATE_LOCK_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || STATE_LOCK_TIMEOUT=10
+
+# claim the state file as an exclusive lock; recover stale orphan locks; fail closed if exhausted.
+#
+# @return 0 if the lock was claimed, 1 if the wait budget was exhausted.
+# @since 1.0.7
+function lock_state() {
+    # idempotent: re-claiming a lock we already hold is a no-op
+    if [ "$STATE_LOCK_HELD" -eq 1 ]; then
+        return 0
+    fi
+    # the parent directory may not exist yet on a fresh install
+    mkdir -p "$(dirname "$STATEFILE")"
+    local WAIT_START
+    WAIT_START="$(date +%s)"
+    while true; do
+        # existing state: the rename removes the source, so exactly one mv wins
+        if [ -f "$STATEFILE" ] && touch -c "$STATEFILE" 2>/dev/null && mv "$STATEFILE" "$LOCKED_STATEFILE" 2>/dev/null; then
+            break
+        fi
+        # fresh install: noclobber redirection creates exclusively (O_EXCL), so
+        # exactly one creator wins and a live holder's lock file is never clobbered
+        if [ ! -e "$LOCKED_STATEFILE" ] && (set -C; : > "$LOCKED_STATEFILE") 2>/dev/null; then
+            chmod 0600 "$LOCKED_STATEFILE"
+            break
+        fi
+        local NOW
+        NOW="$(date +%s)"
+        # a lock file exists: somebody holds it - recover it if stale, else wait;
+        # an mtime that can't be read (vanished mid-check) is treated as held
+        if [ -e "$LOCKED_STATEFILE" ]; then
+            local LOCK_MTIME
+            LOCK_MTIME="$(get_mtime "$LOCKED_STATEFILE")"
+            if [[ "$LOCK_MTIME" =~ ^[0-9]+$ ]] && [ $(( NOW - LOCK_MTIME )) -gt 5 ]; then
+                # orphan recovery: the rename removes the source, so exactly one wins
+                mv "$LOCKED_STATEFILE" "$STATEFILE" 2>/dev/null
+                continue
+            fi
+        fi
+        # give up once the wait budget is spent
+        if [ $(( NOW - WAIT_START )) -ge "$STATE_LOCK_TIMEOUT" ]; then
+            printf '[%s] failed to claim state lock after %ss; denying request\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATE_LOCK_TIMEOUT" >&5
+            return 1
+        fi
+        # decorrelate waiters so retries don't race the single-winner mv in lockstep;
+        # jitter comes from $RANDOM since get_timestamp_ms is second-granular on Darwin
+        sleep "0.$(printf '%03d' $((RANDOM % 190 + 10)))"
+    done
+    STATE_LOCK_HELD=1
+    return 0
+}
+
+# release the state lock if (and only if) this process holds it; safe to call repeatedly.
+#
+# @return 0 always.
+# @since 1.0.7
+function unlock_state() {
+    if [ "$STATE_LOCK_HELD" -eq 1 ]; then
+        mv "$LOCKED_STATEFILE" "$STATEFILE" 2>/dev/null
+        STATE_LOCK_HELD=0
+    fi
+    return 0
+}
+
+# release the state lock on any exit path, including parcel_error; unlock_state no-ops when unheld
+trap unlock_state EXIT
 
 # load the configuration
 function load_config() {
@@ -232,7 +306,126 @@ function action_ping() {
     parcel_send '{"ok": true}'
 }
 
-# check whether there have been any changes to the password store since the last time the list was generated
+# Refuse a clipboard request before anything was written; sent as data rather than an
+# error, so the extension knows falling back to an insecure copy is reasonable
+# @param {string} $1 - the refusal reason
+# @since 1.0.7
+function clipboard_refuse() {
+    parcel_send "$(jq -nc --arg msg "$1" '{ok: false, message: $msg}')"
+}
+
+# Copy a value to the system clipboard, using platform-specific secure mechanisms where available
+# @param {string} $1 - request JSON containing the .value to copy and .timeout (auto-clear delay in seconds, clamped to 3600)
+# @since 1.0.7
+function action_clipboard() {
+    local VALUE
+    if ! VALUE="$(jq -r '.value' <<< "$1")"; then
+        clipboard_refuse "Invalid clipboard request"
+        return 0
+    fi
+    local TIMEOUT_MAX=3600
+    local TIMEOUT="$(jq -r '.timeout' <<< "$1")"
+    # the extension always sends .timeout; reject anything that is not a positive integer
+    if [[ ! "$TIMEOUT" =~ ^[0-9]+$ ]] || [ "$TIMEOUT" -lt 1 ]; then
+        clipboard_refuse "Invalid clipboard timeout: $TIMEOUT"
+        return 0
+    elif [ "$TIMEOUT" -gt "$TIMEOUT_MAX" ]; then
+        TIMEOUT="$TIMEOUT_MAX"
+    fi
+    case "$(uname -s)" in
+        Darwin)
+            clipboard_macos "$VALUE" "$TIMEOUT"
+            ;;
+        Linux)
+            clipboard_linux "$VALUE" "$TIMEOUT"
+            ;;
+        *)
+            clipboard_refuse "Unsupported platform for clipboard: $(uname -s)"
+            ;;
+    esac
+}
+
+# Set the clipboard on macOS using concealed mode so clipboard syncing tools ignore it
+# @param {string} $1 - the value to copy
+# @param {string} $2 - validated seconds until the clipboard is auto-cleared
+# @since 1.0.7
+function clipboard_macos() {
+    if ! command -v osascript &>/dev/null; then
+        clipboard_refuse "Cannot find osascript: the clipboard action requires macOS"
+        return 0
+    fi
+    local OUT
+    # the value is piped via stdin so it never appears in the process list (e.g. ps)
+    # shellcheck disable=SC2016 # the JXA's $. ObjC-bridge references must not be shell-expanded
+    if ! OUT="$(printf %s "$1" | osascript -l JavaScript -e '
+ObjC.import("AppKit")
+const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile
+const value = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js
+const pb = $.NSPasteboard.generalPasteboard
+pb.clearContents
+pb.declareTypesOwner($(["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType", "public.utf8-plain-text"]), $())
+if (!pb.setStringForType($(value), "public.utf8-plain-text") || pb.stringForType("public.utf8-plain-text").js !== value) {
+    $.exit(1)
+}
+$.NSFileHandle.fileHandleWithStandardOutput.writeData($("" + pb.changeCount + "\n").dataUsingEncoding($.NSUTF8StringEncoding))
+')" || [[ ! "$OUT" =~ ^[0-9]+$ ]]; then
+        parcel_error "Failed to set clipboard contents"
+        return 0
+    fi
+    local COUNT="$OUT"
+    parcel_send '{"ok": true}'
+    # detached auto-clear watcher: clear the clipboard after the timeout, but only if our value
+    # is still the current clipboard contents (i.e. the pasteboard has not been touched since)
+    ( osascript -l JavaScript -e "
+ObjC.import('AppKit')
+\$.NSThread.sleepForTimeInterval($2)
+const pb = \$.NSPasteboard.generalPasteboard
+if (pb.changeCount == $COUNT) pb.clearContents
+" </dev/null >/dev/null 2>&1 & )
+}
+
+# Set the clipboard on Linux via Wayland wl-copy or X11 xclip, with a timed auto-clear
+# @param {string} $1 - the value to copy
+# @param {string} $2 - validated seconds until the clipboard is auto-cleared
+# @since 1.0.7
+function clipboard_linux() {
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+        if ! command -v wl-copy &>/dev/null || ! command -v wl-paste &>/dev/null; then
+            clipboard_refuse "Cannot find wl-copy/wl-paste: no privacy-enhancing clipboard tool available"
+            return 0
+        fi
+        # pass --sensitive (asks clipboard managers not to persist the contents) only when this wl-copy supports it
+        local WL_COPY_FLAGS=()
+        if wl-copy --help </dev/null 2>&1 | grep -q -- --sensitive; then
+            WL_COPY_FLAGS+=(--sensitive)
+        fi
+        if ! printf %s "$1" | wl-copy "${WL_COPY_FLAGS[@]}"; then
+            parcel_error "Failed to set clipboard contents (wl-copy)"
+            return 0
+        fi
+        parcel_send '{"ok": true}'
+        # detached auto-clear watcher: clear the clipboard after the timeout, but only if our value
+        # is still the current clipboard contents. The value reaches the watcher via the inherited
+        # positional parameters ($1), so it never appears in the process list (e.g. ps); stdin is
+        # detached so the watcher cannot perturb the native-messaging pipe.
+        ( sleep "$2"; if [[ "$(wl-paste -n 2>/dev/null)" == "$1" ]]; then wl-copy --clear; fi ) </dev/null >/dev/null 2>&1 &
+        return 0
+    elif [ -n "$DISPLAY" ]; then
+        if ! command -v xclip &>/dev/null; then
+            clipboard_refuse "Cannot find xclip: no privacy-enhancing clipboard tool available"
+            return 0
+        fi
+        if ! printf %s "$1" | xclip -selection clipboard; then
+            parcel_error "Failed to set clipboard contents (xclip)"
+            return 0
+        fi
+        parcel_send '{"ok": true}'
+        # same auto-clear watcher as above; clearing sets an empty clipboard, as xclip has no release/reset
+        ( sleep "$2"; if [[ "$(xclip -selection clipboard -o 2>/dev/null)" == "$1" ]]; then xclip -selection clipboard /dev/null; fi ) </dev/null >/dev/null 2>&1 &
+        return 0
+    fi
+    clipboard_refuse "No privacy-enhancing clipboard tool available: requires Wayland with wl-copy or X11 with xclip"
+}
 function action_changes_since() {
     update_config
     local SINCE="$(jq -r '.since' <<< "$1")"
@@ -408,7 +601,10 @@ function check_decrypt_rate_limit() {
         return 0
     fi
 
-    # load persisted state before computing (best-effort only — load/compute/save is deliberately not atomic)
+    # claim the state lock, then load persisted state before computing
+    if ! lock_state; then
+        return 1
+    fi
     load_state
 
     local NOW
@@ -433,11 +629,13 @@ function check_decrypt_rate_limit() {
 
     if [ "$DECRYPT_BUCKET_TOKENS" -lt 1000 ]; then
         save_state
+        unlock_state
         return 1
     fi
 
     DECRYPT_BUCKET_TOKENS=$((DECRYPT_BUCKET_TOKENS - 1000))
     save_state
+    unlock_state
     return 0
 }
 
@@ -889,26 +1087,28 @@ function dd() {
     command dd "$@" <&3 &
     local PID=$!
     exec 3<&-
-    # The watchdog kills dd if no data arrives within TIMEOUT seconds. Its
-    # sleep runs as a captured child ($SLEEP_PID) beneath a TERM trap: when
-    # this function kills the watchdog after dd finishes normally, the trap
-    # forwards the signal so the sleep is reaped too. An untrapped subshell
-    # would leave the sleep orphaned on every message received, leaking one
-    # stray process per message for up to TIMEOUT seconds.
-    # All of the watchdog's fds must be redirected so it holds neither the
-    # write end of the dd | od pipe (which would delay od's EOF until the
-    # sleep finishes) nor any other inherited descriptor.
+    # The watchdog kills dd if no data arrives within TIMEOUT seconds. It runs
+    # in its own process group (via set -m) so killing the group reaps both the
+    # watchdog and its foreground sleep; without monitor mode the group kill is
+    # disabled to avoid signalling the caller's group.
+    local MONITOR_WAS_ON=false
+    [[ -o monitor ]] && MONITOR_WAS_ON=true
+    set -m
+    local GROUP_KILL=false
+    [[ -o monitor ]] && GROUP_KILL=true
     (
-        trap 'kill "$SLEEP_PID" 2>/dev/null; exit' TERM
-        sleep "$TIMEOUT" &
-        SLEEP_PID=$!
-        wait "$SLEEP_PID" 2>/dev/null
+        sleep "$TIMEOUT"
         kill "$PID" 2>/dev/null
     ) </dev/null >/dev/null 2>&1 &
     local WATCHDOG=$!
+    $MONITOR_WAS_ON || set +m
     wait "$PID" 2>/dev/null
     local RETURN_CODE=$?
-    kill "$WATCHDOG" 2>/dev/null || true
+    if $GROUP_KILL; then
+        kill -- -"$WATCHDOG" 2>/dev/null || kill "$WATCHDOG" 2>/dev/null || true
+    else
+        kill "$WATCHDOG" 2>/dev/null || true
+    fi
     wait "$WATCHDOG" 2>/dev/null || true
     return $RETURN_CODE
 }

@@ -25,7 +25,7 @@ install-deps:
 
 .PHONY: prettier
 prettier:
-	$(PRETTIER) --write 'test/*.{js,json}'
+	$(PRETTIER) --write 'test/*.{js,json}' 'test/setup/*.js'
 	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier
 
 .PHONY: lint
@@ -35,7 +35,7 @@ lint:
 .PHONY: clean
 clean:
 	$(MAKE) -C ./src clean
-	rm -rvf dist chrome firefox
+	rm -rvf dist chrome firefox parcel-setup.sh
 
 .PHONY: chrome
 chrome: extension
@@ -60,8 +60,12 @@ firefox: extension
 	        ) \
 	        " src/dist/manifest.json > firefox/manifest.json
 
+.PHONY: setup
+setup:
+	./scripts/generate-setup.sh
+
 .PHONY: release
-release: clean extension
+release: clean extension setup
 ifeq ($(VERSION), $(CURRENT_VERSION))
 else
 	echo $(VERSION) > .version
@@ -79,14 +83,27 @@ endif
 	(cd chrome && zip -r ../dist/parcel-chrome-$(VERSION).zip *)
 	(cd firefox && zip -r ../dist/parcel-firefox-$(VERSION).zip *)
 	install -m 755 -D -t dist parcel-host
+	install -m 755 -D -t dist parcel-setup.sh
 	for file in dist/*; do gpg --detach-sign --armor "$$file"; done
 
 .PHONY: todo
 todo:
 	@./scripts/todo.sh
 
+# shellcheck is a dev-only dependency for linting the native hosts and setup script.
+# Fail with a clear hint rather than an opaque "command not found".
+.PHONY: require-shellcheck
+require-shellcheck:
+	@command -v shellcheck >/dev/null 2>&1 || { \
+		echo "Error: shellcheck is required but was not found." >&2; \
+		echo "       Install it, e.g. 'brew install shellcheck' or 'apt install shellcheck'." >&2; \
+		exit 1; \
+	}
+
 .PHONY: test-native
-test-native:
+test-native: require-shellcheck
+	bash -n src/parcel-host parcel-host
+	shellcheck -x src/parcel-host parcel-host
 	node --test $(TEST_FLAGS) test/native-host.test.js
 
 .PHONY: test-browser-mock
@@ -103,12 +120,19 @@ test-application:
 
 .PHONY: test-syntax
 test-syntax:
-	$(PRETTIER) --check 'test/*.{js,json}'
+	$(PRETTIER) --check 'test/*.{js,json}' 'test/setup/*.js'
 	$(MAKE) -C ./src PRETTIER=$(PRETTIER) prettier-check
 	$(ESLINT) .
 
+.PHONY: test-setup
+test-setup: require-shellcheck
+	bash -n src/parcel-setup.sh
+	shellcheck -x src/parcel-setup.sh
+	node --test $(TEST_FLAGS) test/setup/*.test.js
+
 .PHONY: test
-test: test-syntax
+test: test-syntax require-shellcheck
+	shellcheck -x src/parcel-host parcel-host
 	node --test $(TEST_FLAGS) \
 		test/chrome-api-mock.test.js \
 		test/helpers.test.js \

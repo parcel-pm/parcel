@@ -79,6 +79,17 @@ The token-bucket state (current token count and last-refill timestamp) is persis
 
 Setting either `decryptBucket` or `decryptRate` to `0` disables rate limiting entirely.
 
+### Clipboard copy protection
+
+Copies triggered from the popup are performed via the native host's privacy-enhancing clipboard action where possible, rather than the browser's clipboard API (this also means the extension itself never needs clipboard access). Where the host has the required platform tooling (`osascript` on macOS, `wl-copy` on Wayland, `xclip` on X11), it applies two protections:
+
+1. **Auto-clear**: the host clears the clipboard again after `clipboardTimeout` seconds, unless something else has been copied in the meantime.
+2. **Sensitivity hint**: where the platform supports it (concealed and transient pasteboard types on macOS; wl-copy's `--sensitive` hint on Wayland, when the installed version supports it), the copy is flagged so clipboard managers that honour the hint skip displaying or persisting it.
+
+Where that tooling is not available, the copy falls back to the browser's own clipboard API, which provides neither a timeout nor a hint.
+
+This protection is opportunistic, not a guarantee: clipboard managers that ignore the sensitivity hint may still record the value, and the auto-clear only bounds how long the live clipboard holds it.
+
 ### Storage isolation
 
 The extension stores per-origin history and settings in `chrome.storage.local`. This storage is isolated per browser profile and, on Firefox, respects Multi-Account Containers. No data is persisted outside the browser's own storage sandbox, and this storage is not synchronised to browser sessions on other systems.
@@ -162,6 +173,7 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `allowLinks` | Include symlinked entries in the entry list (default: `false`). |
 | `allowExternalLinks` | Include symlinks pointing outside the password store (default: `false`; requires `allowLinks`). |
 | `cacheTTL` | Seconds the extension caches the entry list before re-querying the host (default: `10`). |
+| `clipboardTimeout` | Seconds before the host auto-clears a password copied via the privacy-enhancing clipboard action (default: `60`; permitted range 1-3600). |
 | `handlePasskeys` | Enable WebAuthn passkey ceremonies. When `false`, Parcel does not intercept passkey requests at all (default: `true`). |
 | `handleHttpAuth` | Enable HTTP authentication interception (HTTP 401). When `false`, Parcel does not intercept browser auth challenges (default: `true`). Proxy auth (HTTP 407) is never intercepted. |
 | `decryptTimeout` | Seconds before a decryption request is aborted (default: `60`). |

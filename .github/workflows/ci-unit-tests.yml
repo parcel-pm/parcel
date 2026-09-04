@@ -12,7 +12,7 @@ permissions:
 jobs:
   make-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -27,3 +27,6 @@ jobs:
 
       - name: Run tests
         run: make test TEST_FLAGS=--test-force-exit PRETTIER="$PWD/node_modules/.bin/prettier" ESLINT="$PWD/node_modules/.bin/eslint"
+
+      - name: Run setup script tests
+        run: make test-setup TEST_FLAGS=--test-force-exit

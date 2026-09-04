@@ -198,6 +198,179 @@ describe("Agent", () => {
         assert.strictEqual(digest.hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
     });
 
+    test("clipboard relays value and timeout to the native host", async () => {
+        uninstallNativeHandler(mock, handler);
+        let nativeCall = null;
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "clipboard") {
+                nativeCall = msg;
+                return { ok: true };
+            }
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+
+        const roundTrip = async (value) => {
+            const requestId = crypto.randomUUID();
+            const resultPromise = nextMessage(popup, "clipboard-result");
+            popup.postMessage({ action: "clipboard", value, timeout: 60, requestId });
+            const result = await resultPromise;
+            assert.strictEqual(result.ok, true);
+            assert.strictEqual(result.requestId, requestId, "requestId echoed for response correlation");
+            assert.strictEqual(nativeCall?.timeout, 60);
+            return nativeCall;
+        };
+
+        assert.strictEqual((await roundTrip("hunter2")).value, "hunter2");
+        assert.strictEqual((await roundTrip(123456)).value, "123456", "TOTP-style numeric values are relayed as strings");
+    });
+
+    test("clipboard errors are reported via clipboard-result, not the generic error path", async () => {
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        const errorListener = (msg) => {
+            if (msg.action === "clipboard") {
+                nativePort.receiver.onMessage.removeListener(errorListener);
+                nativePort.receiver.postMessage({
+                    token: msg.token,
+                    error: "Failed to set clipboard contents (wl-copy)",
+                });
+            }
+        };
+        nativePort.receiver.onMessage.addListener(errorListener);
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const messages = [];
+        popup.onMessage.addListener((msg) => messages.push(msg));
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-2" });
+        const result = await resultPromise;
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.requestId, "req-2");
+        assert.strictEqual(result.indeterminate, true, "failures after a write was attempted are indeterminate");
+        assert.ok(result.error?.includes("clipboard contents"), "host error message relayed");
+        await settleAsync();
+        assert.ok(!messages.some((msg) => msg.action === "error"), "clipboard failure must not post a generic error to the popup");
+    });
+
+    test("clipboard pre-write refusals are relayed as fallback-safe results", async () => {
+        uninstallNativeHandler(mock, handler);
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "install") return { success: true, message: "installed" };
+            if (msg.action === "configure") return makeValidConfig();
+            if (msg.action === "clipboard") return { ok: false, message: "Cannot find osascript: the clipboard action requires macOS" };
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-3" });
+        const result = await resultPromise;
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.requestId, "req-3");
+        assert.strictEqual(result.indeterminate, undefined, "pre-write refusals are safe to fall back from");
+        assert.ok(result.error?.includes("osascript"), "refusal reason relayed");
+    });
+
+    test("clipboard requests that fail before dispatch fall back without an error banner", async () => {
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        nativePort.caller.disconnect();
+        await settleAsync();
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const messages = [];
+        popup.onMessage.addListener((msg) => messages.push(msg));
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-4" });
+        const result = await resultPromise;
+        assert.strictEqual(result.ok, false);
+        assert.strictEqual(result.requestId, "req-4");
+        assert.strictEqual(result.indeterminate, undefined, "an undispatched request cannot have written anything");
+        assert.ok(result.error?.includes("Not connected to native host"), "pre-dispatch failure relayed");
+        await settleAsync();
+        assert.ok(!messages.some((msg) => msg.action === "error"), "must not post a generic error to the popup");
+    });
+
+    test("a clipboard request queued behind a slow native call is dropped once its dispatch window passes", async () => {
+        uninstallNativeHandler(mock, handler);
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        let decryptToken = null;
+        let clipboardSeen = false;
+        handler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "decrypt") {
+                decryptToken = msg.token; // kept pending so it holds the serialisation lock
+                return undefined;
+            }
+            if (msg.action === "clipboard") {
+                clipboardSeen = true;
+                return undefined;
+            }
+            if (msg.action === "list") return [{ name: "example.com/admin", path: "example.com/admin" }];
+            if (msg.action === "changes_since") return { changes: false };
+            return {};
+        });
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        popup.postMessage({ action: "decrypt", path: "example.com/admin", intent: "fill" });
+        for (let i = 0; i < 10 && decryptToken === null; i++) await settleAsync();
+        assert.ok(decryptToken !== null, "decrypt call should be in flight, holding the serialisation lock");
+
+        const resultPromise = nextMessage(popup, "clipboard-result");
+        popup.postMessage({ action: "clipboard", value: "hunter2", timeout: 60, requestId: "req-5" });
+        await settleAsync(); // queued behind the pending decrypt; the deadline is captured at real time
+
+        const realNow = Date.now;
+        try {
+            Date.now = () => realNow() + 10_000; // the dispatch window elapsed while the request waited on the lock
+            nativePort.receiver.postMessage({ token: decryptToken, data: { plaintext: { password: "hunter2" } } }); // release the lock
+            const result = await resultPromise;
+            assert.strictEqual(result.ok, false);
+            assert.strictEqual(result.requestId, "req-5");
+            assert.strictEqual(result.indeterminate, undefined, "an undispatched request cannot have written anything");
+            assert.ok(result.error?.includes("deadline expired"), "deadline expiry reported");
+        } finally {
+            Date.now = realNow;
+        }
+        assert.ok(!clipboardSeen, "the clipboard action must never reach the host");
+    });
+
+    test("invalid clipboard requests are rejected without calling the native host", async () => {
+        let nativeCalls = 0;
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        const counter = (msg) => {
+            if (msg.action === "clipboard") nativeCalls++;
+        };
+        nativePort.receiver.onMessage.addListener(counter);
+
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const results = [];
+        popup.onMessage.addListener((msg) => {
+            if (msg.action === "clipboard-result") results.push(msg);
+        });
+        popup.postMessage({ action: "clipboard", value: { pin: 42 }, timeout: 60, requestId: "bad-1" }); // value not a string or number
+        popup.postMessage({ action: "clipboard", timeout: 60, requestId: "bad-2" }); // value missing
+        // wait for both results (nextMessage only supports a single awaited message)
+        for (let i = 0; i < 50 && results.length < 2; i++) await settleAsync();
+        assert.strictEqual(results.length, 2, "one result per request");
+        for (const result of results) assert.strictEqual(result.ok, false);
+        assert.ok(results.find((r) => r.requestId === "bad-1")?.error?.includes("clipboard value"));
+        assert.ok(results.find((r) => r.requestId === "bad-2")?.error?.includes("clipboard value"));
+        assert.strictEqual(nativeCalls, 0, "invalid requests must not reach the native host");
+        nativePort.receiver.onMessage.removeListener(counter);
+    });
+
     test("decrypt from authorised popup", async () => {
         const popup = mock.chrome.runtime.connect({ name: "popup" });
         await settleAsync();
@@ -1038,6 +1211,61 @@ describe("Agent", () => {
                 rule: { pattern: "^misc/", class: "passkey", ignore: false, color: "5966fc" },
             },
         ]);
+    });
+
+    test("passkey candidates reply includes the tab top origin when requested", async () => {
+        await configurePasskeyStore();
+        // the worker sees the embedder's top-level URL via the port's sender
+        const passkey = mock.chrome.runtime.connect({
+            name: "passkey",
+            sender: { tab: { id: 5, url: "https://top.example/some/page?query=1" } },
+        });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "candidates",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            needTopOrigin: true,
+        });
+        const msg = await candidatesPromise;
+        // the reply carries the serialised origin only — path and query never leave the worker
+        assert.strictEqual(msg.topOrigin, "https://top.example");
+    });
+
+    test("passkey candidates reply omits the top origin unless the frame asks for it", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({
+            name: "passkey",
+            sender: { tab: { id: 5, url: "https://top.example" } },
+        });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://login.example.com", rpId: "example.com" });
+        const msg = await candidatesPromise;
+        assert.strictEqual(msg.topOrigin, undefined, "unrequested top origin must not be disclosed");
+    });
+
+    test("passkey candidates reply cannot resolve the top origin without a usable tab URL", async () => {
+        await configurePasskeyStore();
+        // no host permission for the tab's URL (Firefox's sender omits it) — and
+        // an opaque tab origin (about:blank) is not a usable topOrigin either
+        for (const sender of [{ tab: { id: 5 } }, { tab: { id: 6, url: "about:blank" } }]) {
+            const passkey = mock.chrome.runtime.connect({ name: "passkey", sender });
+            await settleAsync();
+            const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+            passkey.postMessage({
+                action: "passkey",
+                phase: "candidates",
+                origin: "https://login.example.com",
+                rpId: "example.com",
+                needTopOrigin: true,
+            });
+            const msg = await candidatesPromise;
+            assert.strictEqual(msg.topOrigin, null, `top origin should be null for sender ${JSON.stringify(sender)}`);
+            passkey.disconnect();
+        }
     });
 
     test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {

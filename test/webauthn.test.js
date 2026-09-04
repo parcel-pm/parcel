@@ -195,5 +195,35 @@ describe("Webauthn", () => {
                 '{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://example.com","crossOrigin":false}',
             );
         });
+
+        test("includes topOrigin after crossOrigin for cross-origin ceremonies", () => {
+            const bytes = webauthn.buildClientDataJSON(
+                "webauthn.get",
+                "Y2hhbGxlbmdl",
+                "https://login.example.com",
+                true,
+                "https://top.example",
+            );
+            assert.strictEqual(
+                new TextDecoder().decode(bytes),
+                '{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://login.example.com","crossOrigin":true,"topOrigin":"https://top.example"}',
+            );
+        });
+
+        test("omits topOrigin for cross-origin ceremonies with an unknown top origin", () => {
+            const bytes = webauthn.buildClientDataJSON("webauthn.get", "Y2hhbGxlbmdl", "https://login.example.com", true);
+            assert.strictEqual(
+                new TextDecoder().decode(bytes),
+                '{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://login.example.com","crossOrigin":true}',
+            );
+        });
+
+        test("omits topOrigin for same-origin ceremonies even when supplied", () => {
+            const bytes = webauthn.buildClientDataJSON("webauthn.get", "Y2hhbGxlbmdl", "https://example.com", false, "https://top.example");
+            assert.strictEqual(
+                new TextDecoder().decode(bytes),
+                '{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://example.com","crossOrigin":false}',
+            );
+        });
     });
 });

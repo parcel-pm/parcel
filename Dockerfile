@@ -36,6 +36,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         git \
         curl \
         xz-utils \
+        shellcheck \
     && apt-get clean
 
 # Install Node.js from NodeSource so we have a recent, supported version

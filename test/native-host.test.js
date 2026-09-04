@@ -25,7 +25,7 @@ import {
     existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -277,6 +277,180 @@ async function installMainScript(env, extraEnv = {}) {
     return { proc, read, send };
 }
 
+/**
+ * Write a mock osascript that records invocations. Setter invocations consume
+ * stdin and emit a fake pasteboard change count on stdout; auto-clear watcher
+ * invocations (identified by the sleepForTimeInterval call) exit immediately.
+ */
+function writeMockOsascript(path, captureStdin, captureArgs) {
+    writeFileSync(
+        path,
+        `#!/bin/bash
+printf '%s\\n' "$*" >> "${captureArgs}"
+if [[ "$*" == *sleepForTimeInterval* ]]; then
+    exit 0
+fi
+cat > "${captureStdin}"
+echo 12345
+exit 0
+`,
+    );
+    chmodSync(path, 0o755);
+}
+
+/**
+ * Write an executable mock tool into the test environment's PATH shim dir.
+ */
+function mockTool(env, name, content) {
+    writeFileSync(join(env.bin, name), content);
+    chmodSync(join(env.bin, name), 0o755);
+}
+
+/**
+ * Install Wayland mocks: wl-copy records args + captures stdin, wl-paste
+ * records args and returns pasteOutput, and sleep runs instantly (recording args).
+ * `sensitiveInHelp` controls whether wl-copy's --help output advertises --sensitive;
+ * it does from wl-clipboard 2.3.0 onward, but not in 2.2.x and older.
+ */
+function mockClipboardWayland(env, captureArgs, pasteOutput, captureStdin = "/dev/null", sensitiveInHelp = false) {
+    mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
+    mockTool(
+        env,
+        "wl-copy",
+        // only capture stdin on the set invocation; --clear must not clobber it, and --help must
+        // exit before consuming stdin (else it would eat the host's JSON message stream)
+        `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\nif [[ "$*" == *--help* ]]; then\n    echo 'usage: wl-copy [-hinopf]${sensitiveInHelp ? " [--sensitive]" : ""}'\n    exit 0\nfi\nif [[ "$*" != *--clear* ]]; then\n    cat > "${captureStdin}"\nfi\nexit 0\n`,
+    );
+    mockTool(env, "wl-paste", `#!/bin/bash\nprintf '%s\\n' "$*" >> "${captureArgs}"\necho '${pasteOutput}'\nexit 0\n`);
+    mockTool(
+        env,
+        "sleep",
+        // copy the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value), but
+        // delay briefly so dd gets a chance to read the next message before the watchdog kills it
+        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && { /bin/sleep 1; exit 0; }\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
+    );
+}
+
+/**
+ * Install X11 mocks: xclip records args + captures stdin (or returns pasteOutput
+ * on -o), and sleep runs instantly (recording args).
+ */
+function mockClipboardX11(env, captureArgs, pasteOutput, captureStdin = "/dev/null") {
+    mockTool(env, "uname", "#!/bin/bash\necho Linux\n");
+    mockTool(
+        env,
+        "xclip",
+        // only capture stdin on the set invocation; -o and the /dev/null clear must not clobber it
+        `#!/bin/bash
+printf '%s\\n' "$*" >> "${captureArgs}"
+if [[ "$*" == *" -o"* ]]; then
+    echo '${pasteOutput}'
+    exit 0
+fi
+if [[ "$*" != */dev/null* ]]; then
+    cat > "${captureStdin}"
+fi
+exit 0
+`,
+    );
+    mockTool(
+        env,
+        "sleep",
+        // copy the dd() idle watchdog's sleep (matched via its PARCEL_IDLE_TIMEOUT value), but
+        // delay briefly so dd gets a chance to read the next message before the watchdog kills it
+        `#!/bin/bash\n[[ "$*" == "$PARCEL_IDLE_TIMEOUT" ]] && { /bin/sleep 1; exit 0; }\nprintf '%s\\n' "$*" >> "${captureArgs}"\nexit 0\n`,
+    );
+}
+
+/**
+ * External tools invoked by the bootstrap host and the main host script; keep in sync with both.
+ * gpg and uname are resolved separately: the whitelist maps gpg to the test env's mock, and each
+ * test installs its own uname mock.
+ * @constant {string[]}
+ * @since 1.0.7
+ */
+const HOST_TOOLS = [
+    "awk",
+    "bash",
+    "base64",
+    "basename",
+    "cat",
+    "chmod",
+    "cut",
+    "date",
+    "dd",
+    "dirname",
+    "find",
+    "grep",
+    "head",
+    "install",
+    "jq",
+    "mkdir",
+    "mktemp",
+    "od",
+    "openssl",
+    "readlink",
+    "rm",
+    "sed",
+    "sleep",
+    "stat",
+    "tail",
+    "touch",
+    "tr",
+    "xargs",
+];
+
+/**
+ * Build a whitelist PATH bin dir: symlinks each tool in HOST_TOOLS, resolved from the machine
+ * running the tests, plus the mock gpg. The resulting PATH contains nothing else, so the host
+ * cannot see machine-specific tools (e.g. osascript on macOS, or wl-copy/xclip when installed),
+ * even if they exist on the test machine.
+ * @param {object} env - Test environment from createTestEnv().
+ * @returns {string} Bin dir to use as the complete PATH.
+ * @since 1.0.7
+ */
+function buildWhitelistPath(env) {
+    const bin = join(env.home, "allowlistbin");
+    mkdirSync(bin, { recursive: true });
+    symlinkSync(env.mockGpgPath, join(bin, "gpg"));
+    const lines = execSync(
+        `for t in ${HOST_TOOLS.join(" ")}; do p="$(command -v "$t" 2>/dev/null)" && printf '%s=%s\\n' "$t" "$p" || printf 'MISSING=%s\\n' "$t"; done`,
+        { encoding: "utf8" },
+    )
+        .split("\n")
+        .filter(Boolean);
+    for (const line of lines) {
+        const sep = line.indexOf("=");
+        const name = line.slice(0, sep);
+        const path = line.slice(sep + 1);
+        if (name === "MISSING") throw new Error(`Host tool not found on this machine: ${path}`);
+        symlinkSync(path, join(bin, name));
+    }
+    // the bootstrap falls back from sha256sum to sha256; expose whichever the machine has
+    const sha = execSync("command -v sha256sum 2>/dev/null || command -v sha256 2>/dev/null", { encoding: "utf8" }).trim();
+    if (!sha) throw new Error("Host tool not found on this machine: sha256sum / sha256");
+    symlinkSync(sha, join(bin, basename(sha)));
+    return bin;
+}
+
+/**
+ * Poll a file until it contains the given text (or time out), returning the
+ * file contents on success, null otherwise.
+ */
+async function pollFile(file, needle, timeoutMs = 3000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (existsSync(file)) {
+            const contents = readFileSync(file, "utf8");
+            if (contents.includes(needle)) {
+                return contents;
+            }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap script tests
 // ---------------------------------------------------------------------------
@@ -342,6 +516,43 @@ describe("Bootstrap script", () => {
                 `#!/bin/bash
 if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
     echo "[GNUPG:] VALIDSIG DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF 2026-05-01 0 0 4 0 1 8 00 DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"
+    exit 0
+fi
+exec $(which gpg || echo /usr/bin/gpg) "$@"
+`,
+            );
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects VALIDSIG injection via crafted GOODSIG UID text (regression for #144)", async () => {
+        const env = createTestEnv();
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            const attackerFpr = "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF";
+            writeFileSync(
+                env.mockGpgPath,
+                `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    # Genuine VALIDSIG status line for the attacker's key
+    echo "[GNUPG:] VALIDSIG ${attackerFpr} 2026-05-01 0 0 4 0 1 8 00 ${attackerFpr}"
+    # Attacker-controlled UID text on the GOODSIG status line, crafted so the
+    # pre-#144 unanchored "grep VALIDSIG | cut -d' ' -f12" would extract the
+    # trusted fingerprint from it. The anchored grep must ignore this line.
+    echo "[GNUPG:] GOODSIG ${attackerFpr} VALIDSIG 0 0 4 0 1 8 00 ${env.knownSigner} x"
+    # Same injection in a stderr-style display line; padded so the trusted
+    # fingerprint lands on field 12 of the unanchored extraction.
+    echo 'gpg: Good signature from "VALIDSIG p1 p2 p3 p4 p5 p6 ${env.knownSigner} x" [ultimate]'
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
     exit 0
 fi
 exec $(which gpg || echo /usr/bin/gpg) "$@"
@@ -827,6 +1038,291 @@ VALID_SIGNERS="${env.knownSigner}"
             proc.kill();
             env.cleanup();
         }
+    });
+
+    test("action_clipboard pipes the value to osascript via stdin and uses concealed pasteboard types", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const captureStdin = join(env.home, "osascript-stdin");
+        const captureArgs = join(env.home, "osascript-args");
+        writeMockOsascript(join(env.bin, "osascript"), captureStdin, captureArgs);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const value = 'secret value with "quotes" & newline\nchar';
+            send({ action: "clipboard", value, timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), value, "value should be piped to osascript stdin verbatim");
+            const args = await pollFile(captureArgs, "ConcealedType");
+            assert.ok(args !== null, "pasteboard should be declared concealed");
+            assert.ok(args.includes("TransientType"), "pasteboard should be declared transient so history managers skip it");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard spawns an auto-clear watcher with the configured timeout", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const captureStdin = join(env.home, "osascript-stdin");
+        const captureArgs = join(env.home, "osascript-args");
+        writeMockOsascript(join(env.bin, "osascript"), captureStdin, captureArgs);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 7 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            const args = await pollFile(captureArgs, "sleepForTimeInterval(7)");
+            assert.ok(args !== null, "auto-clear watcher should run with the configured timeout");
+            assert.ok(args.includes("changeCount == 12345"), "watcher should compare against the changeCount captured when setting");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard clamps oversized timeouts and rejects missing/invalid ones", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const captureStdin = join(env.home, "osascript-stdin");
+        const captureArgs = join(env.home, "osascript-args");
+        writeMockOsascript(join(env.bin, "osascript"), captureStdin, captureArgs);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 7200 });
+            assert.deepStrictEqual((await read()).data, { ok: true }, "oversized timeout should still succeed");
+            assert.ok((await pollFile(captureArgs, "sleepForTimeInterval(3600)")) !== null, "oversized timeout should be clamped to 3600");
+
+            for (const timeout of [undefined, -5, 1.5, "abc", 0]) {
+                const request = { action: "clipboard", value: "secret" };
+                if (timeout !== undefined) {
+                    request.timeout = timeout;
+                }
+                send(request);
+                const msg = await read();
+                assert.strictEqual(msg.data?.ok, false, `Expected refusal for ${JSON.stringify(timeout)}, got: ${JSON.stringify(msg)}`);
+                assert.ok(
+                    msg.data?.message?.includes("Invalid clipboard timeout"),
+                    `Expected invalid timeout refusal for ${JSON.stringify(timeout)}, got: ${JSON.stringify(msg)}`,
+                );
+            }
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard fails when osascript fails", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.bin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(env.bin, "uname"), 0o755);
+        const mockOsascript = join(env.bin, "osascript");
+        writeFileSync(mockOsascript, "#!/bin/bash\nexit 1\n");
+        chmodSync(mockOsascript, 0o755);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.ok(msg.error?.includes("Failed to set clipboard contents"), `Expected clipboard failure, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard fails when osascript is missing", async () => {
+        const env = createTestEnv();
+        // whitelist PATH with uname reporting Darwin: osascript is not whitelisted, so command -v fails
+        const limitedBin = buildWhitelistPath(env);
+        writeFileSync(join(limitedBin, "uname"), "#!/bin/bash\necho Darwin\n");
+        chmodSync(join(limitedBin, "uname"), 0o755);
+
+        const { proc, read, send } = await installMainScript(env, { PATH: limitedBin });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.strictEqual(msg.data?.ok, false, `Expected refusal, got: ${JSON.stringify(msg)}`);
+            assert.ok(
+                msg.data?.message?.includes("Cannot find osascript"),
+                `Expected missing osascript refusal, got: ${JSON.stringify(msg)}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard uses wl-copy on Wayland with a timed auto-clear watcher", async () => {
+        const env = createTestEnv();
+        const captureStdin = join(env.home, "wl-copy-stdin");
+        const captureArgs = join(env.home, "wl-args");
+        mockClipboardWayland(env, captureArgs, "secret", captureStdin);
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1", PARCEL_IDLE_TIMEOUT: "299" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to wl-copy stdin verbatim");
+            const args = await pollFile(captureArgs, "--clear");
+            assert.ok(args !== null, "watcher should clear the clipboard after the timeout when the value is unchanged");
+            assert.ok(args.includes("45"), "watcher should use the requested timeout");
+            assert.ok(!args.includes("paste-once"), "wl-copy must not use --paste-once (it burns pastes when watchers read eagerly)");
+            assert.ok(!args.includes("--sensitive"), "wl-copy without --sensitive support must not receive the flag");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard passes --sensitive to wl-copy when its --help advertises it", async () => {
+        const env = createTestEnv();
+        const captureStdin = join(env.home, "wl-copy-stdin");
+        const captureArgs = join(env.home, "wl-args");
+        mockClipboardWayland(env, captureArgs, "secret", captureStdin, true);
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1", PARCEL_IDLE_TIMEOUT: "299" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to wl-copy stdin verbatim");
+            const args = await pollFile(captureArgs, "--sensitive");
+            assert.ok(args !== null, "copy invocation should include --sensitive when supported");
+            const clearArgs = await pollFile(captureArgs, "--clear");
+            assert.ok(clearArgs !== null, "watcher should still clear the clipboard after the timeout");
+            // per-line check: only the plain copy invocation may carry --sensitive; in particular
+            // the watcher's --clear invocation must never receive it
+            assert.deepStrictEqual(
+                clearArgs.split("\n").filter((line) => line.includes("--sensitive")),
+                ["--sensitive"],
+                "only the plain copy invocation should carry --sensitive",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard watcher does not clear the Wayland clipboard when the value changed", async () => {
+        const env = createTestEnv();
+        const captureArgs = join(env.home, "wl-args");
+        mockClipboardWayland(env, captureArgs, "something-else");
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1", PARCEL_IDLE_TIMEOUT: "299" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            // wl-paste appearing means the watcher ran its comparison read
+            const args = await pollFile(captureArgs, "-n");
+            assert.ok(args !== null, "watcher should have checked the clipboard contents");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before judging it
+            // the copy invocation is recorded as an empty line ($* of a bare wl-copy), dropped by filter(Boolean)
+            assert.deepStrictEqual(
+                readFileSync(captureArgs, "utf8").split("\n").filter(Boolean),
+                ["--help", "45", "-n"],
+                "watcher must query but never clear a clipboard that no longer holds our value",
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard uses xclip on X11 with a timed auto-clear watcher", async () => {
+        const env = createTestEnv();
+        const captureStdin = join(env.home, "xclip-stdin");
+        const captureArgs = join(env.home, "xclip-args");
+        mockClipboardX11(env, captureArgs, "secret", captureStdin);
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0", PARCEL_IDLE_TIMEOUT: "299" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(readFileSync(captureStdin, "utf8"), "secret", "value should be piped to xclip stdin verbatim");
+            const args = await pollFile(captureArgs, "/dev/null");
+            assert.ok(args !== null, "watcher should empty the clipboard after the timeout when the value is unchanged");
+            assert.deepStrictEqual(
+                args.split("\n").filter(Boolean),
+                [
+                    "-selection clipboard", // the copy must target CLIPBOARD, not xclip's XA_PRIMARY default
+                    "45", // the watcher waits the requested timeout before clearing
+                    "-selection clipboard -o", // the watcher re-reads the clipboard for comparison
+                    "-selection clipboard /dev/null", // the watcher clears by emptying the same selection
+                ],
+                "expected xclip invocations, in order",
+            );
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before cleanup
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard watcher does not clear the X11 clipboard when the value changed", async () => {
+        const env = createTestEnv();
+        const captureArgs = join(env.home, "xclip-args");
+        mockClipboardX11(env, captureArgs, "something-else");
+
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "", DISPLAY: ":0", PARCEL_IDLE_TIMEOUT: "299" });
+        try {
+            send({ action: "clipboard", value: "secret", timeout: 45 });
+            const msg = await read();
+            assert.deepStrictEqual(msg.data, { ok: true }, `Expected {"ok": true}, got: ${JSON.stringify(msg)}`);
+            const args = await pollFile(captureArgs, "-o");
+            assert.ok(args !== null, "watcher should have checked the clipboard contents");
+            await new Promise((resolve) => setTimeout(resolve, 250)); // let the detached watcher finish before judging it
+            assert.deepStrictEqual(
+                readFileSync(captureArgs, "utf8").split("\n").filter(Boolean),
+                ["-selection clipboard", "45", "-selection clipboard -o"],
+                "watcher must query but never clear a clipboard that no longer holds our value",
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_clipboard reports availability errors on Linux without suitable tools", async () => {
+        const env = createTestEnv();
+        // whitelist PATH: real wl-copy/xclip binaries on the host machine must not mask the refusals
+        const hermeticBin = buildWhitelistPath(env);
+        writeFileSync(join(hermeticBin, "uname"), "#!/bin/bash\necho Linux\n");
+        chmodSync(join(hermeticBin, "uname"), 0o755);
+
+        const cases = [
+            { extraEnv: { WAYLAND_DISPLAY: "wayland-1", DISPLAY: "" }, error: "Cannot find wl-copy" },
+            { extraEnv: { WAYLAND_DISPLAY: "", DISPLAY: ":0" }, error: "Cannot find xclip" },
+            { extraEnv: { WAYLAND_DISPLAY: "", DISPLAY: "" }, error: "No privacy-enhancing clipboard tool available" },
+        ];
+        for (const testCase of cases) {
+            const { proc, read, send } = await installMainScript(env, { ...testCase.extraEnv, PATH: hermeticBin });
+            try {
+                send({ action: "clipboard", value: "secret", timeout: 45 });
+                const msg = await read();
+                assert.strictEqual(
+                    msg.data?.ok,
+                    false,
+                    `Expected refusal for ${JSON.stringify(testCase.extraEnv)}, got: ${JSON.stringify(msg)}`,
+                );
+                assert.ok(msg.data?.message?.includes(testCase.error), `Expected "${testCase.error}" refusal, got: ${JSON.stringify(msg)}`);
+            } finally {
+                proc.kill();
+            }
+        }
+        env.cleanup();
     });
 
     test("action_list returns filtered entries sorted by name", async () => {
@@ -1592,6 +2088,159 @@ VALID_SIGNERS="${env.knownSigner}"
             );
         } finally {
             host2.proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("stale orphaned state lock is recovered", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        // Simulate a crashed holder: lock file left behind with a stale mtime
+        const configdir = join(env.home, ".config", "parcel");
+        const lockedState = join(configdir, "state.locked");
+        writeFileSync(lockedState, "DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\n");
+        chmodSync(lockedState, 0o600);
+        const stale = new Date(Date.now() - 60000);
+        utimesSync(lockedState, stale, stale);
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed despite stale lock: ${JSON.stringify(msg)}`);
+            assert.ok(!existsSync(lockedState), "Lock file should not remain after the request completes");
+            assert.ok(existsSync(join(configdir, "state")), "State file should exist after the request completes");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("concurrent hosts consume tokens atomically without lost updates", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 6, decryptRate: 0.0001 }));
+
+        // Seed a full bucket with an aged mtime: a claim now enters via the rename
+        // path carrying a stale timestamp, which is where lost updates hide
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=6000\nDECRYPT_BUCKET_LAST=${Date.now() - 60000}\n`);
+        chmodSync(stateFile, 0o600);
+        const aged = new Date(Date.now() - 60000);
+        utimesSync(stateFile, aged, aged);
+
+        const hosts = await Promise.all([
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+        ]);
+        try {
+            const testPath = join(env.passdir, "test-entry.gpg");
+            for (const host of hosts) {
+                host.send({ action: "list" });
+            }
+            await Promise.all(hosts.map((host) => host.read()));
+
+            for (const host of hosts) {
+                host.send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            }
+            const replies = await Promise.all(hosts.map((host) => host.read()));
+            for (const reply of replies) {
+                assert.strictEqual(reply.data?.plaintext, "test-decrypted-content", `Concurrent decrypt failed: ${JSON.stringify(reply)}`);
+            }
+
+            // Six consumes against a full 6-token bucket must leave zero tokens;
+            // a lost update between concurrent hosts would leave 1000+ behind.
+            const tokens = Number((readFileSync(stateFile, "utf8").match(/^DECRYPT_BUCKET_TOKENS=(\d+)$/m) || [])[1]);
+            assert.ok(Number.isInteger(tokens), `State file should contain DECRYPT_BUCKET_TOKENS: ${readFileSync(stateFile, "utf8")}`);
+            assert.ok(tokens < 1000, `Bucket should be fully consumed, found ${tokens} tokens (lost update?)`);
+        } finally {
+            for (const host of hosts) {
+                host.proc.kill();
+            }
+            env.cleanup();
+        }
+    });
+
+    test("state lock mtime is fresh at claim time, even for aged state", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        // slow touch: a claim that renames before refreshing would hold the
+        // lock with a stale mtime long enough to observe it here
+        mockTool(env, "touch", '#!/bin/bash\nsleep 0.5\nexec /usr/bin/touch "$@"\n');
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const testPath = join(env.passdir, "test-entry.gpg");
+
+            // full bucket with an aged mtime, so a rename-only claim carries a stale stamp
+            const stateFile = join(env.home, ".config", "parcel", "state");
+            writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=3000\nDECRYPT_BUCKET_LAST=${Date.now()}\n`);
+            chmodSync(stateFile, 0o600);
+            const aged = new Date(Date.now() - 60000);
+            utimesSync(stateFile, aged, aged);
+
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+
+            // observe the lock while it is held
+            const lockedState = join(env.home, ".config", "parcel", "state.locked");
+            let mtime = null;
+            for (let i = 0; i < 1000 && mtime === null; i++) {
+                if (existsSync(lockedState)) {
+                    mtime = statSync(lockedState).mtimeMs;
+                } else {
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                }
+            }
+            assert.ok(mtime !== null, "Lock file never appeared; state was not claimed");
+            const lockAge = Date.now() - mtime;
+            assert.ok(
+                lockAge < 5000,
+                `Lock is stale while held (${Math.floor(lockAge / 1000)}s old); claim does not refresh the mtime before renaming`,
+            );
+
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("state lock exhaustion denies decrypt requests (fail closed)", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        // Simulate a live holder: lock file exists with a fresh mtime
+        const configdir = join(env.home, ".config", "parcel");
+        const lockedState = join(configdir, "state.locked");
+        writeFileSync(lockedState, "DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\n");
+        chmodSync(lockedState, 0o600);
+
+        const { proc, read, send } = await installMainScript(env, { STATE_LOCK_TIMEOUT: "1" });
+        try {
+            send({ action: "list" });
+            await read();
+
+            const testPath = join(env.passdir, "test-entry.gpg");
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("rate limit"), `Expected rate limit error, got: ${JSON.stringify(msg)}`);
+            assert.ok(existsSync(lockedState), "Lock file should remain untouched when the claim is exhausted");
+        } finally {
+            proc.kill();
             env.cleanup();
         }
     });
