@@ -104,11 +104,68 @@ test("detect_flatpak_browsers records the installed flatpak app", () => {
             `HAS_FLATPAK=true
 detect_flatpak_browsers
 printf '%s' "$DETECTED_FLATPAK_BROWSERS"`,
-            { env: { PATH: fullPath, HOME: home, SETUP_CONFIG: JSON.stringify(config), newline: "\n" } },
+            { env: { PATH: fullPath, HOME: home, SETUP_CONFIG: JSON.stringify(config), newline: "\n", TMPDIR: home } },
         );
 
-        assert.strictEqual(res.code, 0);
+        assert.strictEqual(res.code, 0, `detect_flatpak_browsers must succeed (stderr:\n${res.stderr})`);
         assert.strictEqual(res.stdout, "org.mozilla.firefox", "only the present app must be recorded");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies detect_flatpak_browsers aborts when the flatpak probe fails, rather than silently skipping. */
+test("detect_flatpak_browsers aborts when the flatpak probe fails", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        writeMockBin(bin, "flatpak", "exit 1");
+        const fullPath = `${bin}:${process.env.PATH}`;
+
+        const config = {
+            flatpak: {
+                browsers: [{ name: "Firefox", appId: "org.mozilla.firefox" }],
+            },
+        };
+
+        const res = sourceScript(
+            `HAS_FLATPAK=true
+detect_flatpak_browsers
+printf 'reached-end'`,
+            { env: { PATH: fullPath, HOME: home, SETUP_CONFIG: JSON.stringify(config), newline: "\n", TMPDIR: home } },
+        );
+
+        assert.notStrictEqual(res.code, 0, "failed probe must abort");
+        assert.match(res.stderr, /Failed to list installed flatpak apps/, "abort reason must be logged");
+        assert.ok(!res.stdout.includes("reached-end"), "detection must not continue after a failed probe");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies an empty installed-app list is a clean no-op, not an error. */
+test("detect_flatpak_browsers records nothing for an empty install list", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        writeMockBin(bin, "flatpak", "exit 0");
+        const fullPath = `${bin}:${process.env.PATH}`;
+
+        const config = {
+            flatpak: {
+                browsers: [{ name: "Firefox", appId: "org.mozilla.firefox" }],
+            },
+        };
+
+        const res = sourceScript(
+            `HAS_FLATPAK=true
+detect_flatpak_browsers
+printf '%s' "$DETECTED_FLATPAK_BROWSERS"`,
+            { env: { PATH: fullPath, HOME: home, SETUP_CONFIG: JSON.stringify(config), newline: "\n", TMPDIR: home } },
+        );
+
+        assert.strictEqual(res.code, 0, `empty list must be a clean no-op (stderr:\n${res.stderr})`);
+        assert.strictEqual(res.stdout, "", "no apps must be recorded for an empty install list");
     } finally {
         cleanup();
     }
