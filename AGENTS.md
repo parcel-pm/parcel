@@ -10,7 +10,7 @@
 | Format source | `make prettier` | Formats `test/*.{js,json}` and then runs `make -C src prettier`, which writes all `src/**/*.{js,json,less,css,html,xhtml}`. |
 | Install dev dependencies | `make install-deps` | Runs `npm install --ignore-scripts --before 2026-06-10` to fetch dev-time dependencies. Use this instead of a bare `npm install` so the additional security arguments are respected. |
 | Clean generated artifacts | `make clean` | Removes `src/dist/`, `chrome/`, `firefox/`, and top-level `dist/`. |
-| Run all tests | `make test` | Runs the full test suite with `node --test` across all `test/*.test.js` files (browser mock, helpers, native host, plaintext, schema, selectors, targets). |
+| Run all tests | `make test` | Runs prettier/eslint syntax checks and shellcheck linting, then the full test suite with `node --test` across all `test/*.test.js` files (browser mock, helpers, native host, plaintext, schema, selectors, targets). |
 | Run individual test groups | `make test-native`, `make test-browser-mock`, `make test-modules`, `make test-application`, `make test-syntax` | Native-host integration tests; Chrome-API mock tests; shared-module unit tests; application tests; syntax tests respectively. |
 | List outstanding TODO comments | `make todo` | Prints all TODO comments found in `src`, `test`, and root `.md` files, with author and date from git blame. |
 

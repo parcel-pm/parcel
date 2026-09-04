@@ -282,6 +282,7 @@ function clipboard_macos() {
     fi
     local OUT
     # the value is piped via stdin so it never appears in the process list (e.g. ps)
+    # shellcheck disable=SC2016 # the JXA's $. ObjC-bridge references must not be shell-expanded
     if ! OUT="$(printf %s "$1" | osascript -l JavaScript -e '
 ObjC.import("AppKit")
 const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile

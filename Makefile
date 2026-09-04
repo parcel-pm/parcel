@@ -131,7 +131,8 @@ test-setup: require-shellcheck
 	node --test $(TEST_FLAGS) test/setup/*.test.js
 
 .PHONY: test
-test: test-syntax
+test: test-syntax require-shellcheck
+	shellcheck -x src/parcel-host parcel-host
 	node --test $(TEST_FLAGS) \
 		test/chrome-api-mock.test.js \
 		test/helpers.test.js \
