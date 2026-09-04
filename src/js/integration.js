@@ -1017,6 +1017,24 @@
     }
 
     /**
+     * Whether this frame's origin matches every ancestor origin.
+     * @since 1.0.7
+     * @returns {boolean} False when any ancestor frame is cross-origin.
+     */
+    function sameOriginWithAncestors(origin) {
+        try {
+            let w = window;
+            while (w !== w.top) {
+                if (w.parent.location.origin !== origin) return false;
+                w = w.parent;
+            }
+            return true;
+        } catch (_err) {
+            return false; // opaque ancestor: the location read throws cross-origin
+        }
+    }
+
+    /**
      * Gate cross-origin iframe ceremonies via Permissions-Policy when available;
      * otherwise allow (downstream layers still validate rpId and require consent).
      * @since 1.0.4
@@ -1071,8 +1089,8 @@
                 return;
             }
             const origin = window.location.origin;
-            const crossOrigin = window !== window.top;
-            let topOrigin = crossOrigin ? getTopOrigin() : origin;
+            const crossOrigin = window !== window.top && !sameOriginWithAncestors(origin);
+            let topOrigin = getTopOrigin();
             const rpId = req.op === "get" ? req.options.rpId : req.options.rp?.id;
             if (passkeyDismissStreak >= PASSKEY_DISMISS_THRESHOLD && Date.now() - passkeyLastDismissAt < PASSKEY_POPUP_COOLDOWN_MS) {
                 // refuse popup-free rather than falling back: handing a spam loop to the
