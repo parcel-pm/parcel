@@ -130,12 +130,15 @@ LOCKED_STATEFILE="$STATEFILE.locked"
 # 1 when this process holds the state lock, 0 otherwise
 STATE_LOCK_HELD=0
 
-# maximum claim attempts before lock_state fails closed
-STATE_LOCK_ATTEMPTS_MAX="${STATE_LOCK_ATTEMPTS_MAX:-75}"
+# seconds to wait for the state lock before failing closed; must exceed the 5s
+# orphan-recovery age so a stale lock is always recoverable within the wait
+STATE_LOCK_TIMEOUT="${STATE_LOCK_TIMEOUT:-10}"
+# a non-numeric or zero value would disable the exhaustion check, looping forever
+[[ "$STATE_LOCK_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || STATE_LOCK_TIMEOUT=10
 
 # claim the state file as an exclusive lock; recover stale orphan locks; fail closed if exhausted.
 #
-# @return 0 if the lock was claimed, 1 if attempts were exhausted.
+# @return 0 if the lock was claimed, 1 if the wait budget was exhausted.
 # @since 1.0.7
 function lock_state() {
     # idempotent: re-claiming a lock we already hold is a no-op
@@ -144,7 +147,8 @@ function lock_state() {
     fi
     # the parent directory may not exist yet on a fresh install
     mkdir -p "$(dirname "$STATEFILE")"
-    local ATTEMPTS=0
+    local WAIT_START
+    WAIT_START="$(date +%s)"
     while true; do
         # existing state: the rename removes the source, so exactly one mv wins
         if [ -f "$STATEFILE" ] && mv "$STATEFILE" "$LOCKED_STATEFILE" 2>/dev/null; then
@@ -156,21 +160,23 @@ function lock_state() {
             chmod 0600 "$LOCKED_STATEFILE"
             break
         fi
+        local NOW
+        NOW="$(date +%s)"
         # a lock file exists: somebody holds it - recover it if stale, else wait;
         # an mtime that can't be read (vanished mid-check) is treated as held
         if [ -e "$LOCKED_STATEFILE" ]; then
             local LOCK_MTIME
             LOCK_MTIME="$(get_mtime "$LOCKED_STATEFILE")"
-            if [[ "$LOCK_MTIME" =~ ^[0-9]+$ ]] && [ $(( $(date +%s) - LOCK_MTIME )) -gt 5 ]; then
+            if [[ "$LOCK_MTIME" =~ ^[0-9]+$ ]] && [ $(( NOW - LOCK_MTIME )) -gt 5 ]; then
                 # orphan recovery: the rename removes the source, so exactly one wins
                 mv "$LOCKED_STATEFILE" "$STATEFILE" 2>/dev/null
                 continue
             fi
         fi
-        ATTEMPTS=$((ATTEMPTS + 1))
-        if [ "$ATTEMPTS" -ge "$STATE_LOCK_ATTEMPTS_MAX" ]; then
-            printf '[%s] failed to claim state lock after %s attempts; denying request\n' \
-                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATE_LOCK_ATTEMPTS_MAX" >&5
+        # give up once the wait budget is spent
+        if [ $(( NOW - WAIT_START )) -ge "$STATE_LOCK_TIMEOUT" ]; then
+            printf '[%s] failed to claim state lock after %ss; denying request\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATE_LOCK_TIMEOUT" >&5
             return 1
         fi
         # decorrelate waiters so retries don't race the single-winner mv in lockstep;

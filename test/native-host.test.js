@@ -2131,7 +2131,7 @@ VALID_SIGNERS="${env.knownSigner}"
         writeFileSync(lockedState, "DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\n");
         chmodSync(lockedState, 0o600);
 
-        const { proc, read, send } = await installMainScript(env, { STATE_LOCK_ATTEMPTS_MAX: "5" });
+        const { proc, read, send } = await installMainScript(env, { STATE_LOCK_TIMEOUT: "1" });
         try {
             send({ action: "list" });
             await read();
