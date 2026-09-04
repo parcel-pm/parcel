@@ -225,16 +225,18 @@ export function buildAttestationObject(authData) {
  * @param {string} type - "webauthn.create" or "webauthn.get"
  * @param {string} challengeB64Url - challenge as a base64url string
  * @param {string} origin - caller origin
+ * @param {boolean} [crossOrigin=false] - True when the ceremony runs inside a cross-origin frame.
+ * @param {string} [topOrigin=undefined] - Top-level origin; included in the output only when crossOrigin is true and known.
  * @returns {Uint8Array} clientDataJSON bytes
  * @since 1.0.4
  */
-export function buildClientDataJSON(type, challengeB64Url, origin) {
-    return utf8Encode(
-        JSON.stringify({
-            type: type,
-            challenge: challengeB64Url,
-            origin: origin,
-            crossOrigin: false,
-        }),
-    );
+export function buildClientDataJSON(type, challengeB64Url, origin, crossOrigin = false, topOrigin = undefined) {
+    const data = {
+        type: type,
+        challenge: challengeB64Url,
+        origin: origin,
+        crossOrigin: crossOrigin,
+    };
+    if (crossOrigin && topOrigin) data.topOrigin = topOrigin;
+    return utf8Encode(JSON.stringify(data));
 }

@@ -1001,6 +1001,24 @@
     }
 
     /**
+     * Determine the origin of the top-level frame: direct read when this frame is
+     * the top frame, `ancestorOrigins` when embedded on Chromium, and null when
+     * the top origin cannot be determined (embedded cross-origin elsewhere).
+     * @since 1.0.7
+     * @returns {string|null} The top-level origin, or null when it cannot be determined.
+     */
+    function getTopOrigin() {
+        try {
+            if (window === window.top) return location.origin;
+            const ancestors = location.ancestorOrigins; // Chromium only
+            if (ancestors?.length) return ancestors.item(ancestors.length - 1);
+            return window.top.location.origin; // same-origin embeds only; throws cross-origin
+        } catch (_err) {
+            return null;
+        }
+    }
+
+    /**
      * Gate cross-origin iframe ceremonies via Permissions-Policy when available;
      * otherwise allow (downstream layers still validate rpId and require consent).
      * @since 1.0.4
@@ -1055,6 +1073,8 @@
                 return;
             }
             const origin = window.location.origin;
+            const crossOrigin = window !== window.top;
+            const topOrigin = crossOrigin ? getTopOrigin() : origin;
             const rpId = req.op === "get" ? req.options.rpId : req.options.rp?.id;
             if (passkeyDismissStreak >= PASSKEY_DISMISS_THRESHOLD && Date.now() - passkeyLastDismissAt < PASSKEY_POPUP_COOLDOWN_MS) {
                 // refuse popup-free rather than falling back: handing a spam loop to the
@@ -1113,6 +1133,8 @@
                 requestId: req.requestId,
                 op: req.op,
                 origin,
+                crossOrigin,
+                topOrigin,
                 rpId: validRpId,
                 options: req.options,
                 candidates,
@@ -1331,7 +1353,13 @@
                         },
                     });
                 } else if (msg?.action === "passkey-assert") {
-                    const clientDataJSON = webauthn.buildClientDataJSON("webauthn.get", binding.options.challenge, binding.origin);
+                    const clientDataJSON = webauthn.buildClientDataJSON(
+                        "webauthn.get",
+                        binding.options.challenge,
+                        binding.origin,
+                        binding.crossOrigin,
+                        binding.topOrigin,
+                    );
                     const { result } = await passkeyRequest({
                         action: "passkey",
                         phase: "assert",
@@ -1355,7 +1383,13 @@
                         },
                     });
                 } else if (msg?.action === "passkey-create") {
-                    const clientDataBytes = webauthn.buildClientDataJSON("webauthn.create", binding.options.challenge, binding.origin);
+                    const clientDataBytes = webauthn.buildClientDataJSON(
+                        "webauthn.create",
+                        binding.options.challenge,
+                        binding.origin,
+                        binding.crossOrigin,
+                        binding.topOrigin,
+                    );
                     const { result } = await passkeyRequest({
                         action: "passkey",
                         phase: "create",
