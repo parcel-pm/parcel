@@ -229,6 +229,8 @@ export const TargetSchema = {
  * @since 1.0.0
  */
 export const ConfigSchema = {
+    // Note that .parcel.json may be synced from elsewhere by the user,
+    // including security-sensitive properties. This is by design.
     type: "object",
     properties: {
         additionalSelectors: SelectorSchema,

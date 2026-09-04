@@ -1542,6 +1542,8 @@
             ],
         ];
         for (const [id, active, message] of warnings.reverse()) {
+            // warning suppression may be synced from elsewhere by the user (e.g. .parcel.json in git) - this is
+            // not a local-machine-only opt-out, but rather applies (deliberately) everywhere this config is used.
             if (!active || config.suppressWarnings?.includes(id)) continue;
             const p = document.createElement("p");
             p.classList.add("warning");
