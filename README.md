@@ -338,7 +338,6 @@ The popup shows an informational warning banner when the configuration is in a w
 
 Some config fields (`passdir`, `realPassdir`, `modified`, `defaultRules`, `hostPinned`) are injected by the native host when it reports the config; values set for them in `.parcel.json` are ignored.
 
-
 Example `.parcel.json`:
 
 ```json
