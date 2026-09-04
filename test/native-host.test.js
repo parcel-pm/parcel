@@ -2088,9 +2088,24 @@ VALID_SIGNERS="${env.knownSigner}"
     test("concurrent hosts consume tokens atomically without lost updates", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
-        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.0001 }));
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 6, decryptRate: 0.0001 }));
 
-        const hosts = await Promise.all([installMainScript(env), installMainScript(env), installMainScript(env)]);
+        // Seed a full bucket with an aged mtime: a claim now enters via the rename
+        // path carrying a stale timestamp, which is where lost updates hide
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=6000\nDECRYPT_BUCKET_LAST=${Date.now() - 60000}\n`);
+        chmodSync(stateFile, 0o600);
+        const aged = new Date(Date.now() - 60000);
+        utimesSync(stateFile, aged, aged);
+
+        const hosts = await Promise.all([
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+            installMainScript(env),
+        ]);
         try {
             const testPath = join(env.passdir, "test-entry.gpg");
             for (const host of hosts) {
@@ -2106,9 +2121,8 @@ VALID_SIGNERS="${env.knownSigner}"
                 assert.strictEqual(reply.data?.plaintext, "test-decrypted-content", `Concurrent decrypt failed: ${JSON.stringify(reply)}`);
             }
 
-            // Three consumes against a full 3-token bucket must leave zero tokens;
+            // Six consumes against a full 6-token bucket must leave zero tokens;
             // a lost update between concurrent hosts would leave 1000+ behind.
-            const stateFile = join(env.home, ".config", "parcel", "state");
             const tokens = Number((readFileSync(stateFile, "utf8").match(/^DECRYPT_BUCKET_TOKENS=(\d+)$/m) || [])[1]);
             assert.ok(Number.isInteger(tokens), `State file should contain DECRYPT_BUCKET_TOKENS: ${readFileSync(stateFile, "utf8")}`);
             assert.ok(tokens < 1000, `Bucket should be fully consumed, found ${tokens} tokens (lost update?)`);
@@ -2116,6 +2130,53 @@ VALID_SIGNERS="${env.knownSigner}"
             for (const host of hosts) {
                 host.proc.kill();
             }
+            env.cleanup();
+        }
+    });
+
+    test("state lock mtime is fresh at claim time, even for aged state", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 1 }));
+
+        // slow touch: a claim that renames before refreshing would hold the
+        // lock with a stale mtime long enough to observe it here
+        mockTool(env, "touch", '#!/bin/bash\nsleep 0.5\nexec /usr/bin/touch "$@"\n');
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            const testPath = join(env.passdir, "test-entry.gpg");
+
+            // full bucket with an aged mtime, so a rename-only claim carries a stale stamp
+            const stateFile = join(env.home, ".config", "parcel", "state");
+            writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=3000\nDECRYPT_BUCKET_LAST=${Date.now()}\n`);
+            chmodSync(stateFile, 0o600);
+            const aged = new Date(Date.now() - 60000);
+            utimesSync(stateFile, aged, aged);
+
+            send({ action: "decrypt", path: testPath, intent: "test", origin: "test-origin" });
+
+            // observe the lock while it is held
+            const lockedState = join(env.home, ".config", "parcel", "state.locked");
+            let mtime = null;
+            for (let i = 0; i < 1000 && mtime === null; i++) {
+                if (existsSync(lockedState)) {
+                    mtime = statSync(lockedState).mtimeMs;
+                } else {
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                }
+            }
+            assert.ok(mtime !== null, "Lock file never appeared; state was not claimed");
+            const lockAge = Date.now() - mtime;
+            assert.ok(
+                lockAge < 5000,
+                `Lock is stale while held (${Math.floor(lockAge / 1000)}s old); claim does not refresh the mtime before renaming`,
+            );
+
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
             env.cleanup();
         }
     });
