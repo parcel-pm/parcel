@@ -181,7 +181,7 @@ function lock_state() {
         fi
         # decorrelate waiters so retries don't race the single-winner mv in lockstep;
         # jitter comes from $RANDOM since get_timestamp_ms is second-granular on Darwin
-        sleep "0.0$(printf '%02d' $((RANDOM % 190 + 10)))"
+        sleep "0.$(printf '%03d' $((RANDOM % 190 + 10)))"
     done
     STATE_LOCK_HELD=1
     return 0
