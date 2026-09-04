@@ -90,7 +90,7 @@ function validate_state_content() {
 # Load persisted state; require 0600 on the file, then read it into memory and
 # validate against a whitelist before evaluating, to prevent TOCTOU. Bad
 # permissions or corrupt values reset the bucket to defaults — a deliberate
-# fail-open for robustness. Only valid under the state lock (see state_lock),
+# fail-open for robustness. Only valid under the state lock (see lock_state),
 # which also guarantees that the file exists.
 function load_state() {
     if [ "$LOCKED_STATEFILE" != "$(find "$LOCKED_STATEFILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ]; then
@@ -117,27 +117,27 @@ function load_state() {
 
 # save current state variables to the state file (clobbers).
 # only non-sensitive numeric values are written.
-# Only valid under the state lock (see state_lock).
+# Only valid under the state lock (see lock_state).
 function save_state() {
     printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\n' \
         "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" > "$LOCKED_STATEFILE"
     chmod 0600 "$LOCKED_STATEFILE"
 }
 
-# path of the locked state file; never coexists with $STATEFILE (see state_lock)
+# path of the locked state file; never coexists with $STATEFILE (see lock_state)
 LOCKED_STATEFILE="$STATEFILE.locked"
 
 # 1 when this process holds the state lock, 0 otherwise
 STATE_LOCK_HELD=0
 
-# maximum claim attempts before state_lock fails closed
+# maximum claim attempts before lock_state fails closed
 STATE_LOCK_ATTEMPTS_MAX="${STATE_LOCK_ATTEMPTS_MAX:-75}"
 
 # claim the state file as an exclusive lock; recover stale orphan locks; fail closed if exhausted.
 #
 # @return 0 if the lock was claimed, 1 if attempts were exhausted.
 # @since 1.0.7
-function state_lock() {
+function lock_state() {
     # idempotent: re-claiming a lock we already hold is a no-op
     if [ "$STATE_LOCK_HELD" -eq 1 ]; then
         return 0
@@ -184,7 +184,7 @@ function state_lock() {
 #
 # @return 0 always.
 # @since 1.0.7
-function state_unlock() {
+function unlock_state() {
     if [ "$STATE_LOCK_HELD" -eq 1 ]; then
         mv "$LOCKED_STATEFILE" "$STATEFILE" 2>/dev/null
         STATE_LOCK_HELD=0
@@ -192,8 +192,8 @@ function state_unlock() {
     return 0
 }
 
-# release the state lock on any exit path, including parcel_error; state_unlock no-ops when unheld
-trap state_unlock EXIT
+# release the state lock on any exit path, including parcel_error; unlock_state no-ops when unheld
+trap unlock_state EXIT
 
 # load the configuration
 function load_config() {
@@ -594,7 +594,7 @@ function check_decrypt_rate_limit() {
     fi
 
     # claim the state lock, then load persisted state before computing
-    if ! state_lock; then
+    if ! lock_state; then
         return 1
     fi
     load_state
@@ -621,13 +621,13 @@ function check_decrypt_rate_limit() {
 
     if [ "$DECRYPT_BUCKET_TOKENS" -lt 1000 ]; then
         save_state
-        state_unlock
+        unlock_state
         return 1
     fi
 
     DECRYPT_BUCKET_TOKENS=$((DECRYPT_BUCKET_TOKENS - 1000))
     save_state
-    state_unlock
+    unlock_state
     return 0
 }
 
