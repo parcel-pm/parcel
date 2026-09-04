@@ -57,27 +57,28 @@ export class Schema {
                 throw new Error(`Invalid value for ${path}: must be ${schema.value}.`);
         }
         switch (type) {
-            case "string": {
-                if (Object.prototype.hasOwnProperty.call(schema, "minLength") && data.length < schema.minLength)
-                    throw new Error(`Invalid value for ${path}: must be at least ${schema.minLength} characters long.`);
-                if (Object.prototype.hasOwnProperty.call(schema, "maxLength") && data.length > schema.maxLength)
-                    throw new Error(`Invalid value for ${path}: must be at most ${schema.maxLength} characters long.`);
-                if (schema.pattern && !new RegExp(schema.pattern, schema.flags || "u").test(data))
-                    throw new Error(`Invalid value for ${path}: must match ${schema.pattern}.`);
-                if (schema.enum && !schema.enum.includes(data))
-                    throw new Error(`Invalid value for ${path}: must be one of [${schema.enum.join(", ")}].`);
-                if (schema.format) {
-                    switch (schema.format) {
-                        case "regex":
-                            try {
-                                new RegExp(data, "u");
-                            } catch {
-                                throw new Error(`Invalid value for ${path}: must be a valid regular expression.`);
-                            }
+            case "string":
+                {
+                    if (Object.prototype.hasOwnProperty.call(schema, "minLength") && data.length < schema.minLength)
+                        throw new Error(`Invalid value for ${path}: must be at least ${schema.minLength} characters long.`);
+                    if (Object.prototype.hasOwnProperty.call(schema, "maxLength") && data.length > schema.maxLength)
+                        throw new Error(`Invalid value for ${path}: must be at most ${schema.maxLength} characters long.`);
+                    if (schema.pattern && !new RegExp(schema.pattern, schema.flags || "u").test(data))
+                        throw new Error(`Invalid value for ${path}: must match ${schema.pattern}.`);
+                    if (schema.enum && !schema.enum.includes(data))
+                        throw new Error(`Invalid value for ${path}: must be one of [${schema.enum.join(", ")}].`);
+                    if (schema.format) {
+                        switch (schema.format) {
+                            case "regex":
+                                try {
+                                    new RegExp(data, "u");
+                                } catch {
+                                    throw new Error(`Invalid value for ${path}: must be a valid regular expression.`);
+                                }
+                        }
                     }
                 }
                 break;
-            }
             case "number":
                 {
                     if (Object.prototype.hasOwnProperty.call(schema, "minimum") && data < schema.minimum)
