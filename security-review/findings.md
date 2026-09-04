@@ -12,7 +12,7 @@ No CRITICAL or HIGH vulnerabilities are exploitable in the v1.0.6 committed tree
 
 **Description:** The bootstrap signer check used unanchored `grep VALIDSIG | cut -f12`; a crafted GPG key whose UID embeds a `VALIDSIG <trusted-fpr> ...` substring would set `SIGNER_VALID=true` and trigger `eval` of attacker host code (TM2/TM3). Fixed in #144 by anchoring on `^\[GNUPG:] VALIDSIG`; the v1.0.6 tree is not vulnerable (both models agree). Pre-fix reachability through shipped v1.0.5 is disputed (kimi: rejected by the F41L multi-line containment accident; glm: reachable).
 
-**Response:** Independently found & fixed prior to release in #144; the shipped v1.0.6 is not vulnerable. Earlier versions confirmed vulnerable (albeit only in the event of a theoretical compromise of the release workflow -> service worker -> native host `install`, but still fits the CRITICAL severity class). Adversarial regression coverage added in #172 (see F56L).
+**Response:** Independently found & fixed prior to release in #144; the shipped v1.0.6 is not vulnerable. Earlier versions confirmed vulnerable in principle (albeit only in the event of a theoretical compromise of the release workflow -> service worker -> native host `install`, but still fits the CRITICAL severity class), but accidentally contained by non-multiline regex matching. Actual vulnerability was only ever in unreleased commits between #129 & #144. Adversarial regression coverage added in #172 (see F56L).
 
 ### F53M — Concurrent host processes multiply the persisted rate-limiter budget (MEDIUM)
 
