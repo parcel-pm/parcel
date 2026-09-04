@@ -887,7 +887,7 @@
      * Perform a one-shot request/response exchange with the background worker on a fresh "passkey" port.
      * @since 1.0.4
      * @param {object} msg - The message to send (`{action: "passkey", phase, ...}`).
-     * @returns {Promise<object>} The worker's reply: `{rpId, candidates}` for a candidates phase, `{result}` otherwise.
+     * @returns {Promise<object>} The worker's reply: `{rpId, candidates, topOrigin}` for a candidates phase, `{result}` otherwise.
      * @throws {Error} If the worker reports an error, disconnects, or the exchange times out.
      */
     async function passkeyRequest(msg) {
@@ -917,7 +917,7 @@
                 if (response?.action === "error") settle(reject, new Error(response.error));
                 else if (response?.action === "passkey-fallback") settle(resolve, { fallback: true });
                 else if (response?.action === "passkey-candidates")
-                    settle(resolve, { rpId: response.rpId, candidates: response.candidates });
+                    settle(resolve, { rpId: response.rpId, candidates: response.candidates, topOrigin: response.topOrigin });
                 else if (response?.action === "passkey-result") settle(resolve, { result: response.result });
                 // ignore other message types (e.g. status / clear-status progress messages etc.)
             });
@@ -1001,6 +1001,40 @@
     }
 
     /**
+     * Determine the origin of the top-level frame, or null when it cannot be read.
+     * @since 1.0.7
+     * @returns {string|null} The top-level origin, or null when it cannot be determined.
+     */
+    function getTopOrigin() {
+        try {
+            if (window === window.top) return location.origin;
+            const ancestors = location.ancestorOrigins; // Chromium only
+            if (ancestors?.length) return ancestors.item(ancestors.length - 1);
+            return window.top.location.origin; // same-origin embeds only; throws cross-origin
+        } catch (_err) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether this frame's origin matches every ancestor origin.
+     * @since 1.0.7
+     * @returns {boolean} False when any ancestor frame is cross-origin.
+     */
+    function sameOriginWithAncestors(origin) {
+        try {
+            let w = window;
+            while (w !== w.top) {
+                if (w.parent.location.origin !== origin) return false;
+                w = w.parent;
+            }
+            return true;
+        } catch (_err) {
+            return false; // opaque ancestor: the location read throws cross-origin
+        }
+    }
+
+    /**
      * Gate cross-origin iframe ceremonies via Permissions-Policy when available;
      * otherwise allow (downstream layers still validate rpId and require consent).
      * @since 1.0.4
@@ -1055,6 +1089,8 @@
                 return;
             }
             const origin = window.location.origin;
+            const crossOrigin = window !== window.top && !sameOriginWithAncestors(origin);
+            let topOrigin = getTopOrigin();
             const rpId = req.op === "get" ? req.options.rpId : req.options.rp?.id;
             if (passkeyDismissStreak >= PASSKEY_DISMISS_THRESHOLD && Date.now() - passkeyLastDismissAt < PASSKEY_POPUP_COOLDOWN_MS) {
                 // refuse popup-free rather than falling back: handing a spam loop to the
@@ -1068,7 +1104,14 @@
                 });
                 return;
             }
-            const reply = await passkeyRequest({ action: "passkey", phase: "candidates", origin, rpId });
+            const reply = await passkeyRequest({
+                action: "passkey",
+                phase: "candidates",
+                origin,
+                rpId,
+                // Firefox embeds cannot self-determine the top origin; the worker reads it from the tab's top-level URL
+                needTopOrigin: crossOrigin && topOrigin === null,
+            });
             if (reply.fallback) {
                 // the site opted into browser passkeys via a browser-passkey rule
                 console.debug(`[integration] deferring passkey to browser: browser-passkey rule matched for rpId ${rpId}`);
@@ -1076,6 +1119,7 @@
                 return;
             }
             const { rpId: validRpId, candidates } = reply;
+            if (crossOrigin && topOrigin === null && typeof reply.topOrigin === "string") topOrigin = reply.topOrigin;
 
             if (req.op === "get" && candidates.length === 0) {
                 // nothing stored for this relying party — silently hand the call back to the browser
@@ -1113,6 +1157,8 @@
                 requestId: req.requestId,
                 op: req.op,
                 origin,
+                crossOrigin,
+                topOrigin,
                 rpId: validRpId,
                 options: req.options,
                 candidates,
@@ -1331,7 +1377,13 @@
                         },
                     });
                 } else if (msg?.action === "passkey-assert") {
-                    const clientDataJSON = webauthn.buildClientDataJSON("webauthn.get", binding.options.challenge, binding.origin);
+                    const clientDataJSON = webauthn.buildClientDataJSON(
+                        "webauthn.get",
+                        binding.options.challenge,
+                        binding.origin,
+                        binding.crossOrigin,
+                        binding.topOrigin,
+                    );
                     const { result } = await passkeyRequest({
                         action: "passkey",
                         phase: "assert",
@@ -1355,7 +1407,13 @@
                         },
                     });
                 } else if (msg?.action === "passkey-create") {
-                    const clientDataBytes = webauthn.buildClientDataJSON("webauthn.create", binding.options.challenge, binding.origin);
+                    const clientDataBytes = webauthn.buildClientDataJSON(
+                        "webauthn.create",
+                        binding.options.challenge,
+                        binding.origin,
+                        binding.crossOrigin,
+                        binding.topOrigin,
+                    );
                     const { result } = await passkeyRequest({
                         action: "passkey",
                         phase: "create",

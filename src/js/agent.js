@@ -609,6 +609,23 @@ export class Agent extends EventTarget {
     }
 
     /**
+     * Resolve the top-level origin of the tab hosting a connected content-script port.
+     * @since 1.0.7
+     * @param {Port} port - The connected content-script port.
+     * @returns {string|null} The tab's top-level origin, or null when it cannot be determined.
+     */
+    #topOriginFor(port) {
+        const url = port.sender?.tab?.url;
+        if (typeof url !== "string" || !url) return null;
+        try {
+            const origin = new URL(url).origin;
+            return origin === "null" ? null : origin;
+        } catch (_err) {
+            return null;
+        }
+    }
+
+    /**
      * Handle incoming connections from the extension UI & content scripts.
      * @since 1.0.0
      * @param {Port} port - The connection port from the extension UI or a content script.
@@ -887,7 +904,9 @@ export class Agent extends EventTarget {
                             })
                             .map((entry) => ({ name: entry.name, path: entry.path, rule: entry.rule }));
                         clearStatus();
-                        port.postMessage({ action: "passkey-candidates", rpId, candidates });
+                        const reply = { action: "passkey-candidates", rpId, candidates };
+                        if (message.needTopOrigin) reply.topOrigin = this.#topOriginFor(port);
+                        port.postMessage(reply);
                     } else if (message.phase === "assert") {
                         // only rule-classed passkey entries may sign assertions; passkeyDir
                         // membership alone is not sufficient. The native host independently

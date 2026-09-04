@@ -1213,6 +1213,61 @@ describe("Agent", () => {
         ]);
     });
 
+    test("passkey candidates reply includes the tab top origin when requested", async () => {
+        await configurePasskeyStore();
+        // the worker sees the embedder's top-level URL via the port's sender
+        const passkey = mock.chrome.runtime.connect({
+            name: "passkey",
+            sender: { tab: { id: 5, url: "https://top.example/some/page?query=1" } },
+        });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({
+            action: "passkey",
+            phase: "candidates",
+            origin: "https://login.example.com",
+            rpId: "example.com",
+            needTopOrigin: true,
+        });
+        const msg = await candidatesPromise;
+        // the reply carries the serialised origin only — path and query never leave the worker
+        assert.strictEqual(msg.topOrigin, "https://top.example");
+    });
+
+    test("passkey candidates reply omits the top origin unless the frame asks for it", async () => {
+        await configurePasskeyStore();
+        const passkey = mock.chrome.runtime.connect({
+            name: "passkey",
+            sender: { tab: { id: 5, url: "https://top.example" } },
+        });
+        await settleAsync();
+        const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+        passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://login.example.com", rpId: "example.com" });
+        const msg = await candidatesPromise;
+        assert.strictEqual(msg.topOrigin, undefined, "unrequested top origin must not be disclosed");
+    });
+
+    test("passkey candidates reply cannot resolve the top origin without a usable tab URL", async () => {
+        await configurePasskeyStore();
+        // no host permission for the tab's URL (Firefox's sender omits it) — and
+        // an opaque tab origin (about:blank) is not a usable topOrigin either
+        for (const sender of [{ tab: { id: 5 } }, { tab: { id: 6, url: "about:blank" } }]) {
+            const passkey = mock.chrome.runtime.connect({ name: "passkey", sender });
+            await settleAsync();
+            const candidatesPromise = nextMessage(passkey, "passkey-candidates");
+            passkey.postMessage({
+                action: "passkey",
+                phase: "candidates",
+                origin: "https://login.example.com",
+                rpId: "example.com",
+                needTopOrigin: true,
+            });
+            const msg = await candidatesPromise;
+            assert.strictEqual(msg.topOrigin, null, `top origin should be null for sender ${JSON.stringify(sender)}`);
+            passkey.disconnect();
+        }
+    });
+
     test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
         await configurePasskeyStore();
         const passkey = mock.chrome.runtime.connect({ name: "passkey" });

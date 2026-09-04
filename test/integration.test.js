@@ -1586,6 +1586,66 @@ describe("Integration script", { concurrency: false }, () => {
         }
 
         /**
+         * Build a window embedded in a foreign frame: all parent/top location
+         * reads throw and no platform ancestor-origin API exists (Firefox embed).
+         * @returns {object} A fake `window` for swapping into `globalThis.window`.
+         */
+        function crossOriginWindow() {
+            const fakeWindow = Object.create(window);
+            const foreignFrame = () =>
+                Object.defineProperty({}, "location", {
+                    get() {
+                        throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
+                    },
+                });
+            Object.defineProperty(fakeWindow, "top", { get: foreignFrame });
+            Object.defineProperty(fakeWindow, "parent", { get: foreignFrame });
+            return fakeWindow;
+        }
+
+        /**
+         * Build a window embedded same-origin: parent and top are the same
+         * readable embedder, sharing the frame's own origin.
+         * @returns {object} A fake `window` for swapping into `globalThis.window`.
+         */
+        function sameOriginEmbedWindow() {
+            const fakeWindow = Object.create(window);
+            const embedder = Object.create(window);
+            Object.defineProperty(embedder, "top", {
+                get() {
+                    return embedder;
+                },
+            });
+            Object.defineProperty(fakeWindow, "top", { get: () => embedder });
+            Object.defineProperty(fakeWindow, "parent", { get: () => embedder });
+            return fakeWindow;
+        }
+
+        /**
+         * Build a window in a mid-chain foreign iframe whose top frame is same-origin:
+         * the parent read throws, the top read succeeds.
+         * @returns {object} A fake `window` for swapping into `globalThis.window`.
+         */
+        function sandwichEmbedWindow() {
+            const fakeWindow = Object.create(window);
+            const foreignFrame = () =>
+                Object.defineProperty({}, "location", {
+                    get() {
+                        throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
+                    },
+                });
+            const embedder = Object.create(window);
+            Object.defineProperty(embedder, "top", {
+                get() {
+                    return embedder;
+                },
+            });
+            Object.defineProperty(fakeWindow, "top", { get: () => embedder });
+            Object.defineProperty(fakeWindow, "parent", { get: foreignFrame });
+            return fakeWindow;
+        }
+
+        /**
          * Run one complete, consented get ceremony (with its own scripted agent).
          * Doubles as a reset for the popup-spam guard's dismissal streak between
          * cancel-based tests, since a consented ceremony clears it. Registers its own
@@ -2095,18 +2155,7 @@ describe("Integration script", { concurrency: false }, () => {
             const teardown = fakePasskeyAgent((port, msg) => {
                 if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
             });
-            // Simulate a cross-origin iframe: jsdom's window.top is non-configurable,
-            // so shadow the global window with a derived object whose top accessor throws.
-            const fakeWindow = Object.create(window);
-            Object.defineProperty(fakeWindow, "top", {
-                get() {
-                    return Object.defineProperty({}, "location", {
-                        get() {
-                            throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
-                        },
-                    });
-                },
-            });
+            const fakeWindow = crossOriginWindow();
             Object.defineProperty(document, "permissionsPolicy", {
                 value: { allowsFeature: () => true },
                 configurable: true,
@@ -2140,16 +2189,7 @@ describe("Integration script", { concurrency: false }, () => {
                 if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
             });
             // No permissionsPolicy API — ceremony proceeds via the MAIN-world gate and downstream validation.
-            const fakeWindow = Object.create(window);
-            Object.defineProperty(fakeWindow, "top", {
-                get() {
-                    return Object.defineProperty({}, "location", {
-                        get() {
-                            throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
-                        },
-                    });
-                },
-            });
+            const fakeWindow = crossOriginWindow();
             const realWindow = globalThis.window;
             globalThis.window = fakeWindow;
             try {
@@ -2161,6 +2201,119 @@ describe("Integration script", { concurrency: false }, () => {
                 globalThis.window = realWindow;
                 teardown();
             }
+        });
+
+        /**
+         * Run a get ceremony to completion inside a mocked embed window.
+         * @param {string} requestId - Unique request identifier for this ceremony.
+         * @param {object} embedWindow - Fake `window` (with `top`/`parent` mocks) to swap in.
+         * @param {object} [candidatesReply] - Extra fields for the worker's candidates reply.
+         * @returns {Promise<{response: object, clientData: object, candidatesMsg: object}>}
+         *     The ceremony response, parsed client data, and the candidates request.
+         */
+        async function runEmbedAssertion(requestId, embedWindow, candidatesReply = {}) {
+            clearBody();
+            let candidatesMsg = null;
+            let assertPhase = null;
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") {
+                    candidatesMsg = msg;
+                    port.postMessage({
+                        action: "passkey-candidates",
+                        rpId: "example.com",
+                        candidates: [{ name: "passkeys/example.com/alice", path: "/abs/passkeys/example.com/alice.gpg" }],
+                        ...candidatesReply,
+                    });
+                } else if (msg.phase === "assert") {
+                    assertPhase = msg;
+                    port.postMessage({
+                        action: "passkey-result",
+                        result: {
+                            op: "get",
+                            credentialId: "Y3JlZA",
+                            authenticatorData: Buffer.from([1, 2, 3]).toString("base64"),
+                            signature: Buffer.from([4, 5, 6]).toString("base64"),
+                            userHandle: "dXNlcg",
+                        },
+                    });
+                }
+            });
+            const realWindow = globalThis.window;
+            globalThis.window = embedWindow;
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({ requestId, op: "get", options: GET_OPTIONS() });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                popup.postMessage({ action: "passkey-assert", path: "/abs/passkeys/example.com/alice.gpg" });
+                const response = await replyPromise;
+                assert.strictEqual(response.type, "response");
+                assert.ok(assertPhase, "assert phase should have been requested");
+                return {
+                    response,
+                    clientData: JSON.parse(Buffer.from(assertPhase.clientDataJSON, "base64").toString("utf8")),
+                    candidatesMsg,
+                };
+            } finally {
+                globalThis.window = realWindow;
+                teardown();
+            }
+        }
+
+        test("cross-origin iframe asks the worker for the top origin and signs it into clientDataJSON", async () => {
+            const { response, clientData, candidatesMsg } = await runEmbedAssertion("pw-xorigin-toporigin", crossOriginWindow(), {
+                topOrigin: "https://top.example",
+            });
+            // a frame that cannot read its own embedder must request the top origin
+            assert.strictEqual(candidatesMsg.needTopOrigin, true, "candidates request must ask for the top origin");
+            assert.strictEqual(candidatesMsg.origin, "http://localhost");
+            assert.deepStrictEqual(clientData, {
+                type: "webauthn.get",
+                challenge: "Y2hhbGxlbmdl",
+                origin: "http://localhost",
+                crossOrigin: true,
+                topOrigin: "https://top.example",
+            });
+            assert.strictEqual(response.credential.op, "get");
+        });
+
+        test("cross-origin iframe omits topOrigin when the worker cannot determine it", async () => {
+            const { clientData, candidatesMsg } = await runEmbedAssertion("pw-xorigin-notop", crossOriginWindow());
+            assert.strictEqual(candidatesMsg.needTopOrigin, true, "candidates request must ask for the top origin");
+            // no topOrigin in the reply and no platform API: emit crossOrigin without topOrigin
+            assert.deepStrictEqual(clientData, {
+                type: "webauthn.get",
+                challenge: "Y2hhbGxlbmdl",
+                origin: "http://localhost",
+                crossOrigin: true,
+            });
+        });
+
+        test("same-origin iframe embed emits crossOrigin false without a top origin", async () => {
+            const { response, clientData, candidatesMsg } = await runEmbedAssertion("pw-sorigin-embed", sameOriginEmbedWindow());
+            // a same-origin embed knows the top origin and is not cross-origin
+            assert.strictEqual(candidatesMsg.needTopOrigin, false, "same-origin embeds must not ask the worker for a top origin");
+            assert.deepStrictEqual(clientData, {
+                type: "webauthn.get",
+                challenge: "Y2hhbGxlbmdl",
+                origin: "http://localhost",
+                crossOrigin: false,
+            });
+            assert.strictEqual(response.credential.op, "get");
+        });
+
+        test("sandwiched iframe with a foreign parent stays cross-origin despite a readable top", async () => {
+            const { clientData, candidatesMsg } = await runEmbedAssertion("pw-sandwich-embed", sandwichEmbedWindow());
+            assert.strictEqual(candidatesMsg.needTopOrigin, false, "a readable top origin needs no worker ask");
+            // the top frame is same-origin, but the foreign mid-chain parent still crosses
+            assert.deepStrictEqual(clientData, {
+                type: "webauthn.get",
+                challenge: "Y2hhbGxlbmdl",
+                origin: "http://localhost",
+                crossOrigin: true,
+                topOrigin: "http://localhost",
+            });
         });
     });
 });
