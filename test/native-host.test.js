@@ -1129,7 +1129,7 @@ VALID_SIGNERS="${env.knownSigner}"
         const captureArgs = join(env.home, "wl-args");
         mockClipboardWayland(env, captureArgs, "secret", captureStdin);
 
-        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1" });
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1", PARCEL_IDLE_TIMEOUT: "299" });
         try {
             send({ action: "clipboard", value: "secret", timeout: 45 });
             const msg = await read();
@@ -1153,7 +1153,7 @@ VALID_SIGNERS="${env.knownSigner}"
         const captureArgs = join(env.home, "wl-args");
         mockClipboardWayland(env, captureArgs, "secret", captureStdin, true);
 
-        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1" });
+        const { proc, read, send } = await installMainScript(env, { WAYLAND_DISPLAY: "wayland-1", PARCEL_IDLE_TIMEOUT: "299" });
         try {
             send({ action: "clipboard", value: "secret", timeout: 45 });
             const msg = await read();
