@@ -336,8 +336,6 @@ The popup shows an informational warning banner when the configuration is in a w
 | `rate-limit-disabled` | `decryptBucket` or `decryptRate` is `0`, which disables decryption rate limiting entirely. | Set `decryptBucket` and `decryptRate` to non-zero values in `.parcel.json`. |
 | `rate-limit-high` | `decryptBucket` exceeds 16, or `decryptRate` exceeds `0.00444` (16 per hour). | Lower `decryptBucket` or `decryptRate` in `.parcel.json`. |
 
-Some config fields (`passdir`, `realPassdir`, `modified`, `defaultRules`, `hostPinned`) are injected by the native host when it reports the config; values set for them in `.parcel.json` are ignored.
-
 Example `.parcel.json`:
 
 ```json
