@@ -12,43 +12,43 @@ No CRITICAL or HIGH vulnerabilities are exploitable in the v1.0.6 committed tree
 
 **Description:** The bootstrap signer check used unanchored `grep VALIDSIG | cut -f12`; a crafted GPG key whose UID embeds a `VALIDSIG <trusted-fpr> ...` substring would set `SIGNER_VALID=true` and trigger `eval` of attacker host code (TM2/TM3). Fixed in #144 by anchoring on `^\[GNUPG:] VALIDSIG`; the v1.0.6 tree is not vulnerable (both models agree). Pre-fix reachability through shipped v1.0.5 is disputed (kimi: rejected by the F41L multi-line containment accident; glm: reachable).
 
-**Response:** <maintainer reponse pending>
+**Response:** Independently found & fixed prior to release in #144; the shipped v1.0.6 is not vulnerable. Earlier versions confirmed vulnerable (albeit only in the event of a theoretical compromise of the release workflow, but still fits the CRITICAL severity class). Adversarial regression coverage added in #172 (see F56L).
 
 ### F53M — Concurrent host processes multiply the persisted rate-limiter budget (MEDIUM)
 
 **Description:** F35M's persisted token bucket has no locking around `load_state → compute → save_state`; K parallel `connectNative()` processes each observe a full bucket and spend independently, multiplying the documented rate by K. Same TM2 class the limiter documents against. Whitelist and audit log still bound impact.
 
-**Response:** <maintainer reponse pending>
+**Response:** Addressed in #175 by making the rate limiter state atomic.
 
 ### F54L — Unvalidated `otpauth://` `digits`/`period` → large-allocation DoS / timer churn in browser-side TOTP (LOW)
 
 **Description:** `Helpers.generateTOTP` trusts `digits` verbatim; a store-controlled `otpauth://` URI with `digits=1e8` triggers a ~100 MB `padStart` allocation, hanging or OOM-crashing the popup (TM4). `period=0` defeats the `|| 30` default and drives 50 ms refresh churn. No credential or host impact.
 
-**Response:** <maintainer reponse pending>
+**Response:** Addressed in #170; `digits` is coerced and restricted to 6–10 and `period` to 1–3600, so pathological `otpauth://` values are rejected.
 
 ### F55L — `clientDataJSON.crossOrigin` hardcoded `false` for cross-origin-iframe ceremonies (LOW)
 
 **Description:** `buildClientDataJSON` hardcodes `"crossOrigin": false`, so cross-origin-iframe ceremonies (#138) mislabel themselves as same-origin. The `origin` field remains correct and signature binding is host-enforced; impact is contingent on RP behaviour that inspects `crossOrigin`/`topOrigin`. No credential misdirection. TM0-adjacent interop defect.
 
-**Response:** <maintainer reponse pending>
+**Response:** Addressed in #171; ceremonies now emit the real `crossOrigin` value, plus `topOrigin` when embedded cross-origin and determinable, instead of hardcoding `false`.
 
 ### F56L — No adversarial regression test for the #144 VALIDSIG-injection fix (LOW)
 
 **Description:** The mock GPG emits no `GOODSIG` line, so no test crafts a malicious-UID line that would pass the old unanchored grep but fail the anchored one; reverting the #144 fix fails zero tests. Rated LOW (both models) rather than INFORMATIONAL because a silent regression re-opens host-code execution (TM5).
 
-**Response:** <maintainer reponse pending>
+**Response:** Addressed in #172; the host tests now craft a malicious-UID `GOODSIG` line that passes the old unanchored grep but fails the anchored one.
 
 ### F57L — Schema unknown-property rejection is prototype-subvertible (LOW)
 
 **Description:** The unknown-key gate tests `schema.properties[key]` for truthiness; since it's a plain object, keys like `__proto__`/`constructor`/`toString` resolve via `Object.prototype` and pass. Inert today (no dynamic config-key reads). Disputed: glm classifies residual (no reachable exploit), kimi reports LOW. TM4 / TM2-adjacent.
 
-**Response:** <maintainer reponse pending>
+**Response:** Addressed in #174; the unknown-key gate now uses `Object.prototype.hasOwnProperty`, closing the `Object.prototype` bypass.
 
 ### F58L — MetaSchema nested self-recursion never fires (LOW)
 
 **Description:** `MetaSchema` self-recursion never validates nested property values — `Schema.validate` consumes `items` only in the array branch and `properties` only in the object branch, so malformed nested schemas (e.g. `maxLengh` typo) pass silently. Developer-time only; schemas are author-controlled. Disputed: glm residual, kimi LOW. TM0.
 
-**Response:** <maintainer reponse pending>
+**Response:** Addressed in #174; `Schema.validate` now recurses nested property values via an object-level `items` check (with a cyclic re-entry guard for `MetaSchema`), so malformed nested schemas no longer pass silently.
 
 ## [v1.0.5 / kimi-k3 + deepseek-v4](reviews/v1.0.5/merged-glm-5.2.md)
 
