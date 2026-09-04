@@ -128,6 +128,72 @@ function save_state() {
     chmod 0600 "$STATEFILE"
 }
 
+# path of the locked state file; never coexists with $STATEFILE (see state_lock)
+LOCKED_STATEFILE="$STATEFILE.locked"
+
+# 1 when this process holds the state lock, 0 otherwise
+STATE_LOCK_HELD=0
+
+# maximum claim attempts before state_lock fails closed
+STATE_LOCK_ATTEMPTS_MAX=75
+
+# claim the state file as an exclusive lock; recover stale orphan locks; fail closed if exhausted.
+#
+# @return 0 if the lock was claimed, 1 if attempts were exhausted.
+# @since 1.0.7
+function state_lock() {
+    # idempotent: re-claiming a lock we already hold is a no-op
+    if [ "$STATE_LOCK_HELD" -eq 1 ]; then
+        return 0
+    fi
+    local ATTEMPTS=0
+    while true; do
+        # existing state: the rename removes the source, so exactly one mv wins
+        if [ -f "$STATEFILE" ] && mv "$STATEFILE" "$LOCKED_STATEFILE" 2>/dev/null; then
+            break
+        fi
+        # fresh install: noclobber redirection creates exclusively (O_EXCL), so
+        # exactly one creator wins and a live holder's lock file is never clobbered
+        if [ ! -e "$LOCKED_STATEFILE" ] && (set -C; : > "$LOCKED_STATEFILE" 2>/dev/null); then
+            chmod 0600 "$LOCKED_STATEFILE"
+            break
+        fi
+        # a lock file exists: somebody holds it — recover it if stale, else wait
+        if [ -e "$LOCKED_STATEFILE" ] && \
+                [ $(( $(date +%s) - $(get_mtime "$LOCKED_STATEFILE") )) -gt 5 ]; then
+            # orphan recovery: the rename removes the source, so exactly one wins
+            mv "$LOCKED_STATEFILE" "$STATEFILE" 2>/dev/null
+            continue
+        fi
+        ATTEMPTS=$((ATTEMPTS + 1))
+        if [ "$ATTEMPTS" -ge "$STATE_LOCK_ATTEMPTS_MAX" ]; then
+            printf '[%s] failed to claim state lock after %s attempts; denying request\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATE_LOCK_ATTEMPTS_MAX" >&5
+            return 1
+        fi
+        # decorrelate waiters so retries don't race the single-winner mv in lockstep;
+        # jitter comes from $RANDOM since get_timestamp_ms is second-granular on Darwin
+        sleep "0.0$(printf '%02d' $((RANDOM % 190 + 10)))"
+    done
+    STATE_LOCK_HELD=1
+    # rename preserves mtime: reset it to the claim time so the staleness check
+    # measures lock age, not the previous save's age
+    touch "$LOCKED_STATEFILE"
+    return 0
+}
+
+# release the state lock if (and only if) this process holds it; safe to call repeatedly.
+#
+# @return 0 always.
+# @since 1.0.7
+function state_unlock() {
+    if [ "$STATE_LOCK_HELD" -eq 1 ]; then
+        mv "$LOCKED_STATEFILE" "$STATEFILE" 2>/dev/null
+        STATE_LOCK_HELD=0
+    fi
+    return 0
+}
+
 # load the configuration
 function load_config() {
     if [ -f "$PARCELFILE" ]; then
