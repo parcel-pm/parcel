@@ -2162,5 +2162,105 @@ describe("Integration script", { concurrency: false }, () => {
                 teardown();
             }
         });
+
+        /**
+         * Run a get ceremony to completion inside a mocked cross-origin embed: a derived
+         * window whose `top` accessor throws and whose platform exposes no
+         * `ancestorOrigins` (the Firefox case), so the top origin only comes from the
+         * worker reply.
+         * @param {object} spec - `{requestId, topOrigin}` for this ceremony.
+         * @param {object} [candidatesReply] - Extra fields for the worker's candidates reply.
+         * @returns {Promise<{response: object, clientData: object, candidatesMsg: object}>}
+         *     The ceremony response, the parsed signing client data, and the candidates request.
+         */
+        async function runCrossOriginAssertion(spec, candidatesReply = {}) {
+            clearBody();
+            let candidatesMsg = null;
+            let assertPhase = null;
+            const teardown = fakePasskeyAgent((port, msg) => {
+                if (msg.phase === "candidates") {
+                    candidatesMsg = msg;
+                    port.postMessage({
+                        action: "passkey-candidates",
+                        rpId: "example.com",
+                        candidates: [{ name: "passkeys/example.com/alice", path: "/abs/passkeys/example.com/alice.gpg" }],
+                        ...candidatesReply,
+                    });
+                } else if (msg.phase === "assert") {
+                    assertPhase = msg;
+                    port.postMessage({
+                        action: "passkey-result",
+                        result: {
+                            op: "get",
+                            credentialId: "Y3JlZA",
+                            authenticatorData: Buffer.from([1, 2, 3]).toString("base64"),
+                            signature: Buffer.from([4, 5, 6]).toString("base64"),
+                            userHandle: "dXNlcg",
+                        },
+                    });
+                }
+            });
+            const fakeWindow = Object.create(window);
+            Object.defineProperty(fakeWindow, "top", {
+                get() {
+                    return Object.defineProperty({}, "location", {
+                        get() {
+                            throw new Error("Blocked a frame with origin from accessing a cross-origin frame.");
+                        },
+                    });
+                },
+            });
+            const realWindow = globalThis.window;
+            globalThis.window = fakeWindow;
+            try {
+                const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+                const replyPromise = dispatchPasskey({ requestId: spec.requestId, op: "get", options: GET_OPTIONS() });
+                const trigger = await popupPromise;
+                const popup = mock.chrome.runtime.connect({ name: `${trigger.token}` });
+                await settleAsync();
+                popup.postMessage({ action: "passkey-assert", path: "/abs/passkeys/example.com/alice.gpg" });
+                const response = await replyPromise;
+                assert.strictEqual(response.type, "response");
+                assert.ok(assertPhase, "assert phase should have been requested");
+                return {
+                    response,
+                    clientData: JSON.parse(Buffer.from(assertPhase.clientDataJSON, "base64").toString("utf8")),
+                    candidatesMsg,
+                };
+            } finally {
+                globalThis.window = realWindow;
+                teardown();
+            }
+        }
+
+        test("cross-origin iframe asks the worker for the top origin and signs it into clientDataJSON", async () => {
+            const { response, clientData, candidatesMsg } = await runCrossOriginAssertion(
+                { requestId: "pw-xorigin-toporigin" },
+                { topOrigin: "https://top.example" },
+            );
+            // a frame that cannot read its own embedder must request the top origin
+            assert.strictEqual(candidatesMsg.needTopOrigin, true, "candidates request must ask for the top origin");
+            assert.strictEqual(candidatesMsg.origin, "http://localhost");
+            assert.deepStrictEqual(clientData, {
+                type: "webauthn.get",
+                challenge: "Y2hhbGxlbmdl",
+                origin: "http://localhost",
+                crossOrigin: true,
+                topOrigin: "https://top.example",
+            });
+            assert.strictEqual(response.credential.op, "get");
+        });
+
+        test("cross-origin iframe omits topOrigin when the worker cannot determine it", async () => {
+            const { clientData, candidatesMsg } = await runCrossOriginAssertion({ requestId: "pw-xorigin-notop" });
+            assert.strictEqual(candidatesMsg.needTopOrigin, true, "candidates request must ask for the top origin");
+            // no topOrigin in the reply and no platform API: emit crossOrigin without topOrigin
+            assert.deepStrictEqual(clientData, {
+                type: "webauthn.get",
+                challenge: "Y2hhbGxlbmdl",
+                origin: "http://localhost",
+                crossOrigin: true,
+            });
+        });
     });
 });
