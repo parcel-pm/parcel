@@ -336,6 +336,10 @@ describe("Meta-schema", () => {
         assert.throws(() => Schema.validate(MetaSchema, { type: "object", properties: { foo: { type: "giraffe" } } }), /must be one of/);
     });
 
+    test("accepts schema definitions with wildcard properties", () => {
+        assert.doesNotThrow(() => Schema.validate(MetaSchema, { type: "string", default: 5, value: true }));
+    });
+
     test("Meta-schema validates itself", () => {
         assert.doesNotThrow(() => Schema.validate(MetaSchema, MetaSchema));
     });
