@@ -34,13 +34,15 @@ export class Schema {
      * @throws {Error} If the data instance is invalid.
      */
     static validate(schema, data, path = "/") {
+        if (schema === data && path !== "/") return; // Cyclic re-entry (e.g. MetaSchema); at "/" the root call stays fully recursive.
         if (data === undefined) {
             if (schema.required) throw new Error(`Missing required property ${path}.`);
             return;
         }
         let type = typeof data;
         if (type === "object" && Array.isArray(data)) type = "array";
-        if (type !== schema.type) {
+        if (data === null) throw new Error(`Invalid type for ${path}: null values are not allowed.`);
+        if (schema.type !== undefined && type !== schema.type) {
             if (schema.type === "integer" && type === "number" && Number.isInteger(data)) {
                 // Integer is a subtype of number; the local `type` variable is already
                 // "number", so all remaining validation (value, minimum, maximum) proceeds
@@ -55,27 +57,28 @@ export class Schema {
                 throw new Error(`Invalid value for ${path}: must be ${schema.value}.`);
         }
         switch (type) {
-            case "string": {
-                if (Object.prototype.hasOwnProperty.call(schema, "minLength") && data.length < schema.minLength)
-                    throw new Error(`Invalid value for ${path}: must be at least ${schema.minLength} characters long.`);
-                if (Object.prototype.hasOwnProperty.call(schema, "maxLength") && data.length > schema.maxLength)
-                    throw new Error(`Invalid value for ${path}: must be at most ${schema.maxLength} characters long.`);
-                if (schema.pattern && !new RegExp(schema.pattern, schema.flags || "u").test(data))
-                    throw new Error(`Invalid value for ${path}: must match ${schema.pattern}.`);
-                if (schema.enum && !schema.enum.includes(data))
-                    throw new Error(`Invalid value for ${path}: must be one of [${schema.enum.join(", ")}].`);
-                if (schema.format) {
-                    switch (schema.format) {
-                        case "regex":
-                            try {
-                                new RegExp(data, "u");
-                            } catch {
-                                throw new Error(`Invalid value for ${path}: must be a valid regular expression.`);
-                            }
+            case "string":
+                {
+                    if (Object.prototype.hasOwnProperty.call(schema, "minLength") && data.length < schema.minLength)
+                        throw new Error(`Invalid value for ${path}: must be at least ${schema.minLength} characters long.`);
+                    if (Object.prototype.hasOwnProperty.call(schema, "maxLength") && data.length > schema.maxLength)
+                        throw new Error(`Invalid value for ${path}: must be at most ${schema.maxLength} characters long.`);
+                    if (schema.pattern && !new RegExp(schema.pattern, schema.flags || "u").test(data))
+                        throw new Error(`Invalid value for ${path}: must match ${schema.pattern}.`);
+                    if (schema.enum && !schema.enum.includes(data))
+                        throw new Error(`Invalid value for ${path}: must be one of [${schema.enum.join(", ")}].`);
+                    if (schema.format) {
+                        switch (schema.format) {
+                            case "regex":
+                                try {
+                                    new RegExp(data, "u");
+                                } catch {
+                                    throw new Error(`Invalid value for ${path}: must be a valid regular expression.`);
+                                }
+                        }
                     }
                 }
                 break;
-            }
             case "number":
                 {
                     if (Object.prototype.hasOwnProperty.call(schema, "minimum") && data < schema.minimum)
@@ -99,7 +102,14 @@ export class Schema {
                         }
                         for (const key of Object.keys(data)) {
                             const keyPath = `${path === "/" ? "" : path}/${key}`;
-                            if (!schema.properties[key]) throw new Error(`Unknown property ${keyPath}.`);
+                            if (!Object.prototype.hasOwnProperty.call(schema.properties, key))
+                                throw new Error(`Unknown property ${keyPath}.`);
+                        }
+                    }
+                    if (schema.items) {
+                        // Object-level items: each property value must itself be a valid schema (MetaSchema recursion).
+                        for (const key of Object.keys(data)) {
+                            Schema.validate(schema.items, data[key], `${path === "/" ? "" : path}/${key}`);
                         }
                     }
                 }
@@ -129,7 +139,7 @@ export class Schema {
 export const MetaSchema = {
     type: "object",
     properties: {
-        type: { type: "string", required: true, enum: ["string", "number", "boolean", "integer", "object", "array"] },
+        type: { type: "string", enum: ["string", "number", "boolean", "integer", "object", "array"] },
         required: { type: "boolean" },
         default: {},
         minLength: { type: "integer", minimum: 0 },
