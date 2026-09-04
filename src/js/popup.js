@@ -3,6 +3,7 @@
 (async () => {
     const Helpers = (await import(chrome.runtime.getURL("/js/helpers.js"))).Helpers;
     const Plaintext = (await import(chrome.runtime.getURL("/js/plaintext.js"))).Plaintext;
+    const { limits } = await import(chrome.runtime.getURL("/js/schema.js"));
     const token = new URLSearchParams(window.location.search).get("token") || "broadcast";
     const frameId = parseInt(new URLSearchParams(window.location.search).get("frameId"), 10) || 0;
     const mode = new URLSearchParams(window.location.search).get("mode");
@@ -1513,6 +1514,43 @@
               : mode === "http-auth"
                 ? "Parcel authentication required. Press Tab to interact."
                 : "Parcel popup opened. Press Tab to interact.";
+
+    // show low-security config warnings
+    config.then((config) => {
+        const rateLimitDisabled = !config.decryptBucket || !config.decryptRate;
+        const warnings = [
+            [
+                "host-unpinned",
+                !config.hostPinned,
+                "The native host script hash is not pinned in parcelrc, so host script updates are applied without your review. Set HOST_HASH in your parcelrc to require review.",
+            ],
+            [
+                "rate-limit-disabled",
+                rateLimitDisabled,
+                "Decryption rate limiting is disabled. Set decryptBucket and decryptRate to non-zero values in .parcel.json to slow mass decryption, or remove them entirely to accept the default limits.",
+            ],
+            [
+                "rate-limit-high",
+                !rateLimitDisabled &&
+                    (config.decryptBucket > limits.rateBucketThreshold || config.decryptRate > limits.rateRefillThreshold),
+                "The decryption rate limit is set quite high. Lower decryptBucket or decryptRate in .parcel.json to slow mass decryption.",
+            ],
+            [
+                "audit-disabled",
+                !config.auditDecrypt,
+                "Decryption audit logging is disabled. Enable auditDecrypt in .parcel.json to log decryption attempts.",
+            ],
+        ];
+        for (const [id, active, message] of warnings.reverse()) {
+            // warning suppression may be synced from elsewhere by the user (e.g. .parcel.json in git) - this is
+            // not a local-machine-only opt-out, but rather applies (deliberately) everywhere this config is used.
+            if (!active || config.suppressWarnings?.includes(id)) continue;
+            const p = document.createElement("p");
+            p.classList.add("warning");
+            p.textContent = `${message} Add '${id}' to the suppressWarnings array in .parcel.json to hide this warning.`;
+            document.body.insertAdjacentElement("afterbegin", p);
+        }
+    });
 
     // show the default-rules warning
     config.then((config) => {

@@ -984,8 +984,42 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "configure" });
             const msg = await read();
             assert.strictEqual(msg.data?.passdir, env.passdir);
+            assert.strictEqual(msg.data?.hostPinned, false, "expected hostPinned false when parcelrc has no HOST_HASH");
             assert.ok(Array.isArray(msg.data?.rules));
             assert.strictEqual(msg.data?.rules.length, 1);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_configure reports hostPinned true when HOST_HASH is set in parcelrc", async () => {
+        const env = createTestEnv();
+        const hostHash = "a".repeat(64);
+        // fixed-value sha256sum so the bootstrap's install-time hash check passes deterministically
+        mockTool(env, "sha256sum", `#!/bin/bash\ncat > /dev/null\necho "${hostHash}  -"`);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        writeFileSync(parcelrc, readFileSync(parcelrc, "utf8") + `HOST_HASH="${hostHash}"\n`);
+        chmodSync(parcelrc, 0o600);
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "configure" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.hostPinned, true);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_configure overwrites a spoofed hostPinned value in .parcel.json", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "." }], hostPinned: true }));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "configure" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.hostPinned, false, "host injection must overwrite the .parcel.json value");
         } finally {
             proc.kill();
             env.cleanup();

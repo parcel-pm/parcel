@@ -118,6 +118,13 @@ p.warning {
     margin: 0;
     padding: 2px;
 }
+/* separate stacked banner paragraphs */
+p.error + p.error,
+p.error + p.warning,
+p.warning + p.error,
+p.warning + p.warning {
+    border-top: 1px solid rgba(0, 0, 0, 0.3);
+}
 p.list-notice {
     font-style: italic;
     margin: 5px;

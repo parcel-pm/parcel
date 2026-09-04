@@ -310,8 +310,8 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `cacheTTL` | number | `10` | Seconds the extension caches the entry list before re-querying the host. |
 | `clipboardTimeout` | integer | `60` | Seconds before the host auto-clears a password copied via the privacy-enhancing clipboard action (1-3600). |
 | `decryptTimeout` | number | `60` | Seconds before a decryption request is aborted. |
-| `decryptBucket` | integer | `24` | Token-bucket capacity for decryption rate limiting (one token per GPG decrypt). |
-| `decryptRate` | number | `0.006667` (24 per hour) | Token refill rate in tokens per second for decryption rate limiting. |
+| `decryptBucket` | integer | `10` | Token-bucket capacity for decryption rate limiting (one token per GPG decrypt). |
+| `decryptRate` | number | `0.00277` (10 per hour) | Token refill rate in tokens per second for decryption rate limiting. |
 | `disableContextPopup` | boolean | `false` | If `true`, disables the inline / context popup. |
 | `fillRelated` | boolean | `true` | If `true`, automatically fills related fields (e.g. username when filling password). |
 | `gitInPasskeyCommand` | boolean | `false` | If `true`, the save command shown when creating a passkey includes a `git add` and `git commit` for the new entry. |
@@ -320,9 +320,21 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `handleHttpAuth` | boolean | `true` | If `false`, disables HTTP authentication interception (HTTP 401 challenges are passed to the browser's native dialog instead). |
 | `passkeyDir` | string | `passkeys` | Directory under which passkey entries are created (see [Passkey entry format](#passkey-entry-format)), and classed as `passkey` by the default rules. |
 | `saveHistory` | boolean | `true` | If `true`, remembers recently used entries per origin. |
+| `suppressWarnings` | array | `[]` | IDs of security warnings to hide from the popup; see [Security warnings](#security-warnings). |
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
 | `targets` | array | Built-in set | Complete replacement for the built-in target extraction rules. |
+
+#### Security warnings
+
+The popup shows an informational warning banner when the configuration is in a weakened security posture. Each banner explains the problem and how to fix it, and can be hidden by adding its ID to the `suppressWarnings` array in `.parcel.json`.
+
+| ID | Shown when | Fix |
+|----|------------|-----|
+| `host-unpinned` | `HOST_HASH` is not set in `parcelrc`, so updated host scripts are applied without your review. | Set `HOST_HASH` in `parcelrc` (see [parcelrc](#parcelrc)). |
+| `audit-disabled` | `auditDecrypt` is `false`, so decryption attempts are not logged. | Set `auditDecrypt: true` in `.parcel.json`. |
+| `rate-limit-disabled` | `decryptBucket` or `decryptRate` is `0`, which disables decryption rate limiting entirely. | Set `decryptBucket` and `decryptRate` to non-zero values in `.parcel.json`. |
+| `rate-limit-high` | `decryptBucket` exceeds 16, or `decryptRate` exceeds `0.00444` (16 per hour). | Lower `decryptBucket` or `decryptRate` in `.parcel.json`. |
 
 Example `.parcel.json`:
 

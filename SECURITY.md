@@ -96,7 +96,7 @@ The extension stores per-origin history and settings in `chrome.storage.local`. 
 
 ### Configuration isolation
 
-The entirety of Parcel's configuration lives in a `.parcel.json` file at the root of your password store directory. By design, Parcel is incapable of modifying its own configuration file—the host script will read it, but contains no API endpoint to modify it. There are no modifiable settings within the browser extension itself.
+The entirety of Parcel's configuration lives in a `.parcel.json` file at the root of your password store directory. By design, Parcel is incapable of modifying its own configuration file - the host script will read it, but contains no API endpoint to modify it. There are no modifiable settings within the browser extension itself. Because the file lives inside the password store, it is generally versioned and synced along with the rest of the store contents: its security-sensitive settings (visibility rules, rate limits, audit logging, and warning suppressions) therefore follow the store to every system it is synced to, so review a store obtained from elsewhere before trusting what it configures.
 
 ### Passkey ceremonies
 

@@ -33,8 +33,8 @@ if [ -n "$OPENSSL" ]; then function openssl() { "$OPENSSL" "$@"; return $?; }; f
 # token-bucket rate limiter for action_decrypt
 DECRYPT_BUCKET_TOKENS=""
 DECRYPT_BUCKET_LAST=""
-DECRYPT_BUCKET_SIZE_DEFAULT=24 # default also set in schema.js
-DECRYPT_BUCKET_RATE_DEFAULT=0.006667 # default also set in schema.js
+DECRYPT_BUCKET_SIZE_DEFAULT=10 # default also set in schema.js
+DECRYPT_BUCKET_RATE_DEFAULT=0.00277 # default also set in schema.js
 PARCELFILE="$PASSWORD_STORE_DIR/.parcel.json"
 CONFIG="{}"
 CONFIG_MODIFIED=-1
@@ -223,10 +223,12 @@ function load_config() {
         REPORT_MODIFIED="$CONFIG_MODIFIED"
     fi
     local REALPASSDIR="$(readlink -f "$PASSWORD_STORE_DIR")"
-    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" '
+    local HOST_PINNED=false
+    if [ -n "$HOST_HASH" ]; then HOST_PINNED=true; fi
+    if ! CONFIG="$(jq --arg passdir "$PASSWORD_STORE_DIR" --arg realPassdir "$REALPASSDIR" --arg mtime "$REPORT_MODIFIED" --argjson hostPinned "$HOST_PINNED" '
         def reescape: reduce (explode[]) as $c (""; if ([36,40,41,42,43,46,47,63,91,92,93,94,123,124,125] | index($c)) != null then . + "\\" + ([$c] | implode) else . + ([$c] | implode) end);
         def defrules: [{pattern: ("^" + ((."passkeyDir" // "passkeys") | reescape) + "/"), class: "passkey"}, {pattern: "^cards/", class: "card"}, {pattern: "."}];
-        . + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + (if has("rules") then null else {rules: defrules, defaultRules: true} end)' <<< "$CONFIG")"; then
+        . + {modified: ($mtime|tonumber)} + {passdir: $passdir} + {realPassdir: $realPassdir} + {hostPinned: $hostPinned} + (if has("rules") then null else {rules: defrules, defaultRules: true} end)' <<< "$CONFIG")"; then
         parcel_error "Failed to parse config file: $PARCELFILE" 1
     fi
 }

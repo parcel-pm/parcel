@@ -407,21 +407,21 @@ describe("Defined schemas", () => {
     });
 
     test("ConfigSchema: passkeyDir defaults to 'passkeys'", () => {
-        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }] };
+        const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], hostPinned: false };
         Schema.validate(ConfigSchema, config);
         assert.strictEqual(config.passkeyDir, "passkeys");
     });
 
     test("ConfigSchema: passkeyDir permits unicode, spaces and dots", () => {
         for (const passkeyDir of ["我的密钥", "My Keys", ".hidden", "a//b", "a.b/c"]) {
-            const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir };
+            const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], hostPinned: false, passkeyDir };
             assert.doesNotThrow(() => Schema.validate(ConfigSchema, config), `expected ${passkeyDir} to be accepted`);
         }
     });
 
     test("ConfigSchema: rejects path traversal and absolute paths in passkeyDir", () => {
         for (const passkeyDir of ["../elsewhere", "/abs", "foo/../bar", "foo/.."]) {
-            const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir };
+            const config = { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], hostPinned: false, passkeyDir };
             assert.throws(
                 () => Schema.validate(ConfigSchema, config),
                 /passkeyDir/,
@@ -433,7 +433,14 @@ describe("Defined schemas", () => {
     test("ConfigSchema: rejects control characters and glob metacharacters in passkeyDir", () => {
         for (const passkeyDir of ["bad\ndir", "bad\tdir", "bad*dir", "bad?dir", "bad[dir", "bad\\dir"]) {
             assert.throws(
-                () => Schema.validate(ConfigSchema, { modified: 1, passdir: "/tmp/store", rules: [{ pattern: "." }], passkeyDir }),
+                () =>
+                    Schema.validate(ConfigSchema, {
+                        modified: 1,
+                        passdir: "/tmp/store",
+                        rules: [{ pattern: "." }],
+                        hostPinned: false,
+                        passkeyDir,
+                    }),
                 /passkeyDir/,
                 `expected ${JSON.stringify(passkeyDir)} to be rejected`,
             );
