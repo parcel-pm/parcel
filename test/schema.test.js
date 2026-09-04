@@ -331,6 +331,11 @@ describe("Meta-schema", () => {
         assert.throws(() => Schema.validate(MetaSchema, { type: "object", badKey: true }), /Unknown property/);
     });
 
+    test("validates nested schema definitions recursively", () => {
+        assert.doesNotThrow(() => Schema.validate(MetaSchema, { type: "object", properties: { foo: { type: "string", minLength: 1 } } }));
+        assert.throws(() => Schema.validate(MetaSchema, { type: "object", properties: { foo: { type: "giraffe" } } }), /must be one of/);
+    });
+
     test("Meta-schema validates itself", () => {
         assert.doesNotThrow(() => Schema.validate(MetaSchema, MetaSchema));
     });

@@ -34,12 +34,14 @@ export class Schema {
      * @throws {Error} If the data instance is invalid.
      */
     static validate(schema, data, path = "/") {
+        if (schema === data) return; // Self-referential schemas (e.g. MetaSchema) would recurse infinitely.
         if (data === undefined) {
             if (schema.required) throw new Error(`Missing required property ${path}.`);
             return;
         }
         let type = typeof data;
         if (type === "object" && Array.isArray(data)) type = "array";
+        if (schema.type === undefined) return; // Wildcard schemas accept any value.
         if (type !== schema.type) {
             if (schema.type === "integer" && type === "number" && Number.isInteger(data)) {
                 // Integer is a subtype of number; the local `type` variable is already
@@ -101,6 +103,12 @@ export class Schema {
                             const keyPath = `${path === "/" ? "" : path}/${key}`;
                             if (!Object.prototype.hasOwnProperty.call(schema.properties, key))
                                 throw new Error(`Unknown property ${keyPath}.`);
+                        }
+                    }
+                    if (schema.items) {
+                        // Object-level items: each property value must itself be a valid schema (MetaSchema recursion).
+                        for (const key of Object.keys(data)) {
+                            Schema.validate(schema.items, data[key], `${path === "/" ? "" : path}/${key}`);
                         }
                     }
                 }
