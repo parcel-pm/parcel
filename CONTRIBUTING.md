@@ -13,6 +13,7 @@ Please ensure that you are familiar with the [project constitution][1]. In order
   - **JSDom** (`make install-deps` or use your package manager)
 - **jq** >= 1.5
 - **gpg** >= 2.2.20
+- **shellcheck** (for linting the native host and setup scripts; e.g. `brew install shellcheck` or `apt install shellcheck`)
 - A valid GPG key for signing commits
 
 ### Building
@@ -57,6 +58,8 @@ make test-syntax
 ```
 
 The flat config lives at `eslint.config.js` in the repository root. Stylistic rules are turned off there via `eslint-config-prettier` so ESLint never fights Prettier; only semantic rules are enforced.
+
+The native host scripts (`src/parcel-host` and `parcel-host`) are additionally linted with shellcheck as part of `make test`; the setup script is linted as part of `make test-setup`.
 
 ## Coding Standards
 
