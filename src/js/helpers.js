@@ -39,11 +39,18 @@ export class Helpers {
      * @param {number} [digits=6] - The number of digits in the token.
      * @returns {Promise<{value: string, refreshAt: number, generatedAt: number, interval: number}>} The generated TOTP token and timing metadata. Timestamps are in milliseconds.
      * @throws {TypeError|DOMException} If the SubtleCrypto interface is unavailable or `importKey`/`sign` rejects (propagated from the underlying WebCrypto calls).
+     * @throws {Error} If step is not in 1-3600 or digits is not in 6-10, after parseInt coercion of the supplied values.
      */
     static async generateTOTP(secret, step = 30, digits = 6) {
         // Normalise the secret: strip whitespace and convert to uppercase so that
         // mixed-case and space-grouped base32 keys decode correctly.
         secret = secret.replace(/\s+/g, "").toUpperCase();
+
+        // Sanitise step & digits
+        step = parseInt(step, 10);
+        if (!(step >= 1 && step <= 3600)) throw new Error("Invalid step");
+        digits = parseInt(digits, 10);
+        if (!(digits >= 6 && digits <= 10)) throw new Error("Invalid digits");
 
         const counter = new Uint8Array(8);
         const now = Date.now();
