@@ -234,7 +234,7 @@
             // The auth session has expired (e.g. service worker was terminated
             // and restarted). Show an informative message and close the popup.
             suppressErrors = true;
-            document.querySelector("#status").textContent = "Session expired";
+            setStatus("Session expired");
             const expiredMsg = document.createElement("p");
             expiredMsg.classList.add("error");
             expiredMsg.textContent = "This authentication session has expired. Please close this window and retry.";
@@ -758,11 +758,11 @@
         if (msg?.action === "focus-popup") {
             focusSelected();
         } else if (msg?.action === "status") {
-            document.querySelector("#status").textContent = msg.status;
+            setStatus(msg.status);
         } else if (msg?.action === "clear-status") {
-            document.querySelector("#status").textContent = "Idle";
+            setStatus("Idle");
         } else if (msg?.action === "error") {
-            document.querySelector("#status").textContent = "Error";
+            setStatus("Error");
             const p = document.createElement("p");
             p.classList.add("error");
             p.textContent = msg.error;
@@ -824,6 +824,34 @@
         port.onMessage.addListener(versionListener);
     });
 
+    // display extension & bootstrap versions once the (possibly late) status resolves
+    bootstrapVersion.then((version) => {
+        bootstrapVersionValue = version;
+        if (version != null && document.querySelector("#status-text")?.textContent === "Idle") {
+            setStatus("Idle");
+        }
+    });
+
+    // bootstrap & extension versions, shown for the "Idle" and "Error" statuses
+    let bootstrapVersionValue = null;
+
+    /**
+     * Set the status bar text, showing extension/bootstrap versions when idle
+     * or when an error is displayed.
+     * @since 1.0.7
+     * @param {string} text - Text to display in the status bar.
+     * @returns {void}
+     */
+    function setStatus(text) {
+        document.querySelector("#status-text").textContent = text;
+        const versionEl = document.querySelector("#version-info");
+        const extensionVersion = chrome.runtime?.getManifest?.().version;
+        const showVersions = (text === "Idle" || text === "Error") && bootstrapVersionValue !== null && extensionVersion;
+        versionEl.classList.toggle("hidden", !showVersions);
+        if (!showVersions) return;
+        versionEl.textContent = `v${extensionVersion}/${bootstrapVersionValue}`;
+    }
+
     /**
      * Show an error banner at the top of the popup, replacing any existing banner.
      * @since 1.0.7
@@ -832,7 +860,7 @@
      * @returns {void}
      */
     function showError(message, category = null) {
-        document.querySelector("#status").textContent = "Error";
+        setStatus("Error");
         document.querySelectorAll("p.error").forEach((el) => {
             if (el._errorTimer) clearTimeout(el._errorTimer);
             el.remove();
@@ -1202,7 +1230,7 @@
                     elCommitToggle.checked = !!c.gitInPasskeyCommand;
                     refreshSaveCommand();
                 });
-                document.querySelector("#status").textContent = "Save the new passkey entry to continue";
+                setStatus("Save the new passkey entry to continue");
                 elSave.classList.remove("hidden");
                 // preventScroll: the enlarged body may not have been re-measured yet, and
                 // scrolling the overflow-hidden body to the new button would clip the title
@@ -1412,9 +1440,9 @@
     // listen for messages from the native host
     port.onMessage.addListener(async (msg) => {
         if (msg.action === "status") {
-            document.querySelector("#status").textContent = msg.status;
+            setStatus(msg.status);
         } else if (msg.action === "clear-status") {
-            document.querySelector("#status").textContent = "Idle";
+            setStatus("Idle");
         } else if (msg.action === "match") {
             scheduleRender(msg.entries);
         } else if (msg.action === "plaintext") {
