@@ -825,15 +825,14 @@
     });
 
     // display extension & bootstrap versions once the (possibly late) status resolves
+    let bootstrapVersionValue = null;
     bootstrapVersion.then((version) => {
         bootstrapVersionValue = version;
-        if (version != null && document.querySelector("#status-text")?.textContent === "Idle") {
-            setStatus("Idle");
+        if (version != null) {
+            const current = document.querySelector("#status-text")?.textContent;
+            if (current === "Idle" || current === "Error") setStatus(current);
         }
     });
-
-    // bootstrap & extension versions, shown for the "Idle" and "Error" statuses
-    let bootstrapVersionValue = null;
 
     /**
      * Set the status bar text, showing extension/bootstrap versions when idle
