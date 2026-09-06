@@ -37,11 +37,12 @@ export class Helpers {
      * @param {string} secret - The base32 secret key.
      * @param {number} [step=30] - The time step in seconds.
      * @param {number} [digits=6] - The number of digits in the token.
+     * @param {string} [algorithm="SHA-1"] - The HMAC hash algorithm to use. One of SHA-1, SHA-256 or SHA-512 (case-insensitive, with or without hyphens).
      * @returns {Promise<{value: string, refreshAt: number, generatedAt: number, interval: number}>} The generated TOTP token and timing metadata. Timestamps are in milliseconds.
      * @throws {TypeError|DOMException} If the SubtleCrypto interface is unavailable or `importKey`/`sign` rejects (propagated from the underlying WebCrypto calls).
-     * @throws {Error} If step is not in 1-3600 or digits is not in 6-10, after parseInt coercion of the supplied values.
+     * @throws {Error} If step is not in 1-3600, digits is not in 6-10, or algorithm is not SHA-1, SHA-256 or SHA-512, after parseInt / case normalisation of the supplied values.
      */
-    static async generateTOTP(secret, step = 30, digits = 6) {
+    static async generateTOTP(secret, step = 30, digits = 6, algorithm = "SHA-1") {
         // Normalise the secret: strip whitespace and convert to uppercase so that
         // mixed-case and space-grouped base32 keys decode correctly.
         secret = secret.replace(/\s+/g, "").toUpperCase();
@@ -51,6 +52,13 @@ export class Helpers {
         if (!(step >= 1 && step <= 3600)) throw new Error("Invalid step");
         digits = parseInt(digits, 10);
         if (!(digits >= 6 && digits <= 10)) throw new Error("Invalid digits");
+
+        // Normalise the algorithm to a WebCrypto hash name: accept SHA1/SHA256/SHA512
+        // spellings with or without hyphens, in any case.
+        algorithm = { "SHA-1": "SHA-1", "SHA-256": "SHA-256", "SHA-512": "SHA-512" }[
+            String(algorithm).toUpperCase().replace(/-/g, "").replace(/^SHA/, "SHA-")
+        ];
+        if (!algorithm) throw new Error("Invalid algorithm");
 
         const counter = new Uint8Array(8);
         const now = Date.now();
@@ -63,11 +71,11 @@ export class Helpers {
             epoch >>= 8;
         }
 
-        const key = await crypto.subtle.importKey("raw", Helpers.base32ToArrayBuffer(secret), { name: "HMAC", hash: "SHA-1" }, false, [
+        const key = await crypto.subtle.importKey("raw", Helpers.base32ToArrayBuffer(secret), { name: "HMAC", hash: algorithm }, false, [
             "sign",
         ]);
         const HS = new Uint8Array(await crypto.subtle.sign("HMAC", key, counter.buffer));
-        const offset = HS[19] & 0x0f;
+        const offset = HS[HS.length - 1] & 0x0f;
         const num = ((HS[offset] & 0x7f) << 24) | (HS[offset + 1] << 16) | (HS[offset + 2] << 8) | HS[offset + 3];
 
         return {
@@ -175,7 +183,12 @@ export class Helpers {
                 const url = new URL(fillValue);
                 const secret = url.searchParams.get("secret");
                 if (!secret) throw new Error(`No secret found in TOTP URL: ${fillValue}`);
-                fillValue = await Helpers.generateTOTP(secret, url.searchParams.get("period") || 30, url.searchParams.get("digits") || 6);
+                fillValue = await Helpers.generateTOTP(
+                    secret,
+                    url.searchParams.get("period") || 30,
+                    url.searchParams.get("digits") || 6,
+                    url.searchParams.get("algorithm") || "SHA-1",
+                );
             } else if (transform === "totp") {
                 fillValue = await Helpers.generateTOTP(fillValue);
             }
