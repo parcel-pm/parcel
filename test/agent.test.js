@@ -1961,14 +1961,13 @@ describe("Agent native call timeout recovery", () => {
 });
 
 describe("Agent stashed error reports", () => {
-    test("error stash report badges the tab and forwards the error to the top frame", async () => {
+    test("error relay report sends a stash instruction without badging directly", async () => {
         mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "boom" }, { tab: { id: 7 } });
         await settleAsync();
 
-        assert.strictEqual(mock.getBadgeText(7), "!", "the affected tab must be badged");
-        assert.strictEqual(mock.getBadgeColor(7), "red", "the badge must be red");
+        assert.strictEqual(mock.getBadgeText(7), "", "the badge only follows a presence report");
         const forwarded = mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash");
-        assert.strictEqual(forwarded.length, 1, "the error must be forwarded to the top frame exactly once");
+        assert.strictEqual(forwarded.length, 1, "the error must be relayed to the top frame exactly once");
         assert.strictEqual(forwarded[0].tabId, 7);
         assert.strictEqual(forwarded[0].options.frameId, 0);
         assert.strictEqual(forwarded[0].msg.error, "boom");
@@ -1993,12 +1992,29 @@ describe("Agent stashed error reports", () => {
         assert.strictEqual(mock.getBadgeText(9), "", "the badge must be cleared on consume");
     });
 
-    test("error stash reports only badge the sender's tab", async () => {
+    test("relay loop: the presence report following an instruction badges the tab", async () => {
         mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "boom" }, { tab: { id: 10 } });
         await settleAsync();
+        assert.strictEqual(mock.getBadgeText(10), "", "no badge before the presence report");
 
-        assert.strictEqual(mock.getBadgeText(10), "!", "the affected tab must be badged");
-        assert.strictEqual(mock.getBadgeText(null), "", "no other tab may be badged");
+        // simulate the top frame's presence report after storing the stash
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", stashed: true }, { tab: { id: 10 } });
+        await settleAsync();
+        assert.strictEqual(mock.getBadgeText(10), "!", "the badge follows the presence report");
+        assert.strictEqual(mock.getBadgeColor(10), "red");
+    });
+
+    test("error relay reports only instruct the sender's tab", async () => {
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "boom" }, { tab: { id: 11 } });
+        await settleAsync();
+
+        assert.strictEqual(mock.getBadgeText(null), "", "no global badge may be set");
+        const forwarded = mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash");
+        assert.ok(forwarded.length >= 1, "the error must be relayed");
+        assert.ok(
+            forwarded.every((m) => m.tabId === 11),
+            "only the sender's tab may be instructed",
+        );
     });
 
     test("report without a sender tab is ignored", async () => {
@@ -2007,5 +2023,83 @@ describe("Agent stashed error reports", () => {
 
         assert.strictEqual(mock.getBadgeText(null), "", "no global badge may be set");
         assert.strictEqual(mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash").length, 0, "nothing may be forwarded");
+    });
+
+    test("decrypt failure while the popup is closed stashes the error for its tab", async () => {
+        const decryptTokens = [];
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+
+        // Replace the default (auto-succeeding) native handler so the decrypt fails on demand.
+        uninstallNativeHandler(mock, handler);
+        const failHandler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "decrypt") decryptTokens.push(msg.token);
+            return undefined; // no auto-reply — the test replies manually with a failure
+        });
+
+        try {
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 42, url: "https://example.com/" } });
+            await settleAsync();
+            popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+            await settleAsync(); // the decrypt leaves the port and is pending on the native host
+            popup.disconnect(); // pinentry focus loss closes the toolbar popup mid-decrypt
+            assert.strictEqual(decryptTokens.length, 1, "the decrypt request must have been dispatched");
+
+            nativePort.receiver.postMessage({ token: decryptTokens[0], error: "decryption failed: bad pin" });
+            await settleAsync();
+
+            const forwarded = mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash");
+            assert.strictEqual(forwarded.length, 1, "the decrypt failure must be stashed for the popup's tab");
+            assert.strictEqual(forwarded[0].tabId, 42);
+            assert.strictEqual(forwarded[0].options.frameId, 0);
+            assert.strictEqual(forwarded[0].msg.error, "decryption failed: bad pin");
+            assert.strictEqual(mock.getBadgeText(42), "", "the badge only follows the presence report");
+
+            // simulate the top frame's presence report after storing the stash
+            mock.fireRuntimeMessage({ type: "parcel-error-stash", stashed: true }, { tab: { id: 42 } });
+            await settleAsync();
+            assert.strictEqual(mock.getBadgeText(42), "!");
+        } finally {
+            uninstallNativeHandler(mock, failHandler);
+        }
+    });
+
+    test("fire-and-forget fill failure stashes the error for its tab", async () => {
+        const decryptTokens = [];
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+
+        // Hold the decrypt reply back so the popup can close while it is pending (pinentry focus loss).
+        uninstallNativeHandler(mock, handler);
+        const slowHandler = installNativeHandler(mock, (msg) => {
+            if (msg.action === "decrypt") decryptTokens.push(msg.token);
+            return undefined; // no auto-reply — the test replies manually after the popup closes
+        });
+
+        try {
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 43, url: "https://example.com/" } });
+            await settleAsync();
+            popup.postMessage({ action: "decrypt", path: "test/site", intent: "fill", origin: "https://example.com" });
+            await settleAsync(); // the decrypt leaves the port and is pending on the native host
+            popup.disconnect(); // the toolbar popup closes before the plaintext is delivered
+            assert.strictEqual(decryptTokens.length, 1, "the decrypt request must have been dispatched");
+
+            nativePort.receiver.postMessage({ token: decryptTokens[0], data: { plaintext: { password: "hunter2" } } });
+            await settleAsync(); // the plaintext post fails; the broadcast fire-and-forget fill fires
+
+            const receiver = mock.findTabPort(43, 0);
+            assert.ok(receiver, "the fire-and-forget fill must connect a broadcast port to the top frame");
+            receiver.postMessage({ action: "error", error: "The best-match autofill candidate was unsuitable" });
+            await settleAsync();
+
+            const forwarded = mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash");
+            assert.strictEqual(forwarded.length, 1, "the fill failure must be stashed for the filled tab");
+            assert.strictEqual(forwarded[0].tabId, 43);
+            assert.strictEqual(forwarded[0].msg.error, "The best-match autofill candidate was unsuitable");
+        } finally {
+            uninstallNativeHandler(mock, slowHandler);
+        }
     });
 });

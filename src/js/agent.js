@@ -627,10 +627,9 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Handle a stashed-error report from a content script: badge the affected
-     * tab with a red `!` while an undelivered popup error is pending, and
-     * forward new errors to the top frame, which stashes them on
-     * `document._parcelError` until the next popup displays them.
+     * Handle a stashed-error report from a content script. Presence reports
+     * set the tab badge; error reports are relay requests from non-top frames,
+     * which cannot write the top frame's document themselves.
      * @since 1.0.7
      * @param {object} msg - The report: `{type: "parcel-error-stash", error?: string, stashed?: boolean}`.
      * @param {chrome.runtime.MessageSender} sender - The sending content script's context.
@@ -640,13 +639,34 @@ export class Agent extends EventTarget {
         const tabId = sender?.tab?.id;
         if (typeof tabId !== "number") return;
         const error = typeof msg.error === "string" && msg.error ? msg.error : null;
-        const hasError = error !== null || msg.stashed === true;
         try {
-            await chrome.action.setBadgeText({ tabId, text: hasError ? "!" : "" });
-            if (hasError) await chrome.action.setBadgeBackgroundColor({ tabId, color: "red" });
-            if (error !== null) await chrome.tabs.sendMessage(tabId, { action: "parcel-error-stash", error }, { frameId: 0 });
+            if (error !== null) {
+                await this.#sendStashInstruction(tabId, error);
+                return;
+            }
+            const present = msg.stashed === true;
+            await chrome.action.setBadgeText({ tabId, text: present ? "!" : "" });
+            if (present) await chrome.action.setBadgeBackgroundColor({ tabId, color: "red" });
         } catch (_err) {
-            // Badge updates and the top-frame forward are best-effort; the next stash or consume report re-syncs the state.
+            // Badge updates and the stash write are best-effort; the next stash or consume report re-syncs the state.
+        }
+    }
+
+    /**
+     * Send a stash instruction for an undeliverable popup error to the top frame
+     * of a tab, which stashes it on `document._parcelError` and reports its
+     * presence back (the presence report drives the tab badge).
+     * @since 1.0.7
+     * @param {number} tabId - The tab whose top frame should stash the error.
+     * @param {string} error - The error message to stash.
+     * @returns {Promise<void>}
+     */
+    async #sendStashInstruction(tabId, error) {
+        if (typeof tabId !== "number" || typeof error !== "string" || !error) return;
+        try {
+            await chrome.tabs.sendMessage(tabId, { action: "parcel-error-stash", error }, { frameId: 0 });
+        } catch (_err) {
+            // The top frame is unreachable (e.g. navigated away) — nothing can be stashed or badged.
         }
     }
 
@@ -714,9 +734,20 @@ export class Agent extends EventTarget {
             return;
         }
 
-        const updateStatus = (s) => port.postMessage({ action: "status", status: s });
-        const clearStatus = () => port.postMessage({ action: "clear-status" });
-        const clearErrors = (category = null) => port.postMessage({ action: "clear-errors", category });
+        // All popup posts go through `post`, which stamps delivery failures so the error
+        // handler below can distinguish port death from operation errors.
+        const post = (msg) => {
+            try {
+                port.postMessage(msg);
+                return true;
+            } catch (err) {
+                err.isParcelPortFailure = true;
+                throw err;
+            }
+        };
+        const updateStatus = (s) => post({ action: "status", status: s });
+        const clearStatus = () => post({ action: "clear-status" });
+        const clearErrors = (category = null) => post({ action: "clear-errors", category });
         clearStatus();
 
         // Push the bootstrap version so the popup can warn about outdated hosts.
@@ -771,7 +802,7 @@ export class Agent extends EventTarget {
                         return;
                     }
                     if (!authorised && message?.action === "auth" && message?.mode === "http-auth") {
-                        port.postMessage({ action: "http-auth-expired" });
+                        post({ action: "http-auth-expired" });
                         return;
                     }
                     if (!authorised) throw new Error("Unauthorised port");
@@ -810,7 +841,7 @@ export class Agent extends EventTarget {
                 } else if (message?.action === "http-auth-url") {
                     // Challenge URL comes from the token-bound background record, never the query string.
                     const authEntry = this.#pendingAuthCallbacks.get(token);
-                    port.postMessage({ action: "http-auth-url", url: authEntry?.url ?? null });
+                    post({ action: "http-auth-url", url: authEntry?.url ?? null });
                 } else if (message?.action === "match") {
                     updateStatus("Searching for matching entries...");
                     const includeClasses = Array.isArray(message.includeClasses) ? message.includeClasses : [];
@@ -824,7 +855,7 @@ export class Agent extends EventTarget {
                         includeClasses,
                     );
                     clearStatus();
-                    port.postMessage({ action: "match", entries: result });
+                    post({ action: "match", entries: result });
                 } else if (message?.action === "decrypt") {
                     // The http-auth token may only decrypt with intent "http-auth";
                     // form fills are not permitted from this token.
@@ -861,23 +892,32 @@ export class Agent extends EventTarget {
                             // entry was removed from #pendingAuthCallbacks.
                             clearStatus();
                         }
-                        port.postMessage({ action: "http-auth-done" });
+                        post({ action: "http-auth-done" });
                     } else {
                         try {
                             clearStatus();
-                            port.postMessage({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
+                            post({ action: "plaintext", intent: message.intent, plaintext: result.plaintext });
                         } catch (err) {
                             // the port is disconnected, most likely as a result of https://bugzilla.mozilla.org/show_bug.cgi?id=1292701
                             if (message?.intent === "fill" && token === "broadcast" && tabId) {
                                 console.warn("Falling back to fire-and-forget fill from agent");
                                 const tabPort = chrome.tabs.connect(tabId, { name: "broadcast", frameId: 0 });
-                                tabPort.onMessage.addListener(() => {}); // ignore responses, because we aren't an actual popup instance
-                                tabPort.postMessage({
-                                    action: "fill",
-                                    origin: message.origin,
-                                    config: this.#config,
-                                    plaintext: result.plaintext,
+                                tabPort.onMessage.addListener((msg) => {
+                                    // No popup is attached to this port, so fill errors can only be stashed;
+                                    // the badge and the next popup then surface them.
+                                    if (msg?.action === "error") void this.#sendStashInstruction(tabId, msg.error);
                                 });
+                                try {
+                                    tabPort.postMessage({
+                                        action: "fill",
+                                        origin: message.origin,
+                                        config: this.#config,
+                                        plaintext: result.plaintext,
+                                    });
+                                } catch (postErr) {
+                                    postErr.isParcelPortFailure = true;
+                                    throw postErr;
+                                }
                             } else throw err;
                         }
                     }
@@ -893,7 +933,7 @@ export class Agent extends EventTarget {
                     clearStatus();
                     const response = { action: "config", config: this.#config };
                     if (port.name === "integration") response.frameId = port.sender?.frameId || 0;
-                    port.postMessage(response);
+                    post(response);
                 } else if (message?.action === "passkey") {
                     // passkey ceremony: list candidates, sign an assertion, or create a credential
                     if (!this.#config.handlePasskeys) throw new Error("Passkey support is disabled.");
@@ -907,7 +947,7 @@ export class Agent extends EventTarget {
                             (rule) => !rule.ignore && rule.class === "browser-passkey" && new RegExp(rule.pattern, "u").test(rpId),
                         )
                     ) {
-                        port.postMessage({ action: "passkey-fallback" });
+                        post({ action: "passkey-fallback" });
                         return;
                     }
                     if (message.phase === "candidates") {
@@ -931,7 +971,7 @@ export class Agent extends EventTarget {
                         clearStatus();
                         const reply = { action: "passkey-candidates", rpId, candidates };
                         if (message.needTopOrigin) reply.topOrigin = this.#topOriginFor(port);
-                        port.postMessage(reply);
+                        post(reply);
                     } else if (message.phase === "assert") {
                         // only rule-classed passkey entries may sign assertions; passkeyDir
                         // membership alone is not sufficient. The native host independently
@@ -956,7 +996,7 @@ export class Agent extends EventTarget {
                             this.#config.decryptTimeout * 1000,
                         );
                         clearStatus();
-                        port.postMessage({ action: "passkey-result", result });
+                        post({ action: "passkey-result", result });
                     } else if (message.phase === "create") {
                         updateStatus("Creating passkey credential...");
                         const result = await this.#callNative(
@@ -973,7 +1013,7 @@ export class Agent extends EventTarget {
                             this.#config.decryptTimeout * 1000,
                         );
                         clearStatus();
-                        port.postMessage({ action: "passkey-result", result });
+                        post({ action: "passkey-result", result });
                     } else {
                         throw new Error(`Unknown passkey phase: ${message.phase}`);
                     }
@@ -993,7 +1033,7 @@ export class Agent extends EventTarget {
                         } catch (err) {
                             if (err.notDispatched) {
                                 // the request never left the agent, so the host cannot have made a copy
-                                port.postMessage({
+                                post({
                                     action: "clipboard-result",
                                     ok: false,
                                     error: err.message,
@@ -1003,7 +1043,7 @@ export class Agent extends EventTarget {
                             }
                             // Timeout, disconnect, or a failure after the host attempted the copy: the clipboard
                             // state is unknown, so the popup must not overwrite it with an insecure fallback copy
-                            port.postMessage({
+                            post({
                                 action: "clipboard-result",
                                 ok: false,
                                 indeterminate: true,
@@ -1014,9 +1054,9 @@ export class Agent extends EventTarget {
                         }
                         // The host only replies with data on success or a pre-write refusal, so a
                         // {ok: false} response means the clipboard was never modified: fallback is safe
-                        if (result?.ok) port.postMessage({ action: "clipboard-result", ok: true, requestId: message.requestId });
+                        if (result?.ok) post({ action: "clipboard-result", ok: true, requestId: message.requestId });
                         else
-                            port.postMessage({
+                            post({
                                 action: "clipboard-result",
                                 ok: false,
                                 error: result?.message,
@@ -1024,12 +1064,12 @@ export class Agent extends EventTarget {
                             });
                     } catch (err) {
                         // Nothing was sent to the host, so it cannot have copied anything
-                        port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
+                        post({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
                     }
                 } else if (message?.action === "sha256") {
                     // provide a SHA-256 hash of the given value
                     const hash = await Helpers.sha256(message.value);
-                    port.postMessage({ action: "sha256-digest", value: message.value, hash });
+                    post({ action: "sha256-digest", value: message.value, hash });
                 }
                 if (Object.prototype.hasOwnProperty.call(message, "action")) {
                     try {
@@ -1045,12 +1085,15 @@ export class Agent extends EventTarget {
                     if (message?.action === "clipboard") {
                         // The call was never dispatched (e.g. no host connection), so the host cannot
                         // have written anything; report it as a fallback-safe refusal rather than an error
-                        port.postMessage({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
+                        post({ action: "clipboard-result", ok: false, error: err.message, requestId: message.requestId });
                     } else {
-                        port.postMessage({ action: "error", error: err.message, category: err.category || message?.action || "default" });
+                        post({ action: "error", error: err.message, category: err.category || message?.action || "default" });
                     }
-                } catch (_err) {
+                } catch (_postErr) {
                     chrome.runtime.lastError;
+                    // The popup is gone (e.g. pinentry focus loss closed it mid-decrypt) — send a stash
+                    // instruction for its tab so the badge and the next popup can surface the error.
+                    if (!err.isParcelPortFailure && typeof tabId === "number") void this.#sendStashInstruction(tabId, err.message);
                 }
             }
         });

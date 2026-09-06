@@ -134,8 +134,12 @@
             triggerPopup(msg.token, 0, { centered: true }, "http-auth");
             sendResponse({ ok: true });
         } else if (msg?.action === "parcel-error-stash") {
-            // Stash an undeliverable popup error forwarded by the background worker (top frame owns the stash).
-            if (window === window.top && typeof msg.error === "string" && msg.error) document._parcelError = msg.error;
+            // Stash an error relayed by the background worker (top frame owns the stash); the
+            // worker drives the tab badge from the presence report.
+            if (window === window.top && typeof msg.error === "string" && msg.error) {
+                document._parcelError = msg.error;
+                reportStashPresence(true);
+            }
         }
     });
 
@@ -876,16 +880,24 @@
             if (err) console.debug("[integration] maybePost failed:", err.message);
             if (stashOnFailure && msg?.action === "error" && typeof msg.error === "string" && msg.error) {
                 console.warn("[integration] error could not be delivered to the popup; stashed:", msg.error);
-                reportStashedError(msg.error);
+                if (window === window.top) {
+                    // the top frame owns the stash — store it directly and report presence
+                    document._parcelError = msg.error;
+                    reportStashPresence(true);
+                } else {
+                    // a frame cannot write another frame's document — relay through the worker
+                    reportStashedError(msg.error);
+                }
             }
             return false;
         }
     }
 
     /**
-     * Report a popup error that could not be delivered to the background worker:
-     * the worker badges the tab and forwards the error to the top frame, which
-     * stashes it on `document._parcelError` until the next popup displays it.
+     * Relay a popup error that could not be delivered (via a non-top frame, which
+     * cannot write the top frame's document) to the background worker, which
+     * instructs the top frame to stash it on `document._parcelError` until the
+     * next popup displays it.
      * @since 1.0.7
      * @param {string} error - The undelivered error message.
      * @returns {void}

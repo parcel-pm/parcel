@@ -2351,15 +2351,24 @@ describe("Integration script", { concurrency: false }, () => {
             port.disconnect();
             await settleAsync();
 
-            const report = stashReports.find((r) => typeof r.error === "string");
-            assert.ok(report, "a failed error post must be reported to the worker");
-            assert.strictEqual(report.type, "parcel-error-stash");
-            assert.ok(report.error.includes("Cannot find a suitable autofill target"));
+            assert.strictEqual(document._parcelError, "Cannot find a suitable autofill target.");
+            assert.ok(
+                stashReports.some((r) => r.stashed === true),
+                "the stash presence must be reported so the worker can badge the tab",
+            );
+        });
 
-            // simulate the worker forwarding the stash to the top frame
-            mock.chrome.runtime.sendMessage({ action: "parcel-error-stash", error: report.error });
+        test("stash instruction from the worker stores the error and reports presence", async () => {
+            clearBody();
+            delete document._parcelError;
+            stashReports.length = 0;
+            mock.chrome.runtime.sendMessage({ action: "parcel-error-stash", error: "worker-relayed fill error" });
             await settleAsync();
-            assert.strictEqual(document._parcelError, report.error);
+            assert.strictEqual(document._parcelError, "worker-relayed fill error");
+            assert.ok(
+                stashReports.some((r) => r.stashed === true),
+                "presence must be reported for the badge",
+            );
         });
 
         test("stashed error is pushed to the next popup and cleared", async () => {
