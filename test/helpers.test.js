@@ -110,6 +110,48 @@ describe("Helpers", () => {
         }
     });
 
+    test("generateTOTP computes deterministic SHA-256 token for a fixed time", async () => {
+        // Secret "JBSWY3DPEHPK3PXP" at epoch counter 1; expected token verified
+        // independently against node:crypto's HMAC-SHA-256 implementation.
+        const realNow = Date.now;
+        const fixedTs = 30_000; // exactly epoch 1 boundary
+        Date.now = () => fixedTs;
+        try {
+            const result = await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", 30, 6, "SHA-256");
+            assert.strictEqual(result.value, "344551");
+            const sha1 = await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", 30, 6);
+            assert.notStrictEqual(result.value, sha1.value);
+        } finally {
+            Date.now = realNow;
+        }
+    });
+
+    test("generateTOTP computes deterministic SHA-512 token for a fixed time", async () => {
+        // Secret "JBSWY3DPEHPK3PXP" at epoch counter 1; expected token verified
+        // independently against node:crypto's HMAC-SHA-512 implementation.
+        const realNow = Date.now;
+        const fixedTs = 30_000; // exactly epoch 1 boundary
+        Date.now = () => fixedTs;
+        try {
+            const result = await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", 30, 6, "SHA-512");
+            assert.strictEqual(result.value, "439887");
+            const sha1 = await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", 30, 6);
+            assert.notStrictEqual(result.value, sha1.value);
+        } finally {
+            Date.now = realNow;
+        }
+    });
+
+    test("generateTOTP throws for unsupported algorithm", async () => {
+        for (const algorithm of ["MD5", "sha", "", null, "SHA-384"]) {
+            await assert.rejects(
+                async () => await Helpers.generateTOTP("JBSWY3DPEHPK3PXP", 30, 6, algorithm),
+                /Invalid algorithm/,
+                `Failed for algorithm: ${algorithm}`,
+            );
+        }
+    });
+
     // -----------------------------------------------------------------------
     // getValue
     // -----------------------------------------------------------------------
@@ -376,6 +418,53 @@ describe("Helpers", () => {
         } finally {
             Date.now = realNow;
         }
+    });
+
+    test("getValue applies totp-url transform with non-default algorithm", async () => {
+        const realNow = Date.now;
+        Date.now = () => 30_000;
+        try {
+            const config = {
+                targets: [
+                    {
+                        name: "totp-url",
+                        pattern: "^totp:",
+                        strip: true,
+                        onMissing: "null",
+                        transform: ["totp-url"],
+                    },
+                ],
+            };
+            // SHA-256 token at epoch counter 1; verified independently against node:crypto.
+            const sha256Link = "otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP&period=30&digits=6&algorithm=SHA256";
+            const sha256Result = await Helpers.getValue(`totp: ${sha256Link}`, config, "totp-url");
+            assert.strictEqual(typeof sha256Result, "object");
+            assert.strictEqual(sha256Result.value, "344551");
+
+            // SHA-512 token at epoch counter 1; verified independently against node:crypto.
+            const sha512Link = "otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP&period=30&digits=6&algorithm=SHA512";
+            const sha512Result = await Helpers.getValue(`totp: ${sha512Link}`, config, "totp-url");
+            assert.strictEqual(typeof sha512Result, "object");
+            assert.strictEqual(sha512Result.value, "439887");
+        } finally {
+            Date.now = realNow;
+        }
+    });
+
+    test("getValue totp-url transform rejects unsupported algorithm", async () => {
+        const config = {
+            targets: [
+                {
+                    name: "totp-url",
+                    pattern: "^totp:",
+                    strip: true,
+                    onMissing: "null",
+                    transform: ["totp-url"],
+                },
+            ],
+        };
+        const link = "otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP&period=30&digits=6&algorithm=MD5";
+        await assert.rejects(async () => await Helpers.getValue(`totp: ${link}`, config, "totp-url"), /Invalid algorithm/);
     });
 
     // -----------------------------------------------------------------------
