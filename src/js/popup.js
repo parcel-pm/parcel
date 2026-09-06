@@ -211,6 +211,29 @@
     const port = chrome.runtime.connect({ name: "popup" });
     port.postMessage({ action: "auth", token, tab, mode });
 
+    // parcel config from the native host
+    const config = new Promise((resolve) => {
+        function configListener(msg) {
+            if (msg?.action === "config") {
+                port.onMessage.removeListener(configListener);
+                resolve(msg?.config);
+            }
+        }
+        port.onMessage.addListener(configListener);
+        port.postMessage({ action: "config" });
+    });
+
+    // bootstrap version from the native host
+    const bootstrapVersion = new Promise((resolve) => {
+        function versionListener(msg) {
+            if (msg?.action === "bootstrap-status") {
+                port.onMessage.removeListener(versionListener);
+                resolve(msg?.version);
+            }
+        }
+        port.onMessage.addListener(versionListener);
+    });
+
     // For http-auth mode the challenge URL comes from the background, bound to the per-challenge token.
     if (mode === "http-auth") {
         const authUrlPromise = new Promise((resolve) => {
@@ -799,29 +822,6 @@
                 }
             }
         }
-    });
-
-    // parcel config from the native host
-    const config = new Promise((resolve) => {
-        function configListener(msg) {
-            if (msg?.action === "config") {
-                port.onMessage.removeListener(configListener);
-                resolve(msg?.config);
-            }
-        }
-        port.onMessage.addListener(configListener);
-        port.postMessage({ action: "config" });
-    });
-
-    // bootstrap version from the native host
-    const bootstrapVersion = new Promise((resolve) => {
-        function versionListener(msg) {
-            if (msg?.action === "bootstrap-status") {
-                port.onMessage.removeListener(versionListener);
-                resolve(msg?.version);
-            }
-        }
-        port.onMessage.addListener(versionListener);
     });
 
     // display extension & bootstrap versions once the (possibly late) status resolves
