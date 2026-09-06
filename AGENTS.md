@@ -40,6 +40,7 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Run `make prettier` after making any changes to ensure that they comply with the project's formatting conventions.
 - Always verify that the full `make test` suite passes before considering a task complete.
 - When making decisions, consider the long-term implications and maintainability of the code. Avoid short-term fixes that may introduce technical debt or future issues.
+- Running the whole test suite is expensive, so for quick test runs during implementation or debugging prefer calling `node --test test/<file.test.js>` to invoke the relevant tests directly.
 
 ## Comments
 
