@@ -13,10 +13,12 @@
  *
  * @param {object} [opts]
  * @param {string} [opts.baseUrl="file:///extension/"] - Prefix for chrome.runtime.getURL.
+ * @param {object} [opts.manifest={version:"1.0.6"}] - Value returned by chrome.runtime.getManifest.
  * @returns {object} Mock chrome object plus helpers for test inspection/control.
  */
 export function createChromeMock(opts = {}) {
     const baseUrl = opts.baseUrl ?? "file:///extension/";
+    const manifest = opts.manifest ?? { version: "1.0.6" };
 
     // --- internal helpers ----------------------------------------------------
 
@@ -190,6 +192,9 @@ export function createChromeMock(opts = {}) {
             },
             getURL(path) {
                 return baseUrl + path.replace(/^\//, "");
+            },
+            getManifest() {
+                return manifest;
             },
             connect(info = {}) {
                 const name = info.name ?? "";

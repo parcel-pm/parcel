@@ -249,16 +249,30 @@ ul {
     }
 }
 #status {
+    align-items: center;
     background: url("/img/logo-small.svg") no-repeat 2px 1px / 12px var(--color-bg-status);
     border-top: 1px solid var(--color-border-mid);
     box-sizing: content-box;
     color: var(--color-text);
+    display: flex;
     font-size: 12px;
     font-family: "Roboto", Calibri, sans-serif;
     height: 14px;
     margin: 0;
     padding: 1px 4px 1px 18px;
     z-index: 15;
+}
+
+#status-text {
+    flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#version-info {
+    flex-shrink: 0;
 }
 body.passkey-popup {
     /* the ceremony card needs more height than the 400px field-popup clamp; scrollbars
