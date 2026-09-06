@@ -164,6 +164,15 @@ export function createChromeMock(opts = {}) {
     const sentMessages = [];
     let sendMessageFailure = null;
 
+    // --- action (toolbar badge) mock ------------------------------------------
+
+    const badgeState = new Map(); // tabId (or null for the global badge) -> {text, color}
+
+    function _badgeFor(tabId) {
+        if (!badgeState.has(tabId)) badgeState.set(tabId, { text: "", color: null });
+        return badgeState.get(tabId);
+    }
+
     // --- windows mock --------------------------------------------------------
 
     const windowsCreated = [];
@@ -250,6 +259,18 @@ export function createChromeMock(opts = {}) {
         contextualIdentities: {
             onRemoved: contextualIdentitiesOnRemoved,
         },
+        action: {
+            setBadgeText(details, callback) {
+                _badgeFor(details?.tabId ?? null).text = typeof details?.text === "string" ? details.text : "";
+                if (typeof callback === "function") queueMicrotask(() => callback());
+                return Promise.resolve();
+            },
+            setBadgeBackgroundColor(details, callback) {
+                _badgeFor(details?.tabId ?? null).color = details?.color ?? null;
+                if (typeof callback === "function") queueMicrotask(() => callback());
+                return Promise.resolve();
+            },
+        },
         webRequest: {
             get onAuthRequired() {
                 return webRequestOnAuthRequired;
@@ -304,6 +325,21 @@ export function createChromeMock(opts = {}) {
         /** Direct access to recorded chrome.windows.create calls. */
         get windowsCreated() {
             return windowsCreated;
+        },
+
+        /** Fire the runtime.onMessage event as if a content script had sent a message. */
+        fireRuntimeMessage(msg, sender) {
+            runtimeOnMessage._fire(msg, sender ?? null, () => {});
+        },
+
+        /** Current toolbar badge text for a tab (omit tabId for the global badge). */
+        getBadgeText(tabId = null) {
+            return badgeState.get(tabId)?.text ?? "";
+        },
+
+        /** Current toolbar badge background color for a tab (omit tabId for the global badge). */
+        getBadgeColor(tabId = null) {
+            return badgeState.get(tabId)?.color ?? null;
         },
 
         /** Set a failure message to make the next tabs.sendMessage call throw. */

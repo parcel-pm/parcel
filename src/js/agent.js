@@ -75,8 +75,9 @@ export class Agent extends EventTarget {
         // Content scripts send a periodic keepalive message to reset the MV3
         // service worker's inactivity timer, keeping the worker (and its
         // #nativePingInterval below) alive as long as at least one tab is open.
-        chrome.runtime.onMessage.addListener((msg) => {
+        chrome.runtime.onMessage.addListener((msg, sender) => {
             if (msg?.type === "keepalive") return;
+            if (msg?.type === "parcel-error-stash") void this.#handleErrorStash(msg, sender);
         });
 
         // Explicit re-init hooks for MV3 service-worker lifecycle events.
@@ -622,6 +623,30 @@ export class Agent extends EventTarget {
             return origin === "null" ? null : origin;
         } catch (_err) {
             return null;
+        }
+    }
+
+    /**
+     * Handle a stashed-error report from a content script: badge the affected
+     * tab with a red `!` while an undelivered popup error is pending, and
+     * forward new errors to the top frame, which stashes them on
+     * `document._parcelError` until the next popup displays them.
+     * @since 1.0.7
+     * @param {object} msg - The report: `{type: "parcel-error-stash", error?: string, stashed?: boolean}`.
+     * @param {chrome.runtime.MessageSender} sender - The sending content script's context.
+     * @returns {Promise<void>}
+     */
+    async #handleErrorStash(msg, sender) {
+        const tabId = sender?.tab?.id;
+        if (typeof tabId !== "number") return;
+        const error = typeof msg.error === "string" && msg.error ? msg.error : null;
+        const hasError = error !== null || msg.stashed === true;
+        try {
+            await chrome.action.setBadgeText({ tabId, text: hasError ? "!" : "" });
+            if (hasError) await chrome.action.setBadgeBackgroundColor({ tabId, color: "red" });
+            if (error !== null) await chrome.tabs.sendMessage(tabId, { action: "parcel-error-stash", error }, { frameId: 0 });
+        } catch (_err) {
+            // Badge updates and the top-frame forward are best-effort; the next stash or consume report re-syncs the state.
         }
     }
 

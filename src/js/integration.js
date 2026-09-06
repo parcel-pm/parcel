@@ -115,6 +115,8 @@
     // sendMessage throws; catch it once and stop the timer (a fresh content
     // script only arrives on page reload).
     if (window === window.top) {
+        // clear any stale tab badge — a fresh document cannot hold the previous document's stash
+        reportStashPresence(false);
         const keepalive = setInterval(() => {
             try {
                 chrome.runtime.sendMessage({ type: "keepalive" }, () => void chrome.runtime.lastError);
@@ -131,6 +133,9 @@
             httpAuthTokens.add(msg.token);
             triggerPopup(msg.token, 0, { centered: true }, "http-auth");
             sendResponse({ ok: true });
+        } else if (msg?.action === "parcel-error-stash") {
+            // Stash an undeliverable popup error forwarded by the background worker (top frame owns the stash).
+            if (window === window.top && typeof msg.error === "string" && msg.error) document._parcelError = msg.error;
         }
     });
 
@@ -172,6 +177,8 @@
     window.addEventListener("pageshow", (ev) => {
         // re-establish connection to the trigger port on bfcache restore
         if (ev.persisted) triggerPort.reconnect();
+        // re-assert the stashed-error badge for the restored document (top frame owns the stash)
+        if (ev.persisted && window === window.top) reportStashPresence(Boolean(document._parcelError));
     });
     window.addEventListener("message", (ev) => {
         if (ev.data?.action === "parcel-frame-id" && typeof ev.source?.postMessage === "function") {
@@ -852,17 +859,57 @@
      * most commonly when the page enters back/forward cache during an async
      * fill — so every response post must be safe against a dead port to avoid
      * unhandled rejections and "Unchecked runtime.lastError" warnings.
+     * Error messages that cannot be delivered are stashed in the top frame
+     * (see {@link reportStashedError}) so the next popup can display them.
      * @since 1.0.2
      * @param {chrome.runtime.Port} port - The port (may be disconnected).
      * @param {any} msg - The message to post.
-     * @returns {void}
+     * @param {object} [opts] - `stashOnFailure` (default `true`) for error messages; set `false` to keep the post from re-stashing a display-prefixed error.
+     * @returns {boolean} `true` when the message was posted, `false` when the post failed.
      */
-    function maybePost(port, msg) {
+    function maybePost(port, msg, { stashOnFailure = true } = {}) {
         try {
             port.postMessage(msg);
+            return true;
         } catch (_err) {
             const err = chrome.runtime.lastError;
             if (err) console.debug("[integration] maybePost failed:", err.message);
+            if (stashOnFailure && msg?.action === "error" && typeof msg.error === "string" && msg.error) {
+                console.warn("[integration] error could not be delivered to the popup; stashed:", msg.error);
+                reportStashedError(msg.error);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Report a popup error that could not be delivered to the background worker:
+     * the worker badges the tab and forwards the error to the top frame, which
+     * stashes it on `document._parcelError` until the next popup displays it.
+     * @since 1.0.7
+     * @param {string} error - The undelivered error message.
+     * @returns {void}
+     */
+    function reportStashedError(error) {
+        try {
+            chrome.runtime.sendMessage({ type: "parcel-error-stash", error }, () => void chrome.runtime.lastError);
+        } catch (_err) {
+            // Extension context invalidated — nothing can be stashed or badged
+        }
+    }
+
+    /**
+     * Report the current stash state to the background worker so the tab badge
+     * matches the presence of a stashed error on `document._parcelError`.
+     * @since 1.0.7
+     * @param {boolean} present - Whether a stashed error is present.
+     * @returns {void}
+     */
+    function reportStashPresence(present) {
+        try {
+            chrome.runtime.sendMessage({ type: "parcel-error-stash", stashed: present }, () => void chrome.runtime.lastError);
+        } catch (_err) {
+            // Extension context invalidated — the badge cannot be updated
         }
     }
 
@@ -1633,6 +1680,19 @@
         };
         port.onMessage.addListener(async (msg) => {
             if (msg?.action === "ready") {
+                // push an error stashed from an earlier, undeliverable popup response (top frame owns the stash)
+                if (window === window.top && typeof document._parcelError === "string" && document._parcelError) {
+                    const delivered = maybePost(
+                        port,
+                        { action: "error", error: `An earlier error occurred: ${document._parcelError}` },
+                        { stashOnFailure: false },
+                    );
+                    if (delivered) {
+                        delete document._parcelError;
+                        reportStashPresence(false);
+                    }
+                    // undelivered — the stash and badge stay for the next popup open
+                }
                 maybePost(port, {
                     action: "origin",
                     origin: window.location.origin,

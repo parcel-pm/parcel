@@ -1959,3 +1959,53 @@ describe("Agent native call timeout recovery", () => {
         await settleAsync();
     });
 });
+
+describe("Agent stashed error reports", () => {
+    test("error stash report badges the tab and forwards the error to the top frame", async () => {
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "boom" }, { tab: { id: 7 } });
+        await settleAsync();
+
+        assert.strictEqual(mock.getBadgeText(7), "!", "the affected tab must be badged");
+        assert.strictEqual(mock.getBadgeColor(7), "red", "the badge must be red");
+        const forwarded = mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash");
+        assert.strictEqual(forwarded.length, 1, "the error must be forwarded to the top frame exactly once");
+        assert.strictEqual(forwarded[0].tabId, 7);
+        assert.strictEqual(forwarded[0].options.frameId, 0);
+        assert.strictEqual(forwarded[0].msg.error, "boom");
+    });
+
+    test("stash presence report badges the tab without forwarding", async () => {
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", stashed: true }, { tab: { id: 8 } });
+        await settleAsync();
+
+        assert.strictEqual(mock.getBadgeText(8), "!", "the tab must be badged");
+        assert.strictEqual(mock.getBadgeColor(8), "red", "the badge must be red");
+        assert.strictEqual(mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash").length, 0, "no error may be forwarded");
+    });
+
+    test("consume report clears the tab badge", async () => {
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", stashed: true }, { tab: { id: 9 } });
+        await settleAsync();
+        assert.strictEqual(mock.getBadgeText(9), "!");
+
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", stashed: false }, { tab: { id: 9 } });
+        await settleAsync();
+        assert.strictEqual(mock.getBadgeText(9), "", "the badge must be cleared on consume");
+    });
+
+    test("error stash reports only badge the sender's tab", async () => {
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "boom" }, { tab: { id: 10 } });
+        await settleAsync();
+
+        assert.strictEqual(mock.getBadgeText(10), "!", "the affected tab must be badged");
+        assert.strictEqual(mock.getBadgeText(null), "", "no other tab may be badged");
+    });
+
+    test("report without a sender tab is ignored", async () => {
+        mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "no tab" }, undefined);
+        await settleAsync();
+
+        assert.strictEqual(mock.getBadgeText(null), "", "no global badge may be set");
+        assert.strictEqual(mock.sentMessages.filter((m) => m.msg?.action === "parcel-error-stash").length, 0, "nothing may be forwarded");
+    });
+});
