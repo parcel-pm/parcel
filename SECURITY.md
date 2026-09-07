@@ -179,7 +179,7 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `decryptTimeout` | Seconds before a decryption request is aborted (default: `60`). |
 | `decryptBucket` | Token-bucket capacity for decryption rate limiting. Each decryption costs one token (default: `10`). |
 | `decryptRate` | Token refill rate in tokens per second for decryption rate limiting (default: `0.00277`; i.e. 10 per hour). |
-| `suppressWarnings` | Array of security-warning IDs to hide from the popup (default: `[]`); see below for the warnings themselves. |
+| `suppressWarnings` | Array of security-warning IDs to hide from the popup (default: `[]`); see [Security warnings](README.md#security-warnings) in the README for the list of warnings and their IDs. |
 | `additionalSelectors` | Custom DOM selectors to augment built-in field detection. |
 | `additionalTargets` | Custom target mappings for extracting and filling credential data. |
 | `targets` | Complete replacement for built-in target extraction rules. |
