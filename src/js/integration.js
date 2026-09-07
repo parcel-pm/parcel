@@ -1585,6 +1585,8 @@
         if (!port.name) return;
         if (port.name === "trigger") return; // handled in another listener
         if (port.name === "passkey") return; // one-shot background-worker exchange, never owned by this frame
+        // worker-bound connects never fire this listener in a real browser; the harness's flat onConnect delivers them
+        if (port.name === "auth" || port.name === "integration") return;
 
         // passkey ceremony bindings are keyed by token, not by target element
         if (port.name !== "broadcast" && Object.prototype.hasOwnProperty.call(passkeyBindings, port.name)) {
