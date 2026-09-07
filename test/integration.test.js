@@ -1151,6 +1151,41 @@ describe("Integration script", { concurrency: false }, () => {
         delete document._parcelError;
     });
 
+    test("undeliverable popup error in a non-top frame is relayed to the worker instead of stashed", async () => {
+        clearBody();
+        delete document._parcelError;
+        stashReports.length = 0;
+        const input = makeInput({ type: "email", name: "user" });
+        const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
+        await click(input);
+        await popupPromise;
+        const token = input._parcelToken;
+        assert.ok(token);
+
+        // pretend this is an iframe: popups live in the top frame, so an error
+        // that cannot be delivered must be relayed, never stored here
+        const realTop = window.top;
+        Object.defineProperty(window, "top", { configurable: true, value: {} });
+        try {
+            input.style.display = "none"; // make getTargetInfo reject so the error post fires
+            const port = mock.chrome.runtime.connect({ name: token });
+            port.disconnect();
+            await settleAsync();
+        } finally {
+            Object.defineProperty(window, "top", { configurable: true, value: realTop });
+        }
+
+        assert.strictEqual(document._parcelError, undefined, "a non-top frame must not write the top frame's stash");
+        const relays = stashReports.filter((r) => typeof r.error === "string");
+        assert.strictEqual(relays.length, 1, "exactly one error must be relayed to the worker");
+        assert.ok(
+            relays[0].error.includes("The best-match autofill candidate was unsuitable"),
+            "the relayed error must be the popup error",
+        );
+        assert.ok(!("stashed" in relays[0]), "a relayed error must not carry a presence field");
+        delete document._parcelError;
+    });
+
     test("broadcast token is regenerated when retriggering context popup (issue #79)", async () => {
         // Simulate the toolbar popup: open a broadcast connection against a
         // target, then close it without filling. The element retains a stale
