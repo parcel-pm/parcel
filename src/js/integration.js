@@ -957,7 +957,7 @@
             if (stashOnFailure && msg?.action === "error" && typeof msg.error === "string" && msg.error) {
                 console.warn("[integration] error could not be delivered to the popup; stashed:", msg.error);
                 if (window === window.top) {
-                    // the top frame owns the stash — store it directly; the newest error wins, deliberately overwriting any pending stash
+                    // the top frame owns the stash - store it directly; the newest error wins, deliberately overwriting any pending stash
                     document._parcelError = msg.error;
                     reportStashPresence(true);
                 } else {

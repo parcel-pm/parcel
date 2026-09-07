@@ -1162,17 +1162,33 @@ describe("Integration script", { concurrency: false }, () => {
         const token = input._parcelToken;
         assert.ok(token);
 
-        // pretend this is an iframe: popups live in the top frame, so an error
-        // that cannot be delivered must be relayed, never stored here
-        const realTop = window.top;
-        Object.defineProperty(window, "top", { configurable: true, value: {} });
+        // pretend this is an iframe: JSDOM cannot represent a non-top frame
+        // (its window.top is an immutable self-reference), so swap
+        // globalThis.window for a proxy whose top is a different object. The
+        // swap must cover the async continuation in which the failed error
+        // post relays, so it is restored only after settleAsync().
+        const realWindow = globalThis.window;
+        const iframeWindow = new Proxy(realWindow, {
+            get(t, p) {
+                if (p === "top") return {}; // some other object - this "frame" is not the top frame
+                const v = Reflect.get(t, p, t);
+                return typeof v === "function" ? v.bind(t) : v;
+            },
+            set(t, p, v) {
+                return Reflect.set(t, p, v, t);
+            },
+            has(t, p) {
+                return Reflect.has(t, p);
+            },
+        });
         try {
             input.style.display = "none"; // make getTargetInfo reject so the error post fires
+            globalThis.window = iframeWindow;
             const port = mock.chrome.runtime.connect({ name: token });
             port.disconnect();
             await settleAsync();
         } finally {
-            Object.defineProperty(window, "top", { configurable: true, value: realTop });
+            globalThis.window = realWindow;
         }
 
         assert.strictEqual(document._parcelError, undefined, "a non-top frame must not write the top frame's stash");
