@@ -633,6 +633,16 @@
     } else {
         document.body.classList.add("context-popup");
         if (isWindowMode) document.body.classList.add("window-popup");
+        // The integration script clamps the popup height to the space around its target field
+        // (issue #162); the token check stops a page or another frame from forging the
+        // instruction. The resulting ResizeObserver report feeds the new size back to the host.
+        window.addEventListener("message", (ev) => {
+            const data = ev.data;
+            if (ev.source !== window.parent || data?.source !== "parcel-integration" || data.token !== token) return;
+            if (data.action !== "constrain-height") return;
+            if (data.maxHeight === null) document.body.style.maxHeight = "";
+            else if (Number.isFinite(data.maxHeight) && data.maxHeight > 0) document.body.style.maxHeight = `${data.maxHeight}px`;
+        });
         // In window mode the tab port is a no-op dummy — size reporting is
         // handled by CSS (fixed window size, internal vertical scroll).
         if (!isWindowMode) {
