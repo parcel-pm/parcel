@@ -11,7 +11,7 @@ Parcel is designed as a **read-only bridge** between your browser and an existin
 3. **Clear, human-auditable source** — No part of Parcel is transpiled, bundled, or minified, which means the code that ships to users is identical to the code in this repository, and this *can easily be directly verified by the user*. This includes the native host, which is implemented as a plaintext bash script.
 
     In order to maintain the spirit of the no-external-dependencies rule, the native host will only call standard shell utilities (you should not need to install anything extra), and will try to minimise the number of those it makes use of.
-4. **Read-only by design** — Parcel never creates, edits, or deletes any filesystem item other than its own dedicated log file, a template parcelrc (if missing at startup), and a single state file for non-sensitive runtime state.
+4. **Read-only by design** - Parcel never creates, edits, or deletes any filesystem item other than its own dedicated log file, a template parcelrc (if missing at startup), a single state file for non-sensitive runtime state, and a temporary GPG keyring.
 5. **Defense in depth** — Parcel attempts to provide safeguards at a number of different levels, and avoids single points of security failure where possible. Whitelist-based access, GPG signature verification, optional hash pinning, rate limiting, and audit logging all overlap so that a failure in one layer does not automatically compromise the whole system.
 
 ### What a compromised extension can and cannot do
@@ -73,7 +73,7 @@ Enabling `auditDecrypt: true` in `.parcel.json` causes the native host to log ev
 
 ### Decryption rate limiting
 
-The native host uses a token-bucket rate limiter to restrict how frequently password entries can be decrypted, with the aim of reducing the potential damage in the event of a successful exfiltration attack. Each decryption costs one token. The bucket holds up to `decryptBucket` tokens and refills at `decryptRate` tokens per second. With the defaults (`decryptBucket: 24`, `decryptRate: 0.006667`), the host allows an initial burst of 24 decryptions and then sustains roughly one decryption every 150 seconds thereafter.
+The native host uses a token-bucket rate limiter to restrict how frequently password entries can be decrypted, with the aim of reducing the potential damage in the event of a successful exfiltration attack. Each decryption costs one token. The bucket holds up to `decryptBucket` tokens and refills at `decryptRate` tokens per second. With the defaults (`decryptBucket: 10`, `decryptRate: 0.00277`), the host allows an initial burst of 10 decryptions and then sustains roughly one decryption every 360 seconds thereafter.
 
 The token-bucket state (current token count and last-refill timestamp) is persisted to a dedicated state file (`$XDG_CONFIG_HOME/parcel/state`, or `~/.config/parcel/state` when `XDG_CONFIG_HOME` is unset) so that it survives across host process restarts. This prevents a compromised extension from resetting the bucket by killing and reconnecting the native host between decrypts. The state file is bash-sourceable with `0600` permissions and contains only non-sensitive numeric values - never any part of the user's decrypted credential files. The file location can be overridden via `STATEFILE` in `parcelrc`.
 
@@ -164,7 +164,7 @@ Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` wh
 
 ### `.parcel.json` options
 
-Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modified.
+Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modified. The table below is the security-relevant subset; see the README for the complete configuration reference.
 
 | Option | Description |
 |--------|-------------|
@@ -177,15 +177,16 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 | `handlePasskeys` | Enable WebAuthn passkey ceremonies. When `false`, Parcel does not intercept passkey requests at all (default: `true`). |
 | `handleHttpAuth` | Enable HTTP authentication interception (HTTP 401). When `false`, Parcel does not intercept browser auth challenges (default: `true`). Proxy auth (HTTP 407) is never intercepted. |
 | `decryptTimeout` | Seconds before a decryption request is aborted (default: `60`). |
-| `decryptBucket` | Token-bucket capacity for decryption rate limiting. Each decryption costs one token (default: `24`). |
-| `decryptRate` | Token refill rate in tokens per second for decryption rate limiting (default: `0.006667`; i.e. 24 per hour). |
+| `decryptBucket` | Token-bucket capacity for decryption rate limiting. Each decryption costs one token (default: `10`). |
+| `decryptRate` | Token refill rate in tokens per second for decryption rate limiting (default: `0.00277`; i.e. 10 per hour). |
+| `suppressWarnings` | Array of security-warning IDs to hide from the popup (default: `[]`); see below for the warnings themselves. |
 | `additionalSelectors` | Custom DOM selectors to augment built-in field detection. |
 | `additionalTargets` | Custom target mappings for extracting and filling credential data. |
 | `targets` | Complete replacement for built-in target extraction rules. |
 
 ## Security Reviews
 
-Parcel is subject to regular automated security reviews in order to surface any potential vulnerabilities. These reviews, along with a summary of findings and the maintainers' responses, are published in the `security-reviews` directory in this repository.
+Parcel is subject to regular automated security reviews in order to surface any potential vulnerabilities. These reviews, along with a summary of findings and the maintainers' responses, are published in the `security-review` directory in this repository.
 
 If you are a security professional who is interested in contributing to the project by performing a review, please open a new issue to coordinate this.
 

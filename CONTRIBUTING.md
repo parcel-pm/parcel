@@ -103,6 +103,9 @@ make test-application
 
 # run syntax tests only
 make test-syntax
+
+# run the setup-script tests only
+make test-setup
 ```
 
 ### Docker

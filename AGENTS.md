@@ -7,12 +7,36 @@
 | Build the shared extension bundle | `make extension` | Runs `make -C src`, formats source with Prettier, and writes generated assets to `src/dist/`. |
 | Build the Chrome bundle | `make chrome` | Rebuilds `src/dist/` and syncs it into `chrome/`. |
 | Build the Firefox bundle | `make firefox` | Rebuilds `src/dist/`, syncs it into `firefox/`, rewrites the manifest for Firefox, and switches module content scripts to the `.es6.js` shim. |
-| Format source | `make prettier` | Formats `test/*.{js,json}` and then runs `make -C src prettier`, which writes all `src/**/*.{js,json,less,css,html,xhtml}`. |
+| Format source | `make prettier` | Formats `test/*.{js,json}` and `test/setup/*.js`, then runs `make -C src prettier`, which writes all `src/**/*.{js,json,less,css,html,xhtml}`. |
 | Install dev dependencies | `make install-deps` | Runs `npm install --ignore-scripts --before 2026-06-10` to fetch dev-time dependencies. Use this instead of a bare `npm install` so the additional security arguments are respected. |
-| Clean generated artifacts | `make clean` | Removes `src/dist/`, `chrome/`, `firefox/`, and top-level `dist/`. |
-| Run all tests | `make test` | Runs prettier/eslint syntax checks and shellcheck linting, then the full test suite with `node --test` across all `test/*.test.js` files (browser mock, helpers, native host, plaintext, schema, selectors, targets). |
-| Run individual test groups | `make test-native`, `make test-browser-mock`, `make test-modules`, `make test-application`, `make test-syntax` | Native-host integration tests; Chrome-API mock tests; shared-module unit tests; application tests; syntax tests respectively. |
-| List outstanding TODO comments | `make todo` | Prints all TODO comments found in `src`, `test`, and root `.md` files, with author and date from git blame. |
+| Clean generated artifacts | `make clean` | Removes `src/dist/`, `chrome/`, `firefox/`, top-level `dist/`, and the generated `parcel-setup.sh`. |
+| Run all tests | `make test` | Runs prettier/eslint syntax checks and shellcheck linting, then the full test suite with `node --test` across all `test/*.test.js` files. |
+| Run individual test groups | `make test-native`, `make test-browser-mock`, `make test-modules`, `make test-application`, `make test-syntax`, `make test-setup` | Native-host integration tests; Chrome-API mock tests; shared-module unit tests; application tests; syntax tests; setup-script tests respectively. |
+| Lint only | `make lint` | Runs ESLint semantic checks only. For lint with prettier checks (as run by CI), use `make test-syntax`. |
+| List outstanding TODO comments | `make todo` | Prints all TODO comments found in `src`, `test`, and root `.md` files (excluding `AGENTS.md` itself), with author and date from git blame. |
+
+### Test files
+
+All files below live in `test/` and are run by `make test`. The `test/setup/*.test.js` suite is run separately by `make test-setup`.
+
+| File | Covers |
+| --- | --- |
+| `chrome-api-mock.test.js` | The reusable Chrome-API mock itself. |
+| `helpers.test.js` | Shared helpers: shadow-aware DOM lookups, TOTP, crypto utilities. |
+| `native-host.test.js` | Native host end-to-end in isolated environments with mocked GPG. |
+| `plaintext.test.js` | Parsing/expansion of decrypted entry data. |
+| `schema.test.js` | Config schema validation, defaults, and warnings. |
+| `selectors.test.js` | Field-selector registry, including `additionalSelectors`. |
+| `targets.test.js` | Fill/extraction target mappings, including `additionalTargets`. |
+| `shadow.test.js` | `main-world/shadow.js` attachShadow interception shim. |
+| `webauthn.test.js` | WebAuthn encoding helpers and attestation-object builders. |
+| `main-world-webauthn.test.js` | `main-world/webauthn.js` isolated-world installer and ceremony shim. |
+| `agent.test.js` | Background agent: config validation, entry caching, port brokering. |
+| `integration.test.js` | Content script: target detection and autofill behaviour. |
+| `popup.test.js` | Popup UI: match listing, decrypted plaintext, fill relay. |
+| `popup-context.test.js` | Popup per-origin/per-container history. |
+| `popup-passkey.test.js` | Popup passkey-mode UI path. |
+| `popup-warnings.test.js` | Popup security-warning display. |
 
 Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly targets that vendored subtree.
 

@@ -294,7 +294,7 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `pattern` | string (regex) | *required* | Regex matched against the entry name (relative to the store root, without `.gpg`). |
 | `ignore` | boolean | `false` | If `true`, entries matching this rule are excluded. |
 | `class` | string | `"login"` | `"login"` (fillable credential), `"passkey"` (WebAuthn credential, excluded from filling; see [Passkeys](#passkeys-webauthn--fido2)), `"card"` (debit/credit card info), or `"browser-passkey"` (a site-policy rule, not an entry class, that defers a site's ceremonies to the browser; see [Passkey conflicts](#passkey-conflicts-with-other-password-managers)). |
-| `color` | string | `"333333"` | Hex colour for the entry's tag in the popup. |
+| `color` | string | *(auto)* | Hex colour for the entry's tag in the popup. If omitted, one is generated deterministically from the rule's `tag` (or `pattern` when no tag is set). |
 | `tag` | string | *(none)* | Optional label shown next to the entry in the popup. |
 | `strip` | string (regex) | *(none)* | Regex matching portions of the entry name to hide in the popup. |
 | `originBound` | boolean | *(class default)* | If `true`, the entry is only offered on pages whose origin matches. Defaults to `true` for all classes except `card`. |
@@ -501,7 +501,7 @@ privateKey:
 
 The host validates the `#!parcel-passkey v1` marker, the `rpId` (which must match the requesting site's relying-party ID), and any `allowCredentials` restriction sent by the site before signing.
 
-External storage is supported via symlinks: point `passkeyDir` at a symlink's in-store location (subject to the `allowLinks` / `allowExternalLinks` policy). A `passkeyDir` containing literal `..` segments names entries the store scan can never list, so such passkeys can be created but not used for assertions.
+External storage is supported via symlinks: point `passkeyDir` at a symlink's in-store location (subject to the `allowLinks` / `allowExternalLinks` policy). A `passkeyDir` containing literal `..` segments is not allowed.
 
 ### Registering a new passkey
 

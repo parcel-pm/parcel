@@ -542,7 +542,7 @@ Install options:
   --browser <name>    Set up only the specified browser(s) (comma or space separated)
   --flatpak-only      Only handle flatpak browsers (skip native)
   --yes, -y           Non-interactive: accept all detected defaults
-  --verbose           Show verbose output (e.g. full password-store tree)
+  --verbose           Show verbose output (e.g. manifest contents, full password-store tree)
 
 Actions:
   --uninstall         Remove the installation (preserves parcelrc and .parcel.json)
