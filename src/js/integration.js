@@ -516,6 +516,22 @@
     /** Popup modes rendered as a centred card over a fullscreen scrim that fades in and out. */
     const SCRIM_MODES = new Set(["passkey", "passkey-conflict", "http-auth"]);
 
+    /** Gap between the target element and the context popup, in pixels. */
+    const POPUP_ANCHOR_GAP = 5;
+
+    /**
+     * Total border height of the context-popup host (1px top + 1px bottom): the host div is
+     * content-box, so the border-box height measured for placement checks exceeds its style
+     * height by this much.
+     */
+    const POPUP_BORDER_HEIGHT = 2;
+
+    /**
+     * Minimum context-popup height when resized to fit the space around its target; below this
+     * the popup is centred instead of being anchored.
+     */
+    const MIN_POPUP_HEIGHT = 200;
+
     /** Per-challenge tokens for http-auth scrim popups, so the onConnect handler can identify them. */
     const httpAuthTokens = new Set();
 
@@ -553,6 +569,9 @@
      * Trigger a popup for the given element, anchoring it to the element's position.
      * When `position.centered` is true (passkey ceremonies), the popup is centred in the
      * viewport instead of being anchored to an element.
+     *
+     * Too-tall context popups are resized down to a minimum height to fit beside the target,
+     * or shown via the centred flow when neither side fits.
      * @since 1.0.0
      * @param {string} token - The token for the element.
      * @param {number} frameId - The ID of the frame in which the target element resides.
@@ -677,6 +696,27 @@
             frame.style.height = "320px";
         }
 
+        // inner-height constraint currently applied to the popup content, or null when unconstrained
+        let heightConstraint = null;
+
+        /**
+         * Clamp the popup content height so it scrolls internally instead of overflowing the
+         * space around its target; null releases a prior constraint.
+         * @since 1.0.7
+         * @param {number|null} maxHeight - Maximum content height in pixels, or null to release.
+         * @returns {void}
+         */
+        const constrainInnerHeight = (maxHeight) => {
+            try {
+                frame.contentWindow?.postMessage(
+                    { source: "parcel-integration", action: "constrain-height", token, maxHeight },
+                    new URL(chrome.runtime.getURL("/")).origin,
+                );
+            } catch (_err) {
+                // The frame is not navigable yet (or is already gone); the next resize report retries.
+            }
+        };
+
         // add hook to adjust size & position
         popup._resizeFn = async (width = 0, height = 0) => {
             if (scrimMode) {
@@ -690,12 +730,47 @@
             await new Promise((resolve) => requestAnimationFrame(resolve)); // wait for the resize to take effect before adjusting position
             const rect = popup.getBoundingClientRect();
             if (position?.centered) {
+                // Re-apply: the centring fallback may have run before the iframe loaded, dropping its message.
+                if (heightConstraint !== null) constrainInnerHeight(heightConstraint);
                 popup.style.top = `${window.scrollY + Math.max(0, (window.innerHeight - rect.height) / 2)}px`;
                 popup.style.left = `${window.scrollX + Math.max(0, (window.innerWidth - rect.width) / 2)}px`;
                 return;
             }
-            if (position.y + rect.height + 5 > window.innerHeight) popup.style.top = `${position.top - rect.height - 5}px`;
-            else popup.style.top = `${position.bottom + 5}px`;
+
+            // Border-box capacities either side of the target, in viewport coordinates
+            // (position.top/bottom are document coordinates; x/y are viewport-relative).
+            const spaceBelow = window.innerHeight - (position.bottom - window.scrollY) - POPUP_ANCHOR_GAP;
+            const spaceAbove = position.top - window.scrollY - POPUP_ANCHOR_GAP;
+            if (rect.height <= spaceBelow || rect.height <= spaceAbove) {
+                if (heightConstraint !== null && rect.height < heightConstraint) {
+                    // The content has shrunk below the constraint - release it so it can grow again.
+                    heightConstraint = null;
+                    constrainInnerHeight(null);
+                }
+                if (rect.height <= spaceBelow) popup.style.top = `${position.bottom + POPUP_ANCHOR_GAP}px`;
+                else popup.style.top = `${position.top - rect.height - POPUP_ANCHOR_GAP}px`;
+            } else if (Math.max(spaceAbove, spaceBelow) >= MIN_POPUP_HEIGHT) {
+                // Too tall for both sides: clamp to whichever side has more space; the
+                // popup's follow-up size report confirms the clamped height.
+                const useSpaceBelow = spaceBelow >= spaceAbove;
+                const space = useSpaceBelow ? spaceBelow : spaceAbove;
+                heightConstraint = space - POPUP_BORDER_HEIGHT;
+                constrainInnerHeight(heightConstraint);
+                popup.style.height = `${heightConstraint}px`;
+                popup.style.top = useSpaceBelow
+                    ? `${position.bottom + POPUP_ANCHOR_GAP}px`
+                    : `${position.top - heightConstraint - POPUP_BORDER_HEIGHT - POPUP_ANCHOR_GAP}px`;
+            } else {
+                // Fits neither side even at the minimum height: stop anchoring to the target
+                // for this and all later resizes, and show it via the centred flow instead.
+                position = { centered: true };
+                heightConstraint = Math.max(MIN_POPUP_HEIGHT, window.innerHeight - 2 * POPUP_ANCHOR_GAP - POPUP_BORDER_HEIGHT);
+                constrainInnerHeight(heightConstraint);
+                popup.style.height = `${heightConstraint}px`;
+                popup.style.top = `${window.scrollY + Math.max(0, (window.innerHeight - (heightConstraint + POPUP_BORDER_HEIGHT)) / 2)}px`;
+                popup.style.left = `${window.scrollX + Math.max(0, (window.innerWidth - rect.width) / 2)}px`;
+                return;
+            }
             if (position.x + rect.width + 5 > window.innerWidth) popup.style.left = `${window.innerWidth - rect.width - 5}px`;
             else popup.style.left = `${position.left + 5}px`;
         };
