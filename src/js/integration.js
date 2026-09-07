@@ -137,6 +137,7 @@
             // Stash an error relayed by the background worker (top frame owns the stash); the
             // worker drives the tab badge from the presence report.
             if (window === window.top && typeof msg.error === "string" && msg.error) {
+                // relayed stash write also follows latest-wins, overwriting any pending stash
                 document._parcelError = msg.error;
                 reportStashPresence(true);
             }
@@ -956,7 +957,7 @@
             if (stashOnFailure && msg?.action === "error" && typeof msg.error === "string" && msg.error) {
                 console.warn("[integration] error could not be delivered to the popup; stashed:", msg.error);
                 if (window === window.top) {
-                    // the top frame owns the stash — store it directly and report presence
+                    // the top frame owns the stash — store it directly; the newest error wins, deliberately overwriting any pending stash
                     document._parcelError = msg.error;
                     reportStashPresence(true);
                 } else {
