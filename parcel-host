@@ -36,9 +36,14 @@ if [ ! -O "$0" ]; then STRICT_BINARIES=true; fi
 # builtins only, so the filtering cannot itself be shadowed; note that writability alone
 # is insufficient here, as the owner of a directory can re-enable write access at will.
 # Once PATH contains no caller-controlled directories, pass 2 can trust stat to enforce
-# the stricter root-ownership policy.
-if $STRICT_BINARIES; then
-    FILTERED=""
+# the stricter root-ownership policy. The test suite extracts this function verbatim
+# from the bootstrap source, so it must remain a single self-contained function.
+#
+# @since 1.0.7
+function parcel_strict_filter_path() {
+    local FILTERED=""
+    local DIR OWNER
+    local -a PATH_ELEMENTS
     IFS=':' read -ra PATH_ELEMENTS <<< "$PATH"
     for DIR in "${PATH_ELEMENTS[@]}"; do
         # keep the [ ] tests appended to the chain: some bracket-alternation chains hit a bash 3.2 parse quirk
@@ -60,7 +65,10 @@ if $STRICT_BINARIES; then
         PATH="$FILTERED"
         hash -r
     fi
-    unset FILTERED PATH_ELEMENTS DIR OWNER
+}
+
+if $STRICT_BINARIES; then
+    parcel_strict_filter_path
 fi
 
 # transmit message in native messaging host protocol

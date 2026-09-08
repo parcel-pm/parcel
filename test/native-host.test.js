@@ -10,7 +10,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
 import { createHash, verify } from "node:crypto";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, spawnSync } from "node:child_process";
 import {
     mkdtempSync,
     writeFileSync,
@@ -484,6 +484,18 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
 `,
     );
     chmodSync(env.mockGpgPath, 0o755);
+}
+
+/**
+ * Extract a bash function definition verbatim from the bootstrap host source, so its
+ * logic can be exercised in isolation (strict-mode behaviour cannot be triggered
+ * end-to-end from an unprivileged test run).
+ */
+function extractBootstrapFn(name) {
+    const src = readFileSync("parcel-host", "utf8");
+    const match = src.match(new RegExp(`^function ${name}\\(\\) \\{\\n(?:.|\\n)*?^\\}\\n`, "m"));
+    assert.ok(match, `parcel-host must define ${name}()`);
+    return match[0];
 }
 
 describe("Bootstrap script", () => {
@@ -1392,6 +1404,85 @@ exit 1
             proc.kill();
             env.cleanup();
         }
+    });
+
+    test("strict PATH filter drops caller-controlled directories without trusting stat", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every directory is euid-owned/root-owned
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        const ownedDir = join(tmp, "owned-locked");
+        try {
+            // Attacker setup: a user-owned directory locked at 0555 containing a fake
+            // stat (which always claims uid 0) and a fake gpg. The lock does not stop
+            // the owner from toggling write access later, so the dir must still go.
+            mkdirSync(ownedDir);
+            writeFileSync(join(ownedDir, "stat"), "#!/bin/bash\necho 0\n");
+            writeFileSync(join(ownedDir, "gpg"), "#!/bin/bash\necho shadowed\n");
+            chmodSync(join(ownedDir, "stat"), 0o555);
+            chmodSync(join(ownedDir, "gpg"), 0o555);
+            chmodSync(ownedDir, 0o555);
+
+            const res = spawnSync(
+                "bash",
+                [
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    `${extractBootstrapFn("parcel_strict_filter_path")}\nparcel_strict_filter_path\nprintf 'FILTERED:%s\\n' "$PATH"`,
+                ],
+                { encoding: "utf8", env: { PATH: `${ownedDir}:/private/tmp:/usr/bin:/bin` } },
+            );
+            assert.strictEqual(res.status, 0, `harness failed: ${res.stderr}`);
+            const kept = res.stdout
+                .trim()
+                .replace(/^FILTERED:/, "")
+                .split(":");
+            assert.ok(!kept.includes(ownedDir), "caller-owned 0555 dir must be dropped despite the lying fake stat");
+            assert.ok(!kept.includes("/private/tmp"), "world-writable dir must be dropped");
+            assert.ok(kept.includes("/usr/bin") && kept.includes("/bin"), `system dirs must be kept, got: ${kept}`);
+        } finally {
+            if (existsSync(ownedDir)) chmodSync(ownedDir, 0o700); // unlock for deletion
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    test("strict binary check rejects caller-owned executables", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        try {
+            const fakeGpg = join(tmp, "gpg");
+            writeFileSync(fakeGpg, "#!/bin/bash\necho shadowed\n");
+            chmodSync(fakeGpg, 0o555);
+            const harness = `STRICT_BINARIES=true
+function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcelrc_check_binary")}
+parcelrc_check_binary "parcelrc: GPG" "$FAKE"
+printf 'NOFATAL\\n'
+`;
+            const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
+                encoding: "utf8",
+                env: { PATH: `${tmp}:/usr/bin:/bin`, FAKE: fakeGpg },
+            });
+            assert.strictEqual(res.status, 43, `expected fatal rejection, got rc=${res.status} out=${res.stdout}`);
+            assert.ok(res.stdout.includes("owned by root"), `expected ownership error, got: ${res.stdout}`);
+        } finally {
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    test("strict binary check accepts root-owned bare-name tools", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
+        const harness = `STRICT_BINARIES=true
+function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcelrc_check_binary")}
+parcelrc_check_binary "bootstrap: sh" "sh"
+printf 'RC:%s\\n' "$?"
+`;
+        const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
+            encoding: "utf8",
+            env: { PATH: "/usr/bin:/bin" },
+        });
+        assert.strictEqual(res.status, 0, `expected success, got rc=${res.status} out=${res.stdout} err=${res.stderr}`);
+        assert.ok(res.stdout.includes("RC:0"), `expected acceptance, got: ${res.stdout}`);
     });
 });
 
