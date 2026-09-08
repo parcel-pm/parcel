@@ -258,6 +258,7 @@ If this file does not exist, the bootstrap host creates a commented template on 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `VALID_SIGNERS` | Release signing keys | Space-separated list of GPG key fingerprints that are trusted to sign the main host script. |
+| `BLACKLIST_SIGNERS` | *(none)* | Space-separated list of revoked GPG key fingerprints (primary or subkey form both match). |
 | `PATH` | Inherited | Additional directories to prepend to the host's `PATH` (e.g. `/opt/homebrew/bin` on macOS). |
 | `GPG` | `gpg` | Path to the GPG binary. |
 | `JQ` | `jq` | Path to the `jq` binary. |
@@ -269,6 +270,7 @@ Example `parcelrc`:
 
 ```bash
 VALID_SIGNERS="88FF14D6294AF4036B7F00FF676A3C09E2E47A72"
+BLACKLIST_SIGNERS="0126456789ABCDEF0126456789ABCDEF01264567"
 PATH="$PATH:/opt/homebrew/bin"
 GPG="gpg"
 JQ="/usr/local/bin/jq"
@@ -276,6 +278,8 @@ LOGFILE="$HOME/.local/log/parcel-host.log"
 PASSWORD_STORE_DIR="$HOME/.password-store"
 HOST_HASH="b7b76abadd3f13e6bcf554c39547d44ae19a299c8fc2e73ae8cbccd9a34d9b40"
 ```
+
+The bootstrap host also consults the state file (`~/.config/parcel/state`) for a `BLACKLIST_SIGNERS` entry, combining it with any list set in `parcelrc`. The main host script itself ships a `BLACKLIST_SIGNERS` list inside the script (empty unless a release signing key has been revoked), and persists it to the state file so the revocation is enforced automatically in later browser sessions once it has been written; this is how a compromised signing key can be revoked through the usual extension update path.
 
 ### .parcel.json
 

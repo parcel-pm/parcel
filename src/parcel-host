@@ -51,6 +51,9 @@ fi
 # dedicated state file for persisting non-sensitive runtime state between host invocations
 STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 
+# Revoked signer fingerprints (space-separated; primary or subkey)
+BLACKLIST_SIGNERS=""
+
 function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1" 2>/dev/null
 }
@@ -67,9 +70,6 @@ function get_timestamp_ms() {
 }
 
 # Validate state file contents against a strict whitelist before sourcing.
-# Only simple VAR=number assignments for known state variables are permitted;
-# anything containing command substitution, subshells, pipes, redirections,
-# or other executable syntax is rejected.
 #
 # @param {string} content - The full text of the state file.
 # @return 0 if all lines are valid, 1 otherwise.
@@ -77,12 +77,15 @@ function get_timestamp_ms() {
 function validate_state_content() {
     local CONTENT="$1"
     local LINE
+    local FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
+    local BLACKLIST_RE="^BLACKLIST_SIGNERS=\"(${FPR_PATTERN}( ${FPR_PATTERN})*)?\"$"
     while IFS= read -r LINE || [[ -n "$LINE" ]]; do
         # Skip empty and whitespace-only lines
         [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
-        # Each non-empty line must be a simple assignment of digits to a
-        # whitelisted variable name — nothing else is allowed.
-        [[ "$LINE" =~ ^(DECRYPT_BUCKET_TOKENS|DECRYPT_BUCKET_LAST)=[0-9]+$ ]] || return 1
+        # Each non-empty line must be a whitelisted assignment.
+        [[ "$LINE" =~ ^(DECRYPT_BUCKET_TOKENS|DECRYPT_BUCKET_LAST)=[0-9]+$ ]] && continue
+        [[ "$LINE" =~ $BLACKLIST_RE ]] && continue
+        return 1
     done <<< "$CONTENT"
     return 0
 }
@@ -105,7 +108,8 @@ function load_state() {
             "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$LOCKED_STATEFILE" >&5
         return 0
     fi
-    eval "$CONTENT"
+    # skip the persisted blacklist: the shipped list is authoritative in memory
+    eval "$(sed '/^BLACKLIST_SIGNERS=/d' <<< "$CONTENT")"
     # discard loaded values if they are non-numeric
     if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^[0-9]+$ ]]; then
         DECRYPT_BUCKET_TOKENS=""
@@ -116,11 +120,11 @@ function load_state() {
 }
 
 # save current state variables to the state file (clobbers).
-# only non-sensitive numeric values are written.
+# only non-sensitive numeric values and the signer blacklist are written.
 # Only valid under the state lock (see lock_state).
 function save_state() {
-    printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\n' \
-        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" > "$LOCKED_STATEFILE"
+    printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\nBLACKLIST_SIGNERS="%s"\n' \
+        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" "$BLACKLIST_SIGNERS" > "$LOCKED_STATEFILE"
     chmod 0600 "$LOCKED_STATEFILE"
 }
 
@@ -201,6 +205,36 @@ function unlock_state() {
 
 # release the state lock on any exit path, including parcel_error; unlock_state no-ops when unheld
 trap unlock_state EXIT
+
+# Repair an unusable state file (invalid content or bad permissions) so the
+# next bootstrap session reads a valid blacklist instead of failing open.
+#
+# @return 0 always.
+# @since 1.0.7
+function repair_state() {
+    # no state file yet: nothing to repair, and don't create one before first use
+    [ -f "$STATEFILE" ] || return 0
+    lock_state || return 0
+    # never write through a symlink, only a regular file
+    if [ -f "$LOCKED_STATEFILE" ] && [ ! -L "$LOCKED_STATEFILE" ]; then
+        local CONTENT
+        CONTENT="$(cat "$LOCKED_STATEFILE" 2>/dev/null)"
+        if [ "$LOCKED_STATEFILE" != "$(find "$LOCKED_STATEFILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ] ||
+            ! validate_state_content "$CONTENT"; then
+            printf '[%s] state file %s unusable; repairing with defaults\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+            # the discarded bucket state is reset, as with a fail-open load
+            DECRYPT_BUCKET_TOKENS=0
+            DECRYPT_BUCKET_LAST=0
+            save_state
+        fi
+    fi
+    unlock_state
+    return 0
+}
+
+# repair an unusable state file before the event loop starts
+repair_state
 
 # load the configuration
 function load_config() {

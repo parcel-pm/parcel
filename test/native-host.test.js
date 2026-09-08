@@ -455,6 +455,37 @@ async function pollFile(file, needle, timeoutMs = 3000) {
 // Bootstrap script tests
 // ---------------------------------------------------------------------------
 
+/**
+ * Write a mock gpg that reports the supplied VALIDSIG lines. Each entry is a
+ * {primary, signingKey} pair; signingKey defaults to primary (field 3 is the
+ * signing key, field 12 the primary, per GnuPG status output).
+ * @param {object} env - Test environment from createTestEnv().
+ * @param {Array<{primary: string, signingKey?: string}>} sigs - Signature identities to report.
+ * @returns {void}
+ * @since 1.0.7
+ */
+function mockGpgWithSigs(env, sigs) {
+    const validsigLines = sigs
+        .map(({ primary, signingKey }) => `    echo "[GNUPG:] VALIDSIG ${signingKey ?? primary} 2026-05-01 0 0 4 0 1 8 00 ${primary}"`)
+        .join("\n");
+    writeFileSync(
+        env.mockGpgPath,
+        `#!/bin/bash
+set -e
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+${validsigLines}
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exec $(which gpg || echo /usr/bin/gpg) "$@"
+`,
+    );
+    chmodSync(env.mockGpgPath, 0o755);
+}
+
 describe("Bootstrap script", () => {
     test("sends bootstrap message on startup", async () => {
         const env = createTestEnv();
@@ -718,6 +749,173 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
+    test("rejects install when the signer is blacklisted via parcelrc", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        // Blacklist the otherwise-valid signer
+        writeFileSync(parcelrc, `${existing}BLACKLIST_SIGNERS="${env.knownSigner}"\n`);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+            // The revocation must be logged, but not leaked to the extension
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("is blacklisted"), `Expected blacklist log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects install when only the signing subkey is blacklisted via parcelrc", async () => {
+        const env = createTestEnv();
+        // Field 3 (subkey) is blacklisted, field 12 (primary) stays whitelisted
+        const subkeyFpr = "0123456789ABCDEF0123456789ABCDEF01234567"; // gitleaks:allow
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, `${existing}BLACKLIST_SIGNERS="${subkeyFpr}"\n`);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            mockGpgWithSigs(env, [{ primary: env.knownSigner, signingKey: subkeyFpr }]);
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("accepts install when a blacklisted signer is accompanied by a valid one", async () => {
+        const env = createTestEnv();
+        const otherSigner = "56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601";
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        // Both signers are whitelisted, but the first is revoked
+        writeFileSync(
+            parcelrc,
+            existing.replace(`VALID_SIGNERS="${env.knownSigner}"`, `VALID_SIGNERS="${env.knownSigner} ${otherSigner}"`) +
+                `BLACKLIST_SIGNERS="${env.knownSigner}"\n`,
+        );
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            mockGpgWithSigs(env, [{ primary: env.knownSigner }, { primary: otherSigner }]);
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected success, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects install when the signer is blacklisted via the state file", async () => {
+        const env = createTestEnv();
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\nBLACKLIST_SIGNERS="${env.knownSigner}"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("is blacklisted"), `Expected blacklist log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects install when the signer is blacklisted via a locked state file", async () => {
+        const env = createTestEnv();
+        // No plain state file: the bootstrap must fall back to state.locked
+        const lockedState = join(env.home, ".config", "parcel", "state.locked");
+        writeFileSync(lockedState, `BLACKLIST_SIGNERS="${env.knownSigner}"\n`);
+        chmodSync(lockedState, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("fails open when the state file blacklist is malformed", async () => {
+        const env = createTestEnv();
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        // Not a valid fingerprint list: the value must be ignored
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\nBLACKLIST_SIGNERS="not-a-fingerprint"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected success despite invalid state file, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("invalid blacklist value; ignoring blacklist"), `Expected ignore log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("ignores unknown state file lines when enforcing the blacklist", async () => {
+        const env = createTestEnv();
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        // A future state field the bootstrap doesn't know about
+        writeFileSync(stateFile, `FUTURE_SETTING="some value"\nBLACKLIST_SIGNERS="${env.knownSigner}"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("fingerprint"), `Expected fingerprint error, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("is blacklisted"), `Expected blacklist log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("fails open when the state file has the wrong permissions", async () => {
+        const env = createTestEnv();
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `BLACKLIST_SIGNERS="${env.knownSigner}"\n`);
+        chmodSync(stateFile, 0o644);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected success despite state file permissions, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("rejects install when HOST_HASH does not match", async () => {
         const env = createTestEnv();
         // Set a HOST_HASH that won't match
@@ -931,6 +1129,20 @@ function action_test_override() {
 // ---------------------------------------------------------------------------
 // Main host script tests (via bootstrap install)
 // ---------------------------------------------------------------------------
+
+/**
+ * Read src/parcel-host with a shipped BLACKLIST_SIGNERS value injected, to
+ * emulate a host release that revokes a signer.
+ * @param {string} fingerprints - Space-separated fingerprints to ship.
+ * @returns {string} The modified main host script.
+ * @since 1.0.7
+ */
+function mainScriptWithBlacklist(fingerprints) {
+    const mainScript = readFileSync("src/parcel-host", "utf8");
+    const modified = mainScript.replace('BLACKLIST_SIGNERS=""', `BLACKLIST_SIGNERS="${fingerprints}"`);
+    assert.ok(modified !== mainScript, "shipped BLACKLIST_SIGNERS placeholder not found in src/parcel-host");
+    return modified;
+}
 
 describe("Main host script", () => {
     test("works with a non-default PASSWORD_STORE_DIR", async () => {
@@ -2298,6 +2510,234 @@ VALID_SIGNERS="${env.knownSigner}"
             assert.ok(existsSync(stateFile), `State file not created at ${stateFile}`);
             const mode = statSync(stateFile).mode & 0o777;
             assert.strictEqual(mode, 0o600, `State file permissions should be 0600, got 0${mode.toString(8)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("save_state persists the shipped blacklist and skips the stale persisted value", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const shippedFpr = "1111111111111111111111111111111111111111";
+        const staleFpr = "2222222222222222222222222222222222222222";
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        // Stale state carrying a different, outdated revocation list
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=3000\nDECRYPT_BUCKET_LAST=${Date.now()}\nBLACKLIST_SIGNERS="${staleFpr}"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithBlacklist(shippedFpr), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(msg)}`);
+
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(
+                content.includes(`BLACKLIST_SIGNERS="${shippedFpr}"`),
+                `State file should contain the shipped blacklist, got: ${content}`,
+            );
+            assert.ok(!content.includes(staleFpr), `State file should not contain the stale blacklist, got: ${content}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("a persisted shipped blacklist is enforced across host restarts", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const revokedFpr = "3333333333333333333333333333333333333333";
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+
+        // First session: install a host that ships the revocation and persist it
+        const host1 = spawnBootstrap(env);
+        try {
+            await host1.read(); // bootstrap msg
+            host1.send({ action: "install", script: mainScriptWithBlacklist(revokedFpr), signature: "sig" });
+            const installResult = await host1.read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            host1.send({ action: "list" });
+            await host1.read();
+            host1.send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const msg = await host1.read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(msg)}`);
+        } finally {
+            host1.proc.kill();
+        }
+
+        // The revoked key stays whitelisted, so the rejection provably comes from the blacklist
+        writeFileSync(
+            parcelrc,
+            readFileSync(parcelrc, "utf8").replace(
+                `VALID_SIGNERS="${env.knownSigner}"`,
+                `VALID_SIGNERS="${env.knownSigner} ${revokedFpr}"`,
+            ),
+        );
+
+        // Second session: a script signed only by the revoked key must be refused
+        const host2 = spawnBootstrap(env);
+        try {
+            await host2.read(); // bootstrap msg
+            mockGpgWithSigs(env, [{ primary: revokedFpr }]);
+            host2.send({ action: "install", script: "test", signature: "sig" });
+            const rejected = await host2.read();
+            assert.ok(
+                rejected.error?.toLowerCase().includes("fingerprint"),
+                `Expected fingerprint error for revoked signer, got: ${JSON.stringify(rejected)}`,
+            );
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("is blacklisted"), `Expected blacklist log entry, got: ${logContent}`);
+
+            // The same session must still accept a non-revoked signer
+            mockGpgWithSigs(env, [{ primary: env.knownSigner }]);
+            host2.send({ action: "install", script: "test", signature: "sig" });
+            const accepted = await host2.read();
+            assert.strictEqual(accepted.data?.success, true, `Expected success, got: ${JSON.stringify(accepted)}`);
+        } finally {
+            host2.proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("an in-session reinstall is checked against the shipped blacklist", async () => {
+        const env = createTestEnv();
+        const revokedFpr = "3333333333333333333333333333333333333333";
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        writeFileSync(
+            parcelrc,
+            readFileSync(parcelrc, "utf8").replace(
+                `VALID_SIGNERS="${env.knownSigner}"`,
+                `VALID_SIGNERS="${env.knownSigner} ${revokedFpr}"`,
+            ),
+        );
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+
+            // Install a host shipping the revocation; the eval'd script
+            // redefines the in-memory blacklist
+            send({ action: "install", script: mainScriptWithBlacklist(revokedFpr), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            // A reinstall signed only by the revoked key must now be refused
+            mockGpgWithSigs(env, [{ primary: revokedFpr }]);
+            send({ action: "install", script: "test", signature: "sig" });
+            const rejected = await read();
+            assert.ok(
+                rejected.error?.toLowerCase().includes("fingerprint"),
+                `Expected fingerprint error for revoked signer, got: ${JSON.stringify(rejected)}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("an invalid state file is repaired at startup without a decrypt", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const shippedFpr = "4444444444444444444444444444444444444444";
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=5\nDECRYPT_BUCKET_LAST=9\nBLACKLIST_SIGNERS="not-a-fingerprint"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithBlacklist(shippedFpr), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            // the eval that repairs the file happens between main-loop iterations
+            send({ action: "list" });
+            await read();
+
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(
+                content.includes(`BLACKLIST_SIGNERS="${shippedFpr}"`),
+                `State file should be repaired with the shipped blacklist, got: ${content}`,
+            );
+            assert.ok(!content.includes("not-a-fingerprint"), `State file should not keep the invalid value, got: ${content}`);
+            const mode = statSync(stateFile).mode & 0o777;
+            assert.strictEqual(mode, 0o600, `State file permissions should be 0600, got 0${mode.toString(8)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("a state file with the wrong permissions is repaired at startup", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const shippedFpr = "4444444444444444444444444444444444444444";
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=5\nDECRYPT_BUCKET_LAST=9\nBLACKLIST_SIGNERS="${shippedFpr}"\n`);
+        chmodSync(stateFile, 0o644);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithBlacklist(shippedFpr), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            const mode = statSync(stateFile).mode & 0o777;
+            assert.strictEqual(mode, 0o600, `State file permissions should be repaired to 0600, got 0${mode.toString(8)}`);
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(
+                content.includes(`BLACKLIST_SIGNERS="${shippedFpr}"`),
+                `State file should still contain the blacklist, got: ${content}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("a symlinked state file is never written through", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const targetFile = join(env.home, "innocent.txt");
+        writeFileSync(targetFile, "precious");
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        symlinkSync(targetFile, stateFile);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithBlacklist("5555555555555555555555555555555555555555"), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            assert.strictEqual(readFileSync(targetFile, "utf8"), "precious", `Symlink target must not be written through`);
         } finally {
             proc.kill();
             env.cleanup();

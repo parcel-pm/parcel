@@ -42,10 +42,17 @@ It **cannot**:
 The bootstrap host (`parcel-host`) receives the main host script (`src/parcel-host`) from the browser extension via the native-messaging protocol. Before executing that script, the bootstrap host:
 
 1. Verifies the GPG detached signature shipped alongside the script.
-2. Extracts the primary fingerprint from the GPG status output.
-3. Checks that the fingerprint is present in the `VALID_SIGNERS` list configured in `parcelrc`.
+2. Extracts the primary fingerprint and the signing-key fingerprint (which may be a subkey) from the GPG status output.
+3. Checks that the primary fingerprint is present in the `VALID_SIGNERS` list configured in `parcelrc`.
+4. Checks that neither the primary fingerprint nor the signing-key fingerprint is blacklisted.
 
 If any step fails, the script is discarded and the host refuses to start.
+
+### Signer revocation
+
+Compromised signing keys can be revoked without manual intervention by users. The main host script ships a `BLACKLIST_SIGNERS` list (space-separated primary or subkey fingerprints, empty unless a key has been revoked) and persists it to the state file (the same one used for rate-limiter state). The bootstrap host refuses to load a shipped script that has no non-blacklisted valid signer, and combines the persisted list from the state file with any `BLACKLIST_SIGNERS` set in `parcelrc`, so a revocation rides the usual extension update path (AMO / Chrome Web Store). An unusable state file (invalid content or bad permissions) is repaired by the main host at startup rather than left in place, so a later bootstrap session enforces the shipped blacklist instead of failing open.
+
+The caveat of this mechanism is the same as for any shipped update: a revocation only takes effect once a release carrying it has been delivered and run, and only against the bootstrap host's install step; it cannot retroactively reject a script that was already accepted, so it is a complement to multi-signer releases rather than a substitute for them.
 
 ### HOST_HASH pinning
 
@@ -75,7 +82,7 @@ Enabling `auditDecrypt: true` in `.parcel.json` causes the native host to log ev
 
 The native host uses a token-bucket rate limiter to restrict how frequently password entries can be decrypted, with the aim of reducing the potential damage in the event of a successful exfiltration attack. Each decryption costs one token. The bucket holds up to `decryptBucket` tokens and refills at `decryptRate` tokens per second. With the defaults (`decryptBucket: 10`, `decryptRate: 0.00277`), the host allows an initial burst of 10 decryptions and then sustains roughly one decryption every 360 seconds thereafter.
 
-The token-bucket state (current token count and last-refill timestamp) is persisted to a dedicated state file (`$XDG_CONFIG_HOME/parcel/state`, or `~/.config/parcel/state` when `XDG_CONFIG_HOME` is unset) so that it survives across host process restarts. This prevents a compromised extension from resetting the bucket by killing and reconnecting the native host between decrypts. The state file is bash-sourceable with `0600` permissions and contains only non-sensitive numeric values - never any part of the user's decrypted credential files. The file location can be overridden via `STATEFILE` in `parcelrc`.
+The token-bucket state (current token count and last-refill timestamp) is persisted to a dedicated state file (`$XDG_CONFIG_HOME/parcel/state`, or `~/.config/parcel/state` when `XDG_CONFIG_HOME` is unset) so that it survives across host process restarts. This prevents a compromised extension from resetting the bucket by killing and reconnecting the native host between decrypts. The state file is bash-sourceable with `0600` permissions and contains only non-sensitive numeric values and the signer blacklist, never any part of the user's decrypted credential files. The file location can be overridden via `STATEFILE` in `parcelrc`.
 
 Setting either `decryptBucket` or `decryptRate` to `0` disables rate limiting entirely.
 
@@ -156,6 +163,7 @@ Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` wh
 | Option | Description |
 |--------|-------------|
 | `VALID_SIGNERS` | Space-separated list of GPG fingerprints trusted to sign the main host script. |
+| `BLACKLIST_SIGNERS` | Space-separated list of revoked GPG fingerprints (primary or subkey form both match). |
 | `HOST_HASH` | Optional SHA-256 pin of `src/parcel-host`. When set, the bootstrap host refuses to execute updated host scripts until the pin is updated after review. |
 | `GPG` | Path to the GPG binary (default: `gpg`). |
 | `JQ` | Path to the `jq` binary (default: `jq`). |
