@@ -854,6 +854,6 @@ describe("Popup script", { concurrency: false }, () => {
 
         await import("../src/js/popup.js?no-ready-ack");
         await new Promise((resolve) => setTimeout(resolve, 1900));
-        assert.match(globalThis.document.querySelector("p.error")?.textContent || "", /could not contact the page/i);
+        assert.match(globalThis.document.querySelector("p.error")?.textContent || "", /has not responded yet/i);
     });
 });

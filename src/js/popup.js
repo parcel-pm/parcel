@@ -1657,6 +1657,8 @@
     if (isWindowMode || (await waitForTabReady())) {
         if (token !== "broadcast" && !isWindowMode) reportPopupSize();
     } else {
-        showError("Parcel could not contact the page. Close this popup and reload the page.");
+        showError(
+            "The page has not responded yet - it may still be loading. Your fill may still work when you trigger it; otherwise close this popup and reload the page.",
+        );
     }
 })();
