@@ -54,6 +54,8 @@ Compromised signing keys can be revoked without manual intervention by users. Th
 
 The caveat of this mechanism is the same as for any shipped update: a revocation only takes effect once a release carrying it has been delivered and run, and only against the bootstrap host's install step; it cannot retroactively reject a script that was already accepted, so it is a complement to multi-signer releases rather than a substitute for them.
 
+The state-file list is a cache of the most recently installed host script's list, not an append-only history: any later validly-signed install (including a replay of an older release) replaces it. Revocation is therefore best-effort against an attacker who controls the install order. Durable revocations should be set as `BLACKLIST_SIGNERS` in `parcelrc`; the hard guarantees against a revoked signer remain multi-signer releases and `HOST_HASH` pinning.
+
 ### HOST_HASH pinning
 
 Even after signature verification, you may wish to pin the exact contents of the main host script. Setting `HOST_HASH` in `parcelrc` to the SHA-256 hash of `src/parcel-host` causes the bootstrap host to compute and compare the hash before execution. If the hash does not match, the host reports an error with the new hash and exits, giving you the opportunity to review the updated script before updating the pinned value.

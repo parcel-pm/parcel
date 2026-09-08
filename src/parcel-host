@@ -111,7 +111,9 @@ function load_state() {
             "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$LOCKED_STATEFILE" >&5
         return 0
     fi
-    # skip the persisted blacklist: the shipped list is authoritative in memory
+    # skip the persisted blacklist: the shipped list is authoritative. The
+    # persisted copy is a cache of the last installed script's list; durable
+    # revocations belong in parcelrc.
     eval "$(sed '/^BLACKLIST_SIGNERS=/d' <<< "$CONTENT")"
     # discard loaded values if they are non-numeric
     if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^[0-9]+$ ]]; then

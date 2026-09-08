@@ -156,7 +156,8 @@ function parcel_send() {
 # Load the signer blacklist from the state file, or its locked variant.
 # Unknown state lines are ignored: only the blacklist value is validated, so
 # future state fields can't break the bootstrap. Missing files, bad
-# permissions, or a malformed value leave the blacklist empty.
+# permissions, or a malformed value leave the blacklist empty. The value
+# stands only until the next install; durable revocations belong in parcelrc.
 #
 # @return 0 always; problems are logged, not reported.
 # @since 1.0.7
