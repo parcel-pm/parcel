@@ -900,13 +900,18 @@ detect_tool_paths() {
 
 # Test whether the invoking user can modify a path.
 # System-wide installs run under sudo, where [ -w ] is meaningless, so test as the real user.
+# A literal root shell has no real user to test as; report not-writable and let ownership decide.
 # @param {string} path - Path to check.
 # @return {boolean} True if the invoking user can modify it.
 # @since 1.0.7
 test_writable_by_user() {
     local path="$1"
-    if [ "$(id -u)" -eq 0 ] && [ -n "$SERVICES_USER" ]; then
-        sudo -u "$SERVICES_USER" test -w "$path"
+    if [ "$(id -u)" -eq 0 ]; then
+        if [ -n "$SERVICES_USER" ]; then
+            sudo -u "$SERVICES_USER" test -w "$path"
+        else
+            return 1
+        fi
     else
         [ -w "$path" ]
     fi
