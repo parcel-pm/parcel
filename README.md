@@ -144,7 +144,7 @@ The script will:
 
 - Detect your operating system.
 - Check that `jq` and `gpg` are installed.
-- Ask whether to install system-wide (requires `sudo`) or user-level. A system-wide install is recommended for better security: the bootstrap host is then owned by root, out of reach of user-level tampering, and it will additionally require that any binary overrides in `parcelrc` resolve to root-owned binaries.
+- Ask whether to install system-wide (requires `sudo`) or user-level. A system-wide install is recommended for better security: the bootstrap host is then owned by root, out of reach of user-level tampering, and it will additionally require that any binary overrides in `parcelrc` resolve to root-owned binaries. Note that this strictness also applies to the default `gpg`/`jq`/`openssl` resolution: system distro packages typically qualify, but a default macOS homebrew install is owned by you, in which case choose a user-level install instead.
 - Detect installed browsers and ask which ones to set up.
 - Install the bootstrap host (`parcel-host`) to the appropriate prefix.
 - Generate and install native-messaging manifests for each selected browser.

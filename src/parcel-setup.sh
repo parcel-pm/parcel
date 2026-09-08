@@ -974,6 +974,43 @@ detect_single_tool_path() {
     fi
 }
 
+# Warn when the effective tool binaries are not root-owned during a system-wide
+# install: the system-wide bootstrap refuses to use them, so the install would not
+# pass its smoke test. Resolution order mirrors the bootstrap: an existing parcelrc
+# override, then a newly detected path, then the default command name.
+# @since 1.0.7
+warn_nonroot_tools() {
+    [ "$INSTALL_LEVEL" = "system" ] || return 0
+
+    local parcelrc="$CONFIG_DIR/parcelrc"
+    local warned=false
+    local spec rest name tool detected path resolved owner
+    for spec in "GPG:gpg:${CUSTOM_GPG:-}" "JQ:jq:${CUSTOM_JQ:-}" "OPENSSL:openssl:${CUSTOM_OPENSSL:-}"; do
+        name="${spec%%:*}"
+        rest="${spec#*:}"
+        tool="${rest%%:*}"
+        detected="${rest#*:}"
+        path=""
+        if [ -f "$parcelrc" ]; then
+            path="$(sed -n "s/^${name}=\"\\(.*\\)\"\$/\\1/p" "$parcelrc" 2>/dev/null)"
+        fi
+        resolved="${path:-${detected:-$tool}}"
+        case "$resolved" in
+            */*) ;;
+            *) resolved="$(PATH="$USER_PATH" command -v "$resolved" 2>/dev/null)" || resolved="" ;;
+        esac
+        [ -n "$resolved" ] && [ -e "$resolved" ] || continue
+        owner="$(stat -L -c %u "$resolved" 2>/dev/null || stat -L -f %u "$resolved" 2>/dev/null)" || owner=""
+        if [ "$owner" != "0" ]; then
+            log_warn "$name ($resolved) is not owned by root - a system-wide bootstrap will refuse to use it"
+            warned=true
+        fi
+    done
+    if $warned; then
+        log_warn "Choose a user-level install instead, or install root-owned copies of the tools above."
+    fi
+}
+
 # Ask the user to confirm each detected browser (default Y).
 # Filters DETECTED_BROWSERS and DETECTED_FLATPAK_BROWSERS to only include
 # confirmed entries. Skipped entirely in --yes mode.
@@ -1041,6 +1078,7 @@ run_detect() {
     confirm_browsers
     if ! $IS_NIXOS; then
         detect_tool_paths
+        warn_nonroot_tools
     fi
     offer_host_hash
 }
@@ -1561,22 +1599,40 @@ install_flatpak_wrappers() {
 # Smoke test
 # ===========================================================================
 
-# Run the bootstrap host as the correct user.
-# Stdout is discarded - the native messaging protocol output is not needed
-# during the smoke test, and leaking it to the terminal is confusing.
+# Extract the bootstrap host's first native-protocol error message from its captured
+# stdout. Sets HOST_FAILURE_MSG (empty when nothing could be extracted). Startup
+# failures are reported as a single length-prefixed JSON message, so skipping the
+# 4-byte length header yields the payload.
+# @param {string} out_file - File containing captured host stdout.
+# @since 1.0.7
+extract_host_error() {
+    HOST_FAILURE_MSG=""
+    [ -s "$1" ] || return 0
+    HOST_FAILURE_MSG="$(tail -c +5 "$1" 2>/dev/null | jq -r '.error // empty' 2>/dev/null)"
+}
+
+# Run the bootstrap host as the correct user. Raw protocol output stays off the
+# terminal (it is confusing there), but any reported error is extracted into
+# HOST_FAILURE_MSG so the smoke tests can surface it.
 # @param {string} host_bin - Path to the bootstrap host binary.
 # @returns {number} Exit code of the host.
 # @since 1.0.7
 run_host_as_user() {
-    local host_bin="$1"
+    local host_bin="$1" out_file rc
+    out_file="$(mktemp)" || die "Failed to create temp file"
 
     if [ -n "$SERVICES_USER" ]; then
-        printf '' | sudo -u "$SERVICES_USER" env "HOME=$HOME" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" "$host_bin" >/dev/null 2>/dev/null
-        return $?
+        # shellcheck disable=SC2024 # the redirect deliberately runs as the invoking (root) user
+        printf '' | sudo -u "$SERVICES_USER" env "HOME=$HOME" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" "$host_bin" >"$out_file" 2>/dev/null
+        rc=$?
     else
-        printf '' | "$host_bin" >/dev/null 2>/dev/null
-        return $?
+        printf '' | "$host_bin" >"$out_file" 2>/dev/null
+        rc=$?
     fi
+
+    [ $rc -ne 0 ] && extract_host_error "$out_file"
+    rm -f "$out_file"
+    return $rc
 }
 
 # Run the first smoke test (cold start).
@@ -1594,6 +1650,7 @@ first_smoke_test() {
 
     if [ $rc -ne 0 ] && [ ! -f "$parcelrc" ]; then
         log_error "First smoke test failed and parcelrc was not created"
+        [ -n "$HOST_FAILURE_MSG" ] && log_error "Host reported: $HOST_FAILURE_MSG"
         log_error "This usually means jq or gpg are not in the default PATH"
         die "Smoke test failed (exit code $rc)"
     fi
@@ -1605,6 +1662,7 @@ first_smoke_test() {
 
     if [ $rc -ne 0 ]; then
         log_warn "First smoke test exited with code $rc (likely gpg not in default PATH)"
+        [ -n "$HOST_FAILURE_MSG" ] && log_warn "Host reported: $HOST_FAILURE_MSG"
         log_info "  Custom tool paths will be applied before the second smoke test"
     else
         log_success "First smoke test passed (parcelrc created/verified)"
@@ -1622,6 +1680,7 @@ second_smoke_test() {
 
     if [ $rc -ne 0 ]; then
         log_error "Second smoke test failed (exit code $rc)"
+        [ -n "$HOST_FAILURE_MSG" ] && log_error "Host reported: $HOST_FAILURE_MSG"
 
         # Revert parcelrc customisations if we have a backup
         local parcelrc="$CONFIG_DIR/parcelrc"
