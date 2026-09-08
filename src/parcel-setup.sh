@@ -1052,7 +1052,9 @@ warn_nonroot_tools() {
             */*) ;;
             *) resolved="$(PATH="$USER_PATH" command -v "$resolved" 2>/dev/null)" || resolved="" ;;
         esac
-        [ -n "$resolved" ] && [ -e "$resolved" ] || continue
+        if [ -z "$resolved" ] || [ ! -e "$resolved" ]; then
+            continue
+        fi
         owner="$(stat -L -c %u "$resolved" 2>/dev/null || stat -L -f %u "$resolved" 2>/dev/null)" || owner=""
         if [ "$owner" != "0" ]; then
             log_warn "$name ($resolved) is not owned by root - a system-wide bootstrap will refuse to use it"
