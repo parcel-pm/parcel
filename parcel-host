@@ -22,6 +22,45 @@ TOKEN="broadcast"
 PARCEL_HOST=""
 BOOTSTRAP_VERSION="3"
 
+# Binary and helper-tool ownership is only meaningful when the bootstrap itself is out
+# of the user's reach (a system-wide install). In permissive mode (user-owned bootstrap)
+# user-level malware could modify the bootstrap directly, so no such checks are applied.
+STRICT_BINARIES=false
+if [ ! -O "$0" ]; then STRICT_BINARIES=true; fi
+
+# In strict mode, sanitise PATH before any external command runs: user-level control of
+# PATH would otherwise allow shadowing every helper the bootstrap and its hardening
+# checks rely on (stat, grep, cut, sha256sum, find, ...). Keep only absolute directories
+# that are root-owned and not writable by the caller; dropped elements are not logged,
+# since PATH legitimately contains user-owned items on many systems. Pass 1 uses bash
+# builtins only, so the filtering cannot itself be shadowed; pass 2 adds the ownership
+# check, because stat is only trustworthy once PATH contains no user-controlled
+# directories.
+if $STRICT_BINARIES; then
+    FILTERED=""
+    IFS=':' read -ra PATH_ELEMENTS <<< "$PATH"
+    for DIR in "${PATH_ELEMENTS[@]}"; do
+        if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ]; then
+            FILTERED+="${FILTERED:+:}$DIR"
+        fi
+    done
+    PATH="$FILTERED"
+    hash -r
+    if [ -n "$PATH" ]; then
+        FILTERED=""
+        IFS=':' read -ra PATH_ELEMENTS <<< "$PATH"
+        for DIR in "${PATH_ELEMENTS[@]}"; do
+            OWNER="$(stat -L -c %u "$DIR" 2>/dev/null || stat -L -f %u "$DIR" 2>/dev/null)" || OWNER=""
+            if [ "$OWNER" = "0" ]; then
+                FILTERED+="${FILTERED:+:}$DIR"
+            fi
+        done
+        PATH="$FILTERED"
+        hash -r
+    fi
+    unset FILTERED PATH_ELEMENTS DIR OWNER
+fi
+
 # transmit message in native messaging host protocol
 function parcel_transmit() {
     local LC_ALL=C
@@ -112,11 +151,6 @@ BLACKLIST_VALUE_RE="^(${FPR_PATTERN}( ${FPR_PATTERN})*)?$"
 
 # findings collected while reading parcelrc, flushed to the log once it is open
 PARCELRC_NOTES=""
-
-# Binary overrides from parcelrc get extra scrutiny when the bootstrap itself is not
-# owned by the invoking user (i.e. a system-wide install that user-level malware cannot
-# modify). In that configuration the overrides must point at root-owned binaries.
-STRICT_BINARIES=false
 
 # Buffer a parcelrc review note, flushed to the logfile once it is open.
 #
@@ -227,7 +261,6 @@ function load_parcelrc() {
     local HOMEVAR_RE='[$]HOME[A-Za-z0-9_]'
     PARCELRC_SANITISED=""
     CONTENT="$(head -c 1048576 "$PARCELRC")" || parcelrc_fatal "parcelrc: unable to read $PARCELRC"
-    if [ ! -O "$0" ]; then STRICT_BINARIES=true; fi
     while IFS= read -r LINE || [ -n "$LINE" ]; do
         N=$((N + 1))
         [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
