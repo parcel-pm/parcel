@@ -258,7 +258,7 @@ If this file does not exist, the bootstrap host creates a commented template on 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `VALID_SIGNERS` | Release signing keys | Space-separated list of GPG key fingerprints that are trusted to sign the main host script. |
-| `BLACKLIST_SIGNERS` | *(none)* | Space-separated list of revoked GPG key fingerprints (primary or subkey form both match). |
+| `BLACKLIST_SIGNERS` | *(none)* | Space-separated list of revoked GPG key fingerprints (primary or subkey form both match; matching is case-insensitive). |
 | `PATH` | Inherited | Additional directories to prepend to the host's `PATH` (e.g. `/opt/homebrew/bin` on macOS). |
 | `GPG` | `gpg` | Path to the GPG binary. |
 | `JQ` | `jq` | Path to the `jq` binary. |

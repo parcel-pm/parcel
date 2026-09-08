@@ -163,7 +163,7 @@ Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` wh
 | Option | Description |
 |--------|-------------|
 | `VALID_SIGNERS` | Space-separated list of GPG fingerprints trusted to sign the main host script. |
-| `BLACKLIST_SIGNERS` | Space-separated list of revoked GPG fingerprints (primary or subkey form both match). |
+| `BLACKLIST_SIGNERS` | Space-separated list of revoked GPG fingerprints (primary or subkey form both match; matching is case-insensitive). |
 | `HOST_HASH` | Optional SHA-256 pin of `src/parcel-host`. When set, the bootstrap host refuses to execute updated host scripts until the pin is updated after review. |
 | `GPG` | Path to the GPG binary (default: `gpg`). |
 | `JQ` | Path to the `jq` binary (default: `jq`). |

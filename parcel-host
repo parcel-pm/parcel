@@ -107,12 +107,15 @@ exec 2>&5
 chmod 0600 "$LOGFILE"
 if [ -z "$VALID_SIGNERS" ]; then VALID_SIGNERS="88FF14D6294AF4036B7F00FF676A3C09E2E47A72 56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601 82ED663067C6017BAA4BC752EB670BF2B1131683 B0908ED59A96C9882BED9A942A51761511A30253"; fi
 
+# GPG emits uppercase fingerprints; normalise config lists so comparisons match exactly
+VALID_SIGNERS="$(tr '[:lower:]' '[:upper:]' <<< "$VALID_SIGNERS")"
+
 # resolve the state file (also overridable via parcelrc)
 STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 
 # capture the parcelrc blacklist separately so the state-file list can be
 # combined with it rather than clobbered
-PARCELRC_BLACKLIST="${BLACKLIST_SIGNERS:-}"
+PARCELRC_BLACKLIST="$(tr '[:lower:]' '[:upper:]' <<< "${BLACKLIST_SIGNERS:-}")"
 
 # effective revocation list (state-file value, then the shipped list)
 BLACKLIST_SIGNERS=""
@@ -171,6 +174,7 @@ function load_blacklist() {
     local CONTENT VALUE
     CONTENT="$(cat "$FILE" 2>/dev/null)" || return 0
     VALUE="$(sed -n 's/^BLACKLIST_SIGNERS="\(.*\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
+    VALUE="$(tr '[:lower:]' '[:upper:]' <<< "$VALUE")"
     if [[ ! "$VALUE" =~ $BLACKLIST_VALUE_RE ]]; then
         printf '[%s] state file %s has an invalid blacklist value; ignoring blacklist\n' \
             "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$FILE" >&5
@@ -187,10 +191,11 @@ function load_blacklist() {
 # @since 1.0.7
 function blacklisted() {
     [ -n "$1" ] || return 1
-    local FPR
+    local FPR TARGET
+    TARGET="$(tr '[:lower:]' '[:upper:]' <<< "$1")"
     # deliberately unquoted: whitespace-split into fingerprints for exact-match comparison
     for FPR in $PARCELRC_BLACKLIST $BLACKLIST_SIGNERS; do
-        if [ "$FPR" = "$1" ]; then
+        if [ "$FPR" = "$TARGET" ]; then
             return 0
         fi
     done

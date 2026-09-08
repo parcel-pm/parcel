@@ -54,6 +54,9 @@ STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 # Revoked signer fingerprints (space-separated; primary or subkey)
 BLACKLIST_SIGNERS=""
 
+# GPG emits uppercase fingerprints; normalise so state-file comparisons match exactly
+BLACKLIST_SIGNERS="$(tr '[:lower:]' '[:upper:]' <<< "$BLACKLIST_SIGNERS")"
+
 function get_mtime() {
     stat -L -c %Y "$1" 2>/dev/null || stat -L -f %m "$1" 2>/dev/null
 }
@@ -233,7 +236,7 @@ function repair_state() {
             DECRYPT_BUCKET_LAST=0
             save_state
         elif [ -n "$BLACKLIST_SIGNERS" ] &&
-            [ "$(sed -n 's/^BLACKLIST_SIGNERS="\(.*\)"$/\1/p' <<< "$CONTENT" | tail -n1)" != "$BLACKLIST_SIGNERS" ]; then
+            [ "$(sed -n 's/^BLACKLIST_SIGNERS="\(.*\)"$/\1/p' <<< "$CONTENT" | tail -n1 | tr '[:lower:]' '[:upper:]')" != "$BLACKLIST_SIGNERS" ]; then
             printf '[%s] state file %s predates the shipped blacklist; updating\n' \
                 "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
             # valid content: preserve the persisted bucket state
