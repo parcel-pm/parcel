@@ -1321,6 +1321,78 @@ exit 1
             env.cleanup();
         }
     });
+
+    test("ignores config settings injected via the session environment", async () => {
+        const env = createTestEnv();
+        // If any of these environment values were honoured, install would fail:
+        // the fake GPG path does not exist, the injected signer list excludes the
+        // valid signer, the injected blacklist revokes it, and the hash is bogus.
+        const { proc, read, send } = spawnBootstrap(env, {
+            GPG: "/definitely/not/a/real/gpg",
+            VALID_SIGNERS: "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF",
+            BLACKLIST_SIGNERS: env.knownSigner,
+            HOST_HASH: "nothex",
+        });
+        try {
+            const bootMsg = await read();
+            assert.strictEqual(
+                bootMsg.data?.action,
+                "bootstrap",
+                "Expected bootstrap despite injected env, got: " + JSON.stringify(bootMsg),
+            );
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install despite injected env, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("respects PASSWORD_STORE_DIR from the session environment", async () => {
+        const env = createTestEnv();
+        // The fixture parcelrc sets a good PASSWORD_STORE_DIR; it must be removed so
+        // that the environment value is the only source.
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing.replace(/^PASSWORD_STORE_DIR=.*$/m, ""));
+        const { proc, read, send } = spawnBootstrap(env, { PASSWORD_STORE_DIR: "/definitely/not/a/real/passdir" });
+        try {
+            await read(); // bootstrap msg
+            const mainScript = readFileSync("src/parcel-host", "utf8");
+            send({ action: "install", script: mainScript, signature: "sig" });
+            const installMsg = await read();
+            assert.strictEqual(installMsg.data?.success, true, `Expected successful install, got: ${JSON.stringify(installMsg)}`);
+            const msg = await read();
+            assert.ok(
+                msg.error?.includes("Invalid password store directory"),
+                `Expected the environment passdir to reach the main host, got: ${JSON.stringify(msg)}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("ignores parcelrc values containing control characters", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + 'GPG="/definitely/not/a/real\tgpg"\n');
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("ignoring unsafe value"), `Expected unsafe-value log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------

@@ -140,10 +140,16 @@ if [ "$PARCELRC" != "$(find "$PARCELRC" -maxdepth 1 -type f -perm 0600 2>/dev/nu
     exit 1
 fi
 
+# Environment copies of recognised keys must not flow in: the browser hands the host
+# its full session environment, and only validated parcelrc content may set these.
+# PASSWORD_STORE_DIR is the exception, as setting it in the session environment is
+# legitimate and longstanding for pass users.
+unset VALID_SIGNERS BLACKLIST_SIGNERS GPG JQ OPENSSL LOGFILE STATEFILE HOST_HASH
+
 # default paths; parcelrc may override them
 LOGFILE="$HOME/.local/log/parcel-host.log"
 # shellcheck disable=SC2034 # consumed by the evaluated main host script
-PASSWORD_STORE_DIR="$HOME/.password-store"
+PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
 
 # a signer fingerprint is exactly 40 or 64 hex characters
 FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
@@ -164,13 +170,18 @@ function parcelrc_note() {
 
 # Report a fatal startup problem to the extension and abort. Uses static message text
 # with a caller-supplied context prefix, as jq is not yet known to be available this
-# early in startup.
+# early in startup; control characters, double quotes and backslashes are stripped so
+# interpolated values cannot break the JSON.
 #
-# $1: error message (must not contain characters that break JSON)
+# $1: error message
 # @return never returns
 # @since 1.0.7
 function parcelrc_fatal() {
-    parcel_transmit '{"token": "broadcast", "error": "'"$1"'"}'
+    local MSG="$1"
+    MSG="${MSG//[[:cntrl:]]/}"
+    MSG="${MSG//\"/}"
+    MSG="${MSG//\\/}"
+    parcel_transmit '{"token": "broadcast", "error": "'"$MSG"'"}'
     exit 1
 }
 
@@ -273,11 +284,11 @@ function load_parcelrc() {
         fi
         NAME="${BASH_REMATCH[1]}"
         VALUE="${BASH_REMATCH[2]}"
-        # values may not contain backticks or backslashes, and the only permitted
-        # expansion tokens are $HOME and ${HOME}
+        # values may not contain backticks, backslashes or control characters, and the
+        # only permitted expansion tokens are $HOME and ${HOME}
         # shellcheck disable=SC1003 # the single-quoted backtick pattern is intentional
         case "$VALUE" in
-            *'`'* | *'\\'*)
+            *'`'* | *'\\'* | *[[:cntrl:]]*)
                 parcelrc_note "ignoring unsafe value at line $N"
                 continue
                 ;;
@@ -301,15 +312,12 @@ function load_parcelrc() {
 
 load_parcelrc
 
-# In strict mode, tools without a parcelrc override are bare names resolved via the
-# inherited PATH; a user-writable directory earlier in PATH could shadow them, so the
-# resolved binaries must meet the same bar as explicit overrides.
+# In strict mode, check the effective binary for every tool (parcelrc override or the
+# bare-name default resolved via the sanitised PATH) against the ownership bar.
 if $STRICT_BINARIES; then
     for TOOL in gpg jq openssl; do
         VAR="$(tr '[:lower:]' '[:upper:]' <<< "$TOOL")"
-        if [ -z "${!VAR:-}" ]; then
-            parcelrc_check_binary "bootstrap: $TOOL" "$TOOL"
-        fi
+        parcelrc_check_binary "bootstrap: $TOOL" "${!VAR:-$TOOL}"
     done
     unset TOOL VAR
 fi

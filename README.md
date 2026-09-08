@@ -268,7 +268,7 @@ When the bootstrap host is installed system-wide (owned by root rather than by y
 | `OPENSSL` | `openssl` | `openssl` binary, specified the same way as `GPG`. |
 | `LOGFILE` | `~/.local/log/parcel-host.log` | Destination for host error and audit logging. Plaintext credentials are never written here. |
 | `STATEFILE` | `~/.config/parcel/state` | Non-sensitive runtime state (rate-limiter bucket, signer revocation cache). |
-| `PASSWORD_STORE_DIR` | `~/.password-store` | Root directory of your `pass` password store. |
+| `PASSWORD_STORE_DIR` | `~/.password-store` | Root directory of your `pass` password store. May also be set in the session environment. |
 | `HOST_HASH` | *(none)* | Optional SHA-256 hash of `src/parcel-host` (run `sha256sum src/parcel-host`). When set, the bootstrap host will refuse to execute updated scripts until you update this value after review. |
 
 Example `parcelrc`:
