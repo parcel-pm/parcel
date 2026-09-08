@@ -771,6 +771,27 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
+    test("fails open when the parcelrc blacklist is malformed", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        // Not a valid fingerprint list: the value must be ignored
+        writeFileSync(parcelrc, `${existing}BLACKLIST_SIGNERS="not-a-fingerprint"\n`);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed blacklist, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("BLACKLIST_SIGNERS is malformed"), `Expected malformed log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("rejects install when only the signing subkey is blacklisted via parcelrc", async () => {
         const env = createTestEnv();
         // Field 3 (subkey) is blacklisted, field 12 (primary) stays whitelisted

@@ -113,18 +113,22 @@ VALID_SIGNERS="$(tr '[:lower:]' '[:upper:]' <<< "$VALID_SIGNERS")"
 # resolve the state file (also overridable via parcelrc)
 STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 
-# capture the parcelrc blacklist separately so the state-file list can be
-# combined with it rather than clobbered
-PARCELRC_BLACKLIST="$(tr '[:lower:]' '[:upper:]' <<< "${BLACKLIST_SIGNERS:-}")"
-
-# effective revocation list (state-file value, then the shipped list)
-BLACKLIST_SIGNERS=""
-
 # a signer fingerprint is exactly 40 or 64 hex characters
 FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
 FPR_RE="^${FPR_PATTERN}$"
 # a well-formed blacklist value: empty or space-separated fingerprints
 BLACKLIST_VALUE_RE="^(${FPR_PATTERN}( ${FPR_PATTERN})*)?$"
+
+# capture the parcelrc blacklist separately so the state-file list can be
+# combined with it rather than clobbered
+PARCELRC_BLACKLIST="$(tr '[:lower:]' '[:upper:]' <<< "${BLACKLIST_SIGNERS:-}")"
+if [[ ! "$PARCELRC_BLACKLIST" =~ $BLACKLIST_VALUE_RE ]]; then
+    printf '[%s] parcelrc BLACKLIST_SIGNERS is malformed; ignoring it\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >&5
+    PARCELRC_BLACKLIST=""
+fi
+
+# effective revocation list (state-file value, then the shipped list)
+BLACKLIST_SIGNERS=""
 
 if [ -n "$GPG" ]; then function gpg() { "$GPG" "$@"; return $?; }; fi
 if [ -n "$JQ" ]; then function jq() { "$JQ" "$@"; return $?; }; fi
@@ -195,7 +199,7 @@ function blacklisted() {
     [ -n "$1" ] || return 1
     local FPR TARGET
     TARGET="$(tr '[:lower:]' '[:upper:]' <<< "$1")"
-    # deliberately unquoted: whitespace-split into fingerprints for exact-match comparison
+    # deliberately unquoted: the lists are space-separated, and regex-validated as hex so glob expansion is impossible
     for FPR in $PARCELRC_BLACKLIST $BLACKLIST_SIGNERS; do
         if [ "$FPR" = "$TARGET" ]; then
             return 0
