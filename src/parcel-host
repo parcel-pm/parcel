@@ -215,9 +215,10 @@ trap unlock_state EXIT
 # next bootstrap session reads a valid blacklist instead of failing open.
 # When a blacklist is shipped, also ensure the state file exists and carries
 # the shipped list, so bootstrap sessions enforce shipped revocations even if
-# no decrypt has persisted them yet.
+# no decrypt has persisted them yet. An unreadable file is a genuine anomaly:
+# quit with an error rather than repair.
 #
-# @return 0 always.
+# @return 0 unless the state file is unreadable (fatal).
 # @since 1.0.7
 function repair_state() {
     # no state file and no shipped blacklist: nothing to repair, and don't create one before first use
@@ -228,7 +229,11 @@ function repair_state() {
     # never write through a symlink, only a regular file
     if [ -f "$LOCKED_STATEFILE" ] && [ ! -L "$LOCKED_STATEFILE" ]; then
         local CONTENT
-        CONTENT="$(cat "$LOCKED_STATEFILE" 2>/dev/null)"
+        if ! CONTENT="$(cat "$LOCKED_STATEFILE" 2>/dev/null)"; then
+            printf '[%s] state file %s is unreadable; refusing to continue\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+            parcel_error "Cannot read state file $STATEFILE: please check its ownership and permissions" 1
+        fi
         if [ "$LOCKED_STATEFILE" != "$(find "$LOCKED_STATEFILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ] ||
             ! validate_state_content "$CONTENT"; then
             printf '[%s] state file %s unusable; repairing with defaults\n' \

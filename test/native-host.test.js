@@ -2717,6 +2717,36 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("the host quits gracefully when the state file is unreadable", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=5\nDECRYPT_BUCKET_LAST=9\n`);
+        chmodSync(stateFile, 0o200);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: readFileSync("src/parcel-host", "utf8"), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("state file"), `Expected state file error, got: ${JSON.stringify(msg)}`);
+            const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
+            assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("unreadable"), `Expected unreadable log entry, got: ${logContent}`);
+            // the state lock is released on the way out
+            assert.ok(existsSync(stateFile), `State file should be renamed back to ${stateFile}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("the state file is created at startup when a blacklist is shipped", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
