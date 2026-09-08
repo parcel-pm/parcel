@@ -126,22 +126,23 @@ function parcelrc_note() {
     PARCELRC_NOTES+="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] parcelrc: $1"$'\n'
 }
 
-# Report a fatal parcelrc problem to the extension and abort. Uses static message text,
-# as jq is not yet known to be available this early in startup.
+# Report a fatal startup problem to the extension and abort. Uses static message text
+# with a caller-supplied context prefix, as jq is not yet known to be available this
+# early in startup.
 #
 # $1: error message (must not contain characters that break JSON)
 # @return never returns
 # @since 1.0.7
 function parcelrc_fatal() {
-    parcel_transmit '{"token": "broadcast", "error": "parcelrc: '"$1"'"}'
+    parcel_transmit '{"token": "broadcast", "error": "'"$1"'"}'
     exit 1
 }
 
-# Check a binary override value: either a bare command name (resolved via the inherited
-# PATH) or an absolute path to an existing, executable regular file. In strict mode the
-# resolved file must additionally be owned by root and not writable by the caller.
+# Check a binary value: either a bare command name (resolved via the inherited PATH) or
+# an absolute path to an existing, executable regular file. In strict mode the resolved
+# file must additionally be owned by root and not writable by the caller.
 #
-# $1: key name (for messages)
+# $1: context label for error messages
 # $2: value to check
 # @return 0 if usable; reports a fatal error and exits otherwise
 # @since 1.0.7
@@ -181,7 +182,7 @@ function parcelrc_apply() {
     case "$KEY" in
         VALID_SIGNERS)
             [[ "$VALUE" =~ ^${FPR_PATTERN}( ${FPR_PATTERN})*$ ]] ||
-                parcelrc_fatal "VALID_SIGNERS must be a space-separated list of key fingerprints"
+                parcelrc_fatal "parcelrc: VALID_SIGNERS must be a space-separated list of key fingerprints"
             ;;
         BLACKLIST_SIGNERS)
             if [[ ! "$VALUE" =~ $BLACKLIST_VALUE_RE ]]; then
@@ -191,7 +192,7 @@ function parcelrc_apply() {
             ;;
         HOST_HASH)
             [[ "$VALUE" =~ ^[0-9A-Fa-f]{64}$ ]] ||
-                parcelrc_fatal "HOST_HASH must be a 64-character hex sha256 hash"
+                parcelrc_fatal "parcelrc: HOST_HASH must be a 64-character hex sha256 hash"
             ;;
         LOGFILE | STATEFILE | PASSWORD_STORE_DIR)
             case "$VALUE" in
@@ -203,7 +204,7 @@ function parcelrc_apply() {
             esac
             ;;
         GPG | JQ | OPENSSL)
-            parcelrc_check_binary "$KEY" "$VALUE"
+            parcelrc_check_binary "parcelrc: $KEY" "$VALUE"
             ;;
         *)
             return 1
@@ -225,7 +226,7 @@ function load_parcelrc() {
     local ASSIGN_RE='^([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"$'
     local HOMEVAR_RE='[$]HOME[A-Za-z0-9_]'
     PARCELRC_SANITISED=""
-    CONTENT="$(head -c 1048576 "$PARCELRC")" || parcelrc_fatal "unable to read $PARCELRC"
+    CONTENT="$(head -c 1048576 "$PARCELRC")" || parcelrc_fatal "parcelrc: unable to read $PARCELRC"
     if [ ! -O "$0" ]; then STRICT_BINARIES=true; fi
     while IFS= read -r LINE || [ -n "$LINE" ]; do
         N=$((N + 1))
@@ -264,6 +265,19 @@ function load_parcelrc() {
 }
 
 load_parcelrc
+
+# In strict mode, tools without a parcelrc override are bare names resolved via the
+# inherited PATH; a user-writable directory earlier in PATH could shadow them, so the
+# resolved binaries must meet the same bar as explicit overrides.
+if $STRICT_BINARIES; then
+    for TOOL in gpg jq openssl; do
+        VAR="$(tr '[:lower:]' '[:upper:]' <<< "$TOOL")"
+        if [ -z "${!VAR:-}" ]; then
+            parcelrc_check_binary "bootstrap: $TOOL" "$TOOL"
+        fi
+    done
+    unset TOOL VAR
+fi
 
 mkdir -p "$(dirname "$LOGFILE")"
 exec 5>>"$LOGFILE"
