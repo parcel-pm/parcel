@@ -89,7 +89,7 @@
      * @since 1.0.2
      * @param {() => chrome.runtime.Port} connect - Factory that opens a fresh port to the content script.
      * @param {chrome.runtime.Port} initialPort - The first port (already opened by `connectToTab`).
-     * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void } }} A port-like wrapper.
+     * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void, removeListener: (fn: (msg: any) => void) => void } }} A port-like wrapper.
      */
     function reconnectingTabPort(connect, initialPort) {
         let port = initialPort;
@@ -139,6 +139,9 @@
                 addListener(fn) {
                     listeners.add(fn);
                 },
+                removeListener(fn) {
+                    listeners.delete(fn);
+                },
             },
         };
     }
@@ -147,7 +150,7 @@
      * Dummy tab port for window-mode popups (no content script to talk to).
      * Only handles `close` / `close-popup` by calling `window.close()`.
      * @since 1.0.6
-     * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void } }}
+     * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void, removeListener: (fn: (msg: any) => void) => void } }}
      */
     function windowTabPort() {
         return {
@@ -157,7 +160,7 @@
                 }
                 return true;
             },
-            onMessage: { addListener() {} },
+            onMessage: { addListener() {}, removeListener() {} },
         };
     }
 
@@ -609,6 +612,43 @@
     function reportPopupSize() {
         const rect = document.body.getBoundingClientRect();
         tabPort.postMessage({ action: "resize", width: Math.ceil(rect.width), height: Math.ceil(rect.height) });
+    }
+
+    /**
+     * Confirm that the content script is accepting tab-port messages.
+     * @since 1.0.7
+     * @returns {Promise<boolean>} Whether the content script acknowledged the ready message.
+     */
+    function waitForTabReady() {
+        const attempts = 3;
+        const timeout = 600;
+        return new Promise((resolve) => {
+            let attempt = 0;
+            let timer;
+            let settled = false;
+            const finish = (acknowledged) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                tabPort.onMessage.removeListener(onMessage);
+                resolve(acknowledged);
+            };
+            const onMessage = (msg) => {
+                if (msg?.action !== "origin") return;
+                finish(true);
+            };
+            const postReady = () => {
+                attempt += 1;
+                tabPort.postMessage({ action: "ready" });
+                if (settled) return;
+                timer = setTimeout(() => {
+                    if (attempt < attempts) postReady();
+                    else finish(false);
+                }, timeout);
+            };
+            tabPort.onMessage.addListener(onMessage);
+            postReady();
+        });
     }
 
     // init specific to the popup invocation type
@@ -1463,6 +1503,9 @@
                     config: await config,
                     origin: frameOrigin,
                 });
+                if (!delivered) {
+                    showError("Parcel could not contact the page. Close this popup and reload the page.");
+                }
                 // Only record history when the fill was actually delivered to the content
                 // script; otherwise we would log a fill against a stale tab that never happened.
                 if (delivered && tab.url && (await config).saveHistory) {
@@ -1607,7 +1650,10 @@
         document.body.insertAdjacentElement("afterbegin", p);
     });
 
-    // tell the tab we're ready
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    tabPort.postMessage({ action: "ready" });
+    if (await waitForTabReady()) {
+        if (token !== "broadcast" && !isWindowMode) reportPopupSize();
+    } else {
+        showError("Parcel could not contact the page. Close this popup and reload the page.");
+    }
 })();

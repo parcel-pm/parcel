@@ -87,6 +87,7 @@ function makeValidConfig(overrides = {}) {
 }
 
 let dom, document, window, mock, portReceivers, portCallers;
+let readyAcknowledgements = 0;
 
 before(async () => {
     const _realConsole = globalThis.console;
@@ -229,6 +230,11 @@ before(async () => {
         const pair = mock.findTabPort(tabId, info.frameId ?? 0);
         if (pair) {
             portReceivers[info.name || ""] = pair;
+            pair.onMessage.addListener((msg) => {
+                if (msg?.action !== "ready") return;
+                readyAcknowledgements += 1;
+                pair.postMessage({ action: "origin", origin: "https://example.com" });
+            });
         }
         return caller;
     };
@@ -248,6 +254,11 @@ describe("Popup script", { concurrency: false }, () => {
 
     test("tab port connected during load", () => {
         assert.ok(portCallers["broadcast"], "tab port caller exists");
+    });
+
+    test("ready handshake is acknowledged by the content-script port", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.ok(readyAcknowledgements > 0, "content script acknowledges the ready message with origin");
     });
 
     // -----------------------------------------------------------------------
@@ -591,6 +602,27 @@ describe("Popup script", { concurrency: false }, () => {
         assert.ok(msg.plaintext);
     });
 
+    test("undeliverable fill shows an error", async () => {
+        const popupReceiver = portReceivers["popup"];
+        const tabPort = portCallers["broadcast"];
+        const originalConnect = chrome.tabs.connect;
+        tabPort.disconnect();
+        chrome.tabs.connect = () => {
+            throw new Error("Receiving end does not exist");
+        };
+        try {
+            popupReceiver.postMessage({
+                action: "plaintext",
+                intent: "fill",
+                plaintext: "user: alice\npassword: secret123\n",
+            });
+            await settleAsync();
+            assert.match(document.querySelector("p.error")?.textContent || "", /could not contact the page/i);
+        } finally {
+            chrome.tabs.connect = originalConnect;
+        }
+    });
+
     test("fill intent updates history in storage", async () => {
         const url = new URL("https://example.com/login");
         const hash = sha256Native(url.origin);
@@ -793,5 +825,35 @@ describe("Popup script", { concurrency: false }, () => {
 
         const lis = document.querySelectorAll('ul#entries > li[data-path="test/site.com"]');
         assert.strictEqual(lis.length, 1, "the entry is rendered exactly once");
+    });
+
+    test("missing ready acknowledgements show a contact error", async () => {
+        document.querySelectorAll("p.error").forEach((el) => el.remove());
+        const noAckDom = new JSDOM(document.documentElement.outerHTML, { url: "http://localhost/", pretendToBeVisual: true });
+        globalThis.window = noAckDom.window;
+        globalThis.document = noAckDom.window.document;
+        globalThis.Event = noAckDom.window.Event;
+        globalThis.CustomEvent = noAckDom.window.CustomEvent;
+        globalThis.MouseEvent = noAckDom.window.MouseEvent;
+        globalThis.HTMLElement = noAckDom.window.HTMLElement;
+        globalThis.customElements = noAckDom.window.customElements;
+        globalThis.location = noAckDom.window.location;
+        noAckDom.window.close = () => {};
+        noAckDom.window.Element.prototype.scrollIntoView = function () {};
+
+        const noAckMock = createChromeMock({ baseUrl: "file://" + process.cwd() + "/src/" });
+        noAckMock.installChrome();
+        noAckMock.installBrowserPolyfills();
+        noAckMock.setCurrentTab({ id: 42, url: "https://example.com/login", cookieStoreId: undefined });
+        chrome.runtime.onConnect.addListener((receiver) => {
+            if (receiver.name !== "popup") return;
+            receiver.onMessage.addListener((msg) => {
+                if (msg?.action === "config") receiver.postMessage({ action: "config", config: makeValidConfig() });
+            });
+        });
+
+        await import("../src/js/popup.js?no-ready-ack");
+        await new Promise((resolve) => setTimeout(resolve, 1900));
+        assert.match(globalThis.document.querySelector("p.error")?.textContent || "", /could not contact the page/i);
     });
 });
