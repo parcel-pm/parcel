@@ -31,16 +31,18 @@ if [ ! -O "$0" ]; then STRICT_BINARIES=true; fi
 # In strict mode, sanitise PATH before any external command runs: user-level control of
 # PATH would otherwise allow shadowing every helper the bootstrap and its hardening
 # checks rely on (stat, grep, cut, sha256sum, find, ...). Keep only absolute directories
-# that are root-owned and not writable by the caller; dropped elements are not logged,
+# that are neither owned by nor writable by the caller; dropped elements are not logged,
 # since PATH legitimately contains user-owned items on many systems. Pass 1 uses bash
-# builtins only, so the filtering cannot itself be shadowed; pass 2 adds the ownership
-# check, because stat is only trustworthy once PATH contains no user-controlled
-# directories.
+# builtins only, so the filtering cannot itself be shadowed; note that writability alone
+# is insufficient here, as the owner of a directory can re-enable write access at will.
+# Once PATH contains no caller-controlled directories, pass 2 can trust stat to enforce
+# the stricter root-ownership policy.
 if $STRICT_BINARIES; then
     FILTERED=""
     IFS=':' read -ra PATH_ELEMENTS <<< "$PATH"
     for DIR in "${PATH_ELEMENTS[@]}"; do
-        if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ]; then
+        # keep the [ ] tests appended to the chain: some bracket-alternation chains hit a bash 3.2 parse quirk
+        if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ] && [ ! -O "$DIR" ]; then
             FILTERED+="${FILTERED:+:}$DIR"
         fi
     done
