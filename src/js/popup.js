@@ -1651,7 +1651,9 @@
     });
 
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    if (await waitForTabReady()) {
+    // In window mode the tab port is a dummy with no content script to acknowledge;
+    // skip the handshake so http-auth window popups don't report a spurious failure.
+    if (isWindowMode || (await waitForTabReady())) {
         if (token !== "broadcast" && !isWindowMode) reportPopupSize();
     } else {
         showError("Parcel could not contact the page. Close this popup and reload the page.");
