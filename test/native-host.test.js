@@ -494,7 +494,7 @@ describe("Bootstrap script", () => {
             const msg = await read();
             assert.strictEqual(msg.token, "broadcast");
             assert.strictEqual(msg.data?.action, "bootstrap");
-            assert.strictEqual(msg.data?.version, "2");
+            assert.strictEqual(msg.data?.version, "3");
         } finally {
             proc.kill();
             env.cleanup();

@@ -20,7 +20,7 @@ set -e
 
 TOKEN="broadcast"
 PARCEL_HOST=""
-BOOTSTRAP_VERSION="2"
+BOOTSTRAP_VERSION="3"
 
 # transmit message in native messaging host protocol
 function parcel_transmit() {
