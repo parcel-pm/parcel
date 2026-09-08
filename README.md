@@ -279,7 +279,7 @@ PASSWORD_STORE_DIR="$HOME/.password-store"
 HOST_HASH="b7b76abadd3f13e6bcf554c39547d44ae19a299c8fc2e73ae8cbccd9a34d9b40"
 ```
 
-The bootstrap host also consults the state file (`~/.config/parcel/state`) for a `BLACKLIST_SIGNERS` entry, combining it with any list set in `parcelrc`. The main host script itself ships a `BLACKLIST_SIGNERS` list inside the script (empty unless a release signing key has been revoked), and persists it to the state file so the revocation is enforced automatically in later browser sessions once it has been written; this is how a compromised signing key can be revoked through the usual extension update path.
+The bootstrap host also consults the state file (`~/.config/parcel/state`) for a `BLACKLIST_SIGNERS` entry, combining it with any list set in `parcelrc`. The main host script itself ships a `BLACKLIST_SIGNERS` list inside the script (empty unless a release signing key has been revoked), and persists it to the state file at startup and on every state save, so the revocation is enforced automatically in later browser sessions; this is how a compromised signing key can be revoked through the usual extension update path.
 
 ### .parcel.json
 
