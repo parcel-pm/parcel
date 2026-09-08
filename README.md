@@ -144,7 +144,7 @@ The script will:
 
 - Detect your operating system.
 - Check that `jq` and `gpg` are installed.
-- Ask whether to install system-wide (requires `sudo`) or user-level.
+- Ask whether to install system-wide (requires `sudo`) or user-level. A system-wide install is recommended for better security: the bootstrap host is then owned by root, out of reach of user-level tampering, and it will additionally require that any binary overrides in `parcelrc` resolve to root-owned binaries.
 - Detect installed browsers and ask which ones to set up.
 - Install the bootstrap host (`parcel-host`) to the appropriate prefix.
 - Generate and install native-messaging manifests for each selected browser.
@@ -250,19 +250,24 @@ Parcel uses two separate configuration files: one for the bootstrap host environ
 
 ### parcelrc
 
-`parcelrc` is a bash startup script read by the bootstrap host (`parcel-host`) before it enters its main loop. This sets environment-level options such as binary paths and signer trust.
+`parcelrc` is a configuration file read by the bootstrap host (`parcel-host`) before it enters its main loop. It sets environment-level options such as binary paths and signer trust.
 
 **Location:** `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set)
 If this file does not exist, the bootstrap host creates a commented template on first run.
+
+**Format:** one setting per line as `KEY="value"`, plus comments and blank lines. Only the documented keys below take effect; anything else is ignored, so files continue to work across bootstrap host updates. Path values may begin with `$HOME`. Values cannot contain double quotes, backslashes, backticks, or other variable expansions.
+
+When the bootstrap host is installed system-wide (owned by root rather than by your user), the `GPG`, `JQ`, and `OPENSSL` overrides must resolve to root-owned binaries that your user cannot modify; the bootstrap host refuses to start otherwise. When the bootstrap host is owned by your user (the default per-user install), any executable binary is accepted.
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `VALID_SIGNERS` | Release signing keys | Space-separated list of GPG key fingerprints that are trusted to sign the main host script. |
 | `BLACKLIST_SIGNERS` | *(none)* | Space-separated list of revoked GPG key fingerprints (primary or subkey form both match; matching is case-insensitive). |
-| `PATH` | Inherited | Additional directories to prepend to the host's `PATH` (e.g. `/opt/homebrew/bin` on macOS). |
-| `GPG` | `gpg` | Path to the GPG binary. |
-| `JQ` | `jq` | Path to the `jq` binary. |
+| `GPG` | `gpg` | GPG binary: a command name found via `PATH`, or an absolute path (e.g. `/opt/homebrew/bin/gpg` on macOS). |
+| `JQ` | `jq` | `jq` binary, specified the same way as `GPG`. |
+| `OPENSSL` | `openssl` | `openssl` binary, specified the same way as `GPG`. |
 | `LOGFILE` | `~/.local/log/parcel-host.log` | Destination for host error and audit logging. Plaintext credentials are never written here. |
+| `STATEFILE` | `~/.config/parcel/state` | Non-sensitive runtime state (rate-limiter bucket, signer revocation cache). |
 | `PASSWORD_STORE_DIR` | `~/.password-store` | Root directory of your `pass` password store. |
 | `HOST_HASH` | *(none)* | Optional SHA-256 hash of `src/parcel-host` (run `sha256sum src/parcel-host`). When set, the bootstrap host will refuse to execute updated scripts until you update this value after review. |
 
@@ -271,8 +276,7 @@ Example `parcelrc`:
 ```bash
 VALID_SIGNERS="88FF14D6294AF4036B7F00FF676A3C09E2E47A72"
 BLACKLIST_SIGNERS="0126456789ABCDEF0126456789ABCDEF01264567"
-PATH="$PATH:/opt/homebrew/bin"
-GPG="gpg"
+GPG="/opt/homebrew/bin/gpg"
 JQ="/usr/local/bin/jq"
 LOGFILE="$HOME/.local/log/parcel-host.log"
 PASSWORD_STORE_DIR="$HOME/.password-store"

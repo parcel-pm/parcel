@@ -68,6 +68,12 @@ sha256sum src/parcel-host
 
 This ensures the value you pin matches what the host computes at runtime.
 
+### parcelrc hardening
+
+`parcelrc` is a trusted file owned by the user. The bootstrap host honours only canonical `KEY="value"` lines (comments and blank lines permitted) for the fixed set of recognised keys documented below; every other line is ignored. As a consequence, content added to `parcelrc` cannot alter host-critical settings such as `PATH`, and user-level malware that can edit the file gains no additional effect beyond toggling the documented options. Values are validated before use: signer and revocation lists must be well-formed fingerprints (an invalid `VALID_SIGNERS` or `HOST_HASH` refuses startup), path settings must be absolute, and binary overrides (`GPG`, `JQ`, `OPENSSL`) must resolve to executable files.
+
+For binary overrides, enforcement scales with how protected the bootstrap host itself is. When the bootstrap host is owned by the invoking user (the default per-user install), user-level malware could modify the bootstrap directly, so restricting binary ownership would add friction without benefit; any executable binary is therefore accepted. When the bootstrap host is installed system-wide such that the invoking user cannot modify it, overrides must resolve to root-owned binaries that the user cannot write, and the bootstrap refuses to start otherwise. This is defence-in-depth against user-level malware when Parcel itself is installed somewhere the user lacks write access to; it is not a protection against full system compromise. A system-wide install (`parcel-setup.sh --system`) is recommended for this stronger guarantee.
+
 This is an **opt-in** defence-in-depth measure. It is not set by default because it requires manual intervention on every update. However, as the native host has shell access to your system outside of the browser sandbox, it is ***strongly*** recommended that you enable this feature.
 
 ### Whitelist-based entry visibility
@@ -160,16 +166,18 @@ Additional protections specific to HTTP auth:
 
 ### `parcelrc` options
 
-Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set). This file is sourced as a bash script on host startup.
+Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set). The bootstrap host honours only canonical `KEY="value"` lines (plus comments and blank lines) for the recognised keys listed below; every other line is ignored.
 
 | Option | Description |
 |--------|-------------|
 | `VALID_SIGNERS` | Space-separated list of GPG fingerprints trusted to sign the main host script. |
 | `BLACKLIST_SIGNERS` | Space-separated list of revoked GPG fingerprints (primary or subkey form both match; matching is case-insensitive). |
 | `HOST_HASH` | Optional SHA-256 pin of `src/parcel-host`. When set, the bootstrap host refuses to execute updated host scripts until the pin is updated after review. |
-| `GPG` | Path to the GPG binary (default: `gpg`). |
-| `JQ` | Path to the `jq` binary (default: `jq`). |
+| `GPG` | GPG binary: a command name found via `PATH`, or an absolute path (default: `gpg`). |
+| `JQ` | `jq` binary, specified the same way as `GPG` (default: `jq`). |
+| `OPENSSL` | `openssl` binary, specified the same way as `GPG` (default: `openssl`). |
 | `LOGFILE` | Destination for host logging (default: `~/.local/log/parcel-host.log`). |
+| `STATEFILE` | Non-sensitive runtime state file (default: `~/.config/parcel/state`). |
 | `PASSWORD_STORE_DIR` | Root of the `pass` password store (default: `~/.password-store`). |
 
 ### `.parcel.json` options

@@ -1145,6 +1145,182 @@ function action_test_override() {
             env.cleanup();
         }
     });
+
+    test("does not execute embedded content in parcelrc and ignores unknown keys", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(
+            parcelrc,
+            existing +
+                [
+                    '$(touch "$HOME/pwned-subshell")',
+                    '`touch "$HOME/pwned-backtick"`',
+                    'evil() { touch "$HOME/pwned-func"; }',
+                    'touch "$HOME/pwned-bare"',
+                    // a recognised key whose value contains shell substitutions
+                    'PASSWORD_STORE_DIR="$(touch $HOME/pwned-value)"',
+                    // canonical assignments to keys the bootstrap must not honour
+                    'TOKEN="eviltoken"',
+                    'FUTURE_KEY="future value"',
+                ].join("\n") +
+                "\n",
+        );
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            const bootMsg = await read();
+            assert.strictEqual(bootMsg.token, "broadcast", "parcelrc must not be able to set TOKEN");
+            assert.strictEqual(bootMsg.data?.action, "bootstrap");
+
+            for (const marker of ["pwned-subshell", "pwned-backtick", "pwned-func", "pwned-bare", "pwned-value"]) {
+                assert.ok(!existsSync(join(env.home, marker)), `parcelrc must not execute embedded content (${marker})`);
+            }
+
+            // recognised keys continue to work alongside the ignored content
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const installMsg = await read();
+            assert.strictEqual(installMsg.data?.success, true, `Expected successful install, got: ${JSON.stringify(installMsg)}`);
+
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("ignoring unrecognised content"), `Expected ignored-line log entries, got: ${logContent}`);
+            assert.ok(logContent.includes("ignoring unsafe value"), `Expected unsafe-value log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("silently ignores PATH settings in parcelrc", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + 'PATH="/definitely/not/on/the/real/path"\n');
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            // gpg/jq are still found via the environment PATH, so install works
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install, got: ${JSON.stringify(msg)}`);
+            // the ignored PATH must not be flagged to the user
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(!logContent.includes("parcelrc:"), `PATH must be ignored silently, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects a malformed VALID_SIGNERS in parcelrc", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + 'VALID_SIGNERS="not-a-fingerprint"\n');
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            const msg = await read();
+            assert.ok(msg.error?.includes("VALID_SIGNERS"), `Expected VALID_SIGNERS error, got: ${JSON.stringify(msg)}`);
+            await new Promise((resolve) => proc.on("exit", resolve));
+            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
+        } finally {
+            if (!proc.killed) proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects a malformed HOST_HASH in parcelrc", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + 'HOST_HASH="abc123"\n');
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            const msg = await read();
+            assert.ok(msg.error?.includes("HOST_HASH"), `Expected HOST_HASH error, got: ${JSON.stringify(msg)}`);
+            await new Promise((resolve) => proc.on("exit", resolve));
+            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
+        } finally {
+            if (!proc.killed) proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("honours a user-owned absolute GPG override via parcelrc", async () => {
+        const env = createTestEnv();
+        // Break the default-location mock gpg so that only the override works
+        chmodSync(env.mockGpgPath, 0o644);
+        const customGpg = join(env.bin, "custom-gpg");
+        writeFileSync(
+            customGpg,
+            `#!/bin/bash
+if [[ "$*" == *"--status-fd=1 --quiet --verify"* ]]; then
+    echo "[GNUPG:] VALIDSIG ${env.knownSigner} 2026-05-01 0 0 4 0 1 8 00 ${env.knownSigner}"
+    exit 0
+fi
+if [[ "$*" == *"--version"* ]]; then
+    echo "gpg (GnuPG) 2.5.0"
+    exit 0
+fi
+exit 1
+`,
+        );
+        chmodSync(customGpg, 0o755);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + `GPG="${customGpg}"\n`);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "console.log('host script');", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected successful install via the GPG override, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects a GPG override that is not an executable file", async () => {
+        const env = createTestEnv();
+        const notExecutable = join(env.home, "not-executable");
+        writeFileSync(notExecutable, "not a program\n");
+        chmodSync(notExecutable, 0o644);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + `GPG="${notExecutable}"\n`);
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            const msg = await read();
+            assert.ok(msg.error?.includes("GPG"), `Expected GPG error, got: ${JSON.stringify(msg)}`);
+            await new Promise((resolve) => proc.on("exit", resolve));
+            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
+        } finally {
+            if (!proc.killed) proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("honours $HOME expansion in parcelrc path values", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, existing + 'LOGFILE="$HOME/custom-log/parcel-host.log"\n');
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            assert.ok(existsSync(join(env.home, "custom-log", "parcel-host.log")), "LOGFILE beginning with $HOME should be honoured");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
