@@ -79,6 +79,24 @@ test("detect_single_tool_path respects priority and clobbers broken values", () 
     }
 });
 
+/** Verifies tool_acceptable mirrors the bootstrap's strict-mode binary rules. */
+test("tool_acceptable rejects user-owned binaries on system installs", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        const gpg = writeMockBin(bin, "gpg", "exit 0");
+        const env = { env: { HOME: home } };
+        const acceptable = (level, path) => sourceScript(`INSTALL_LEVEL="${level}"\ntool_acceptable '${path}'`, env).code === 0;
+
+        assert.ok(acceptable("user", gpg), "user-level install must accept a user-owned binary");
+        assert.ok(!acceptable("system", gpg), "system install must reject a user-owned binary");
+        assert.ok(acceptable("system", "/bin/ls"), "system install must accept a root-owned system binary");
+        assert.ok(!acceptable("user", NOENT), "missing paths are never acceptable");
+    } finally {
+        cleanup();
+    }
+});
+
 /** Verifies detect_tool_paths reads all three parcelrc values and delegates correctly. */
 test("detect_tool_paths dispatches over gpg, jq, and openssl", () => {
     const { home, cleanup } = makeTempHome();

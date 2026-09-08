@@ -898,9 +898,45 @@ detect_tool_paths() {
     detect_single_tool_path "openssl" "$existing_openssl" "/usr/bin/openssl" CUSTOM_OPENSSL FORCE_OPENSSL
 }
 
+# Test whether the invoking user can modify a path.
+# System-wide installs run under sudo, where [ -w ] is meaningless, so test as the real user.
+# @param {string} path - Path to check.
+# @return {boolean} True if the invoking user can modify it.
+# @since 1.0.7
+test_writable_by_user() {
+    local path="$1"
+    if [ "$(id -u)" -eq 0 ] && [ -n "$SERVICES_USER" ]; then
+        sudo -u "$SERVICES_USER" test -w "$path"
+    else
+        [ -w "$path" ]
+    fi
+}
+
+# Test whether a binary path would be accepted by the bootstrap: an absolute-path
+# executable regular file, plus (for system-wide installs) root ownership and no
+# write access for the invoking user, mirroring the bootstrap's strict-mode rules.
+# @param {string} path - Absolute path to check.
+# @return {boolean} True if acceptable.
+# @since 1.0.7
+tool_acceptable() {
+    local path="$1"
+    case "$path" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    [ -f "$path" ] && [ -x "$path" ] || return 1
+    [ "$INSTALL_LEVEL" = "system" ] || return 0
+    local owner
+    owner="$(stat -L -c %u "$path" 2>/dev/null || stat -L -f %u "$path" 2>/dev/null)" || owner=""
+    [ "$owner" = "0" ] || return 1
+    ! test_writable_by_user "$path"
+}
+
 # Detect a single tool's path.
-# Checks parcelrc value first, then default path, then command -v + macOS fallbacks,
-# then interactive entry as a final fallback.
+# Checks parcelrc value first, then default path, then the user's PATH + macOS
+# fallbacks, then interactive entry as a final fallback. Candidates the bootstrap
+# would reject (e.g. non-root-owned binaries on a system-wide install) are skipped,
+# so a root-owned copy elsewhere is preferred over a user-owned one earlier in PATH.
 # @param {string} tool - Tool name (e.g. gpg, jq).
 # @param {string} existing - Existing parcelrc value (may be empty).
 # @param {string} default_path - Default system path (e.g. /usr/bin/gpg).
@@ -910,16 +946,16 @@ detect_tool_paths() {
 detect_single_tool_path() {
     local tool="$1" existing="$2" default_path="$3"
     local custom_var="$4" force_var="$5"
-    local found_path
+    local found_path=""
 
     # 1. Existing parcelrc value - respect it if still usable
     if [ -n "$existing" ]; then
-        local usable=false
+        local existing_resolved="$existing"
         case "$existing" in
-            */*) [ -x "$existing" ] && usable=true ;;
-            *) PATH="$USER_PATH" command -v "$existing" >/dev/null 2>&1 && usable=true ;;
+            */*) ;;
+            *) existing_resolved="$(PATH="$USER_PATH" command -v "$existing" 2>/dev/null || echo "")" ;;
         esac
-        if $usable; then
+        if tool_acceptable "$existing_resolved"; then
             log_info "$tool already set in parcelrc ($existing) - leaving as-is"
             return
         fi
@@ -927,23 +963,40 @@ detect_single_tool_path() {
     fi
 
     # 2. Default path visible to the host (no customisation needed)
-    if [ -z "$existing" ] && [ -x "$default_path" ]; then
+    if [ -z "$existing" ] && tool_acceptable "$default_path"; then
         return
     fi
 
-    # 3. Fall back to command -v, then macOS-specific locations
-    found_path="$(command -v "$tool" 2>/dev/null || echo "")"
-
-    # macOS fallback: common Homebrew locations may not be in the shell's PATH
-    # (e.g. when running under sudo with a sanitised PATH)
-    if [ -z "$found_path" ]; then
-        local candidate
-        for candidate in "/opt/homebrew/bin/$tool" "/usr/local/bin/$tool"; do
-            if [ -x "$candidate" ]; then
+    # 3. Search the user's PATH, then the default path and macOS-specific locations
+    #    (Homebrew prefixes may be absent from the shell's PATH, e.g. under sudo).
+    local dir candidate skipped=""
+    local old_ifs="$IFS"
+    IFS=':'
+    for dir in $USER_PATH; do
+        [ -n "$dir" ] || continue
+        candidate="$dir/$tool"
+        if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+            if tool_acceptable "$candidate"; then
                 found_path="$candidate"
                 break
             fi
+            skipped="$skipped $candidate"
+        fi
+    done
+    IFS="$old_ifs"
+    if [ -z "$found_path" ]; then
+        for candidate in "$default_path" "/opt/homebrew/bin/$tool" "/usr/local/bin/$tool"; do
+            if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+                if tool_acceptable "$candidate"; then
+                    found_path="$candidate"
+                    break
+                fi
+                skipped="$skipped $candidate"
+            fi
         done
+    fi
+    if [ -n "$skipped" ] && [ "$INSTALL_LEVEL" = "system" ]; then
+        log_info "rejected for strict mode (not root-owned):$skipped"
     fi
 
     if [ -z "$found_path" ]; then
@@ -952,8 +1005,8 @@ detect_single_tool_path() {
             found_path="$(prompt "Enter path to $tool binary" "")"
             if [ -n "$found_path" ]; then
                 found_path="$(expand_tilde "$found_path")"
-                if [ ! -x "$found_path" ]; then
-                    log_warn "$found_path is not executable"
+                if ! tool_acceptable "$found_path"; then
+                    log_warn "$found_path is not acceptable (must be executable, and root-owned for system-wide installs)"
                     found_path=""
                 fi
             fi
