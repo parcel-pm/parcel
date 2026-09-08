@@ -639,7 +639,8 @@
             };
             const postReady = () => {
                 attempt += 1;
-                tabPort.postMessage({ action: "ready" });
+                // Port dead and reconnect failed; further retries cannot succeed.
+                if (!tabPort.postMessage({ action: "ready" })) return finish(false);
                 if (settled) return;
                 timer = setTimeout(() => {
                     if (attempt < attempts) postReady();
