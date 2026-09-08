@@ -162,6 +162,7 @@ function parcel_send() {
 # @return 0 always; problems are logged, not reported.
 # @since 1.0.7
 function load_blacklist() {
+    # deliberately lockless to keep the bootstrap simple: a mid-save read fails validation and fails open
     local FILE="$STATEFILE"
     if [ ! -e "$FILE" ] && [ -e "$STATEFILE.locked" ]; then
         FILE="$STATEFILE.locked"
