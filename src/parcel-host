@@ -208,12 +208,17 @@ trap unlock_state EXIT
 
 # Repair an unusable state file (invalid content or bad permissions) so the
 # next bootstrap session reads a valid blacklist instead of failing open.
+# When a blacklist is shipped, also ensure the state file exists and carries
+# the shipped list, so bootstrap sessions enforce shipped revocations even if
+# no decrypt has persisted them yet.
 #
 # @return 0 always.
 # @since 1.0.7
 function repair_state() {
-    # no state file yet: nothing to repair, and don't create one before first use
-    [ -f "$STATEFILE" ] || return 0
+    # no state file and no shipped blacklist: nothing to repair, and don't create one before first use
+    if [ ! -f "$STATEFILE" ] && [ -z "$BLACKLIST_SIGNERS" ]; then
+        return 0
+    fi
     lock_state || return 0
     # never write through a symlink, only a regular file
     if [ -f "$LOCKED_STATEFILE" ] && [ ! -L "$LOCKED_STATEFILE" ]; then
@@ -226,6 +231,16 @@ function repair_state() {
             # the discarded bucket state is reset, as with a fail-open load
             DECRYPT_BUCKET_TOKENS=0
             DECRYPT_BUCKET_LAST=0
+            save_state
+        elif [ -n "$BLACKLIST_SIGNERS" ] &&
+            [ "$(sed -n 's/^BLACKLIST_SIGNERS="\(.*\)"$/\1/p' <<< "$CONTENT" | tail -n1)" != "$BLACKLIST_SIGNERS" ]; then
+            printf '[%s] state file %s predates the shipped blacklist; updating\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+            # valid content: preserve the persisted bucket state
+            load_state
+            # a blacklist-only file has no bucket lines; fall back to defaults
+            DECRYPT_BUCKET_TOKENS="${DECRYPT_BUCKET_TOKENS:-0}"
+            DECRYPT_BUCKET_LAST="${DECRYPT_BUCKET_LAST:-0}"
             save_state
         fi
     fi

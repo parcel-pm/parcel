@@ -2717,6 +2717,73 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("the state file is created at startup when a blacklist is shipped", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const shippedFpr = "6666666666666666666666666666666666666666";
+        const stateFile = join(env.home, ".config", "parcel", "state");
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithBlacklist(shippedFpr), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            assert.ok(existsSync(stateFile), `State file should be created at ${stateFile}`);
+            const mode = statSync(stateFile).mode & 0o777;
+            assert.strictEqual(mode, 0o600, `State file permissions should be 0600, got 0${mode.toString(8)}`);
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(
+                content.includes(`BLACKLIST_SIGNERS="${shippedFpr}"`),
+                `State file should contain the shipped blacklist, got: ${content}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("a valid state file with an outdated blacklist is updated at startup", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const shippedFpr = "6666666666666666666666666666666666666666";
+        const staleFpr = "7777777777777777777777777777777777777777";
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=5\nDECRYPT_BUCKET_LAST=9\nBLACKLIST_SIGNERS="${staleFpr}"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithBlacklist(shippedFpr), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(
+                content.includes(`BLACKLIST_SIGNERS="${shippedFpr}"`),
+                `State file should contain the shipped blacklist, got: ${content}`,
+            );
+            assert.ok(!content.includes(staleFpr), `State file should not keep the stale blacklist, got: ${content}`);
+            assert.ok(content.includes("DECRYPT_BUCKET_TOKENS=5"), `State file should preserve the persisted bucket, got: ${content}`);
+            assert.ok(content.includes("DECRYPT_BUCKET_LAST=9"), `State file should preserve the persisted bucket, got: ${content}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("a symlinked state file is never written through", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
