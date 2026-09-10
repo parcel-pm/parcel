@@ -1417,9 +1417,9 @@ install_bootstrap_host() {
     tmp_host="$(make_temp)"
     printf '%s' "$BOOTSTRAP_HOST" > "$tmp_host"
 
-    # NixOS has no /bin/bash - rewrite the shebang to the bash running this script.
-    # /usr/bin/env is not an option: it would resolve bash via a user-controlled PATH.
-    if $IS_NIXOS; then
+    # /bin/bash is absent on NixOS and the BSDs - rewrite the shebang to the bash
+    # running this script. /usr/bin/env is not an option: it resolves via PATH.
+    if [ ! -x "${BOOTSTRAP_SHEBANG_BASH:-/bin/bash}" ]; then
         local bash_path="${BASH:-}"
         if [ -z "$bash_path" ] || [ ! -x "$bash_path" ]; then
             die "Cannot locate a bash binary to use for the installed host's shebang"
@@ -1427,7 +1427,7 @@ install_bootstrap_host() {
         local tmp_shebang
         tmp_shebang="$(make_temp)"
         { printf '#!%s\n' "$bash_path"; tail -n +2 "$tmp_host"; } > "$tmp_shebang" || \
-            die "Failed to rewrite host shebang for NixOS"
+            die "Failed to rewrite host shebang (no /bin/bash on this system)"
         mv "$tmp_shebang" "$tmp_host"
     fi
 

@@ -130,13 +130,13 @@ test("full --yes --user install installs the host, manifest, and parcelrc; smoke
     }
 });
 
-/** Verifies install_bootstrap_host rewrites the shebang to the real bash path on NixOS. */
-test("install_bootstrap_host rewrites the shebang for NixOS", () => {
+/** Verifies install_bootstrap_host rewrites the shebang when no /bin/bash exists. */
+test("install_bootstrap_host rewrites the shebang when /bin/bash is missing", () => {
     const { home, cleanup } = makeTempHome();
     try {
         const binDir = join(home, "bin");
         const res = sourceScript(
-            `IS_NIXOS=true
+            `BOOTSTRAP_SHEBANG_BASH="${home}/no-such-bash"
 HOST_BIN_DIR="${binDir}"
 HOST_BIN_PATH="$HOST_BIN_DIR/parcel-host"
 RESOLVED_LEVEL="user"
