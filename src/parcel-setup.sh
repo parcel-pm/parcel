@@ -1002,7 +1002,7 @@ detect_single_tool_path() {
         done
     fi
     if [ -n "$skipped" ] && [ "$INSTALL_LEVEL" = "system" ]; then
-        log_info "rejected for strict mode (not root-owned):$skipped"
+        log_info "rejected for strict mode (must be root-owned and not writable by you):$skipped"
     fi
 
     if [ -z "$found_path" ]; then
@@ -1012,7 +1012,7 @@ detect_single_tool_path() {
             if [ -n "$found_path" ]; then
                 found_path="$(expand_tilde "$found_path")"
                 if ! tool_acceptable "$found_path"; then
-                    log_warn "$found_path is not acceptable (must be executable, and root-owned for system-wide installs)"
+                    log_warn "$found_path is not acceptable (must be executable, and root-owned + not writable by you for system-wide installs)"
                     found_path=""
                 fi
             fi
@@ -1033,17 +1033,18 @@ detect_single_tool_path() {
     fi
 }
 
-# Warn when the effective tool binaries are not root-owned during a system-wide
-# install: the system-wide bootstrap refuses to use them, so the install would not
-# pass its smoke test. Resolution order mirrors the bootstrap: an existing parcelrc
-# override, then a newly detected path, then the default command name.
+# Warn when the effective tool binaries would fail the bootstrap's strict-mode bar
+# (root-owned and not writable by the invoking user) during a system-wide install:
+# the system-wide bootstrap refuses to use them, so the install would not pass its
+# smoke test. Resolution order mirrors the bootstrap: an existing parcelrc override,
+# then a newly detected path, then the default command name.
 # @since 1.0.7
 warn_nonroot_tools() {
     [ "$INSTALL_LEVEL" = "system" ] || return 0
 
     local parcelrc="$CONFIG_DIR/parcelrc"
     local warned=false
-    local spec rest name tool detected path resolved owner
+    local spec rest name tool detected path resolved
     for spec in "GPG:gpg:${CUSTOM_GPG:-}" "JQ:jq:${CUSTOM_JQ:-}" "OPENSSL:openssl:${CUSTOM_OPENSSL:-}"; do
         name="${spec%%:*}"
         rest="${spec#*:}"
@@ -1061,9 +1062,8 @@ warn_nonroot_tools() {
         if [ -z "$resolved" ] || [ ! -e "$resolved" ]; then
             continue
         fi
-        owner="$(stat -L -c %u "$resolved" 2>/dev/null || stat -L -f %u "$resolved" 2>/dev/null)" || owner=""
-        if [ "$owner" != "0" ]; then
-            log_warn "$name ($resolved) is not owned by root - a system-wide bootstrap will refuse to use it"
+        if ! tool_acceptable "$resolved"; then
+            log_warn "$name ($resolved) is not root-owned or is writable by you - a system-wide bootstrap will refuse to use it"
             warned=true
         fi
     done
