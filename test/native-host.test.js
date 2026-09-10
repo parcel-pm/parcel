@@ -20,6 +20,7 @@ import {
     readFileSync,
     readdirSync,
     symlinkSync,
+    lstatSync,
     utimesSync,
     statSync,
     existsSync,
@@ -1445,7 +1446,13 @@ exit 1
             assert.ok(!kept.includes(ownedDir), "caller-owned 0555 dir must be dropped despite the lying fake stat");
             assert.ok(!kept.includes(linkDir), "symlinked dir must be dropped despite resolving to /usr/bin");
             assert.ok(!kept.includes("/private/tmp"), "world-writable dir must be dropped");
-            assert.ok(kept.includes("/usr/bin") && kept.includes("/bin"), `system dirs must be kept, got: ${kept}`);
+            assert.ok(kept.includes("/usr/bin"), `system dirs must be kept, got: ${kept}`);
+            // /bin is a merged-usr symlink on some distros; pass 1 must drop it then
+            if (lstatSync("/bin").isSymbolicLink()) {
+                assert.ok(!kept.includes("/bin"), "merged-usr /bin symlink must be dropped in pass 1");
+            } else {
+                assert.ok(kept.includes("/bin"), "real /bin must be kept in pass 1");
+            }
         } finally {
             if (existsSync(ownedDir)) chmodSync(ownedDir, 0o700); // unlock for deletion
             rmSync(tmp, { recursive: true, force: true });
