@@ -58,10 +58,17 @@ function parcel_strict_filter_path() {
     PATH="$FILTERED"
     hash -r
     if [ -n "$PATH" ]; then
+        local STAT="" STAT_CANDIDATE
+        for STAT_CANDIDATE in /usr/bin/stat /bin/stat; do
+            if [ -x "$STAT_CANDIDATE" ]; then STAT="$STAT_CANDIDATE"; break; fi
+        done
+        # residual: on systems with no pinned stat, a PATH-resolved stat could be
+        # shadowed by a directory owned by a second attacker-controlled uid
+        [ -n "$STAT" ] || STAT="stat"
         FILTERED=""
         IFS=':' read -ra PATH_ELEMENTS <<< "$PATH"
         for DIR in "${PATH_ELEMENTS[@]}"; do
-            OWNER="$(stat -L -c %u "$DIR" 2>/dev/null || stat -L -f %u "$DIR" 2>/dev/null)" || OWNER=""
+            OWNER="$("$STAT" -L -c %u "$DIR" 2>/dev/null || "$STAT" -L -f %u "$DIR" 2>/dev/null)" || OWNER=""
             if [ "$OWNER" = "0" ]; then
                 FILTERED+="${FILTERED:+:}$DIR"
             fi
@@ -83,7 +90,15 @@ function parcel_strict_filter_path() {
 #
 # @since 1.0.7
 function parcel_strict_sanitise_original_path() {
-    command -v stat >/dev/null 2>&1 || return 0
+    local STAT="" STAT_CANDIDATE
+    for STAT_CANDIDATE in /usr/bin/stat /bin/stat; do
+        if [ -x "$STAT_CANDIDATE" ]; then STAT="$STAT_CANDIDATE"; break; fi
+    done
+    if [ -z "$STAT" ]; then
+        # residual: a PATH-resolved stat could be shadowed by a directory owned by a second attacker-controlled uid
+        command -v stat >/dev/null 2>&1 || return 0
+        STAT="stat"
+    fi
     local FILTERED=""
     local DIR LINK_OWNER TARGET_OWNER
     local -a PATH_ELEMENTS
@@ -92,8 +107,8 @@ function parcel_strict_sanitise_original_path() {
         # keep the [ ] tests appended to the chain: some bracket-alternation chains hit a bash 3.2 parse quirk
         # -w and -d dereference symlinks, so they judge the target; stat without -L judges the link itself
         if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ]; then
-            LINK_OWNER="$(stat -c %u "$DIR" 2>/dev/null || stat -f %u "$DIR" 2>/dev/null)" || LINK_OWNER=""
-            TARGET_OWNER="$(stat -L -c %u "$DIR" 2>/dev/null || stat -L -f %u "$DIR" 2>/dev/null)" || TARGET_OWNER=""
+            LINK_OWNER="$("$STAT" -c %u "$DIR" 2>/dev/null || "$STAT" -f %u "$DIR" 2>/dev/null)" || LINK_OWNER=""
+            TARGET_OWNER="$("$STAT" -L -c %u "$DIR" 2>/dev/null || "$STAT" -L -f %u "$DIR" 2>/dev/null)" || TARGET_OWNER=""
             if [ "$LINK_OWNER" = "0" ] && [ "$TARGET_OWNER" = "0" ]; then
                 FILTERED+="${FILTERED:+:}$DIR"
             fi

@@ -1489,7 +1489,9 @@ printf 'FILTERED:%s\\n' "$PATH"`,
             assert.ok(!kept(res).includes("/private/tmp"), "world-writable dir must be dropped");
             assert.ok(kept(res).includes("/usr/bin") && kept(res).includes("/bin"), `system dirs must be kept: ${kept(res)}`);
 
-            // Fail-closed: with stat unresolvable through PATH, the pass-1 result must survive untouched.
+            // No PATH-resolvable stat: a pinned absolute stat must be used anyway (so the
+            // caller-owned symlink is still dropped); systems with no pinned stat fail
+            // closed by keeping the pass-1 result untouched.
             const noStat = spawnSync(
                 "/bin/bash", // absolute: the harness PATH deliberately resolves nothing
                 [
@@ -1504,7 +1506,12 @@ printf 'FILTERED:%s\\n' "$PATH"`,
                 { encoding: "utf8", env: { PATH: "/nonexistent-no-stat" } },
             );
             assert.strictEqual(noStat.status, 0, `harness failed: ${noStat.stderr}`);
-            assert.strictEqual(noStat.stdout.trim(), "FILTERED:/nonexistent-no-stat", "stat unavailability must fail closed");
+            const pinnedStat = existsSync("/usr/bin/stat") || existsSync("/bin/stat");
+            assert.strictEqual(
+                noStat.stdout.trim(),
+                pinnedStat ? "FILTERED:/usr/bin" : "FILTERED:/nonexistent-no-stat",
+                "a pinned stat must sanitise despite the hostile PATH; otherwise fail closed",
+            );
         } finally {
             rmSync(tmp, { recursive: true, force: true });
         }
