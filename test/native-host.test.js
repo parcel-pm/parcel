@@ -1548,6 +1548,30 @@ printf 'NOFATAL\\n'
         }
     });
 
+    test("strict binary check rejects caller-owned symlinks to root-owned binaries", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every link is euid-owned
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        try {
+            // Laundering attempt: caller-owned symlink resolving to a root-owned binary.
+            const linkBin = join(tmp, "gpg");
+            symlinkSync("/bin/ls", linkBin);
+            const harness = `STRICT_BINARIES=true
+function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcelrc_check_binary")}
+parcelrc_check_binary "parcelrc: GPG" "$LINKBIN"
+printf 'NOFATAL\\n'
+`;
+            const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
+                encoding: "utf8",
+                env: { PATH: `${tmp}:/usr/bin:/bin`, LINKBIN: linkBin },
+            });
+            assert.strictEqual(res.status, 43, `expected fatal rejection, got rc=${res.status} out=${res.stdout}`);
+            assert.ok(res.stdout.includes("caller-owned symlink"), `expected symlink rejection, got: ${res.stdout}`);
+        } finally {
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
     test("strict binary check accepts root-owned bare-name tools", () => {
         if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
         const harness = `STRICT_BINARIES=true
