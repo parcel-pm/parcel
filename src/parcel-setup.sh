@@ -899,8 +899,9 @@ detect_tool_paths() {
 }
 
 # Test whether the invoking user can modify a path.
-# System-wide installs run under sudo, where [ -w ] is meaningless, so test as the real user.
-# A literal root shell has no real user to test as; report not-writable and let ownership decide.
+# System-wide installs run under sudo, where [ -w ] is meaningless, so test as the real
+# user. A literal root shell has no real user to test as; fall back to the mode bits,
+# conservatively treating anything writable by group or others as user-writable.
 # @param {string} path - Path to check.
 # @return {boolean} True if the invoking user can modify it.
 # @since 1.0.7
@@ -910,7 +911,7 @@ test_writable_by_user() {
         if [ -n "$SERVICES_USER" ]; then
             sudo -u "$SERVICES_USER" test -w "$path"
         else
-            return 1
+            [ -n "$(find "$path" -perm /022 2>/dev/null)" ]
         fi
     else
         [ -w "$path" ]
@@ -1700,6 +1701,12 @@ run_host_as_user() {
         printf '' | sudo -u "$SERVICES_USER" env "HOME=$HOME" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" "$host_bin" >"$out_file" 2>/dev/null
         rc=$?
     else
+        # A literal root shell would silently disable the bootstrap's strict mode, so a
+        # passing smoke test would not cover what real (non-root) browser users hit
+        if [ "$(id -u)" -eq 0 ] && [ -z "${STRICT_SMOKE_WARNED:-}" ]; then
+            log_warn "Smoke test is running as root, so strict-mode tool checks are not exercised - verify GPG/JQ/OPENSSL resolve to root-owned binaries."
+            STRICT_SMOKE_WARNED=true
+        fi
         printf '' | "$host_bin" >"$out_file" 2>/dev/null
         rc=$?
     fi
