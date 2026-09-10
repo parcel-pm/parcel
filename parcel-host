@@ -328,7 +328,10 @@ function parcelrc_apply() {
             esac
             ;;
         GPG | JQ | OPENSSL)
-            parcelrc_check_binary "parcelrc: $KEY" "$VALUE"
+            # check the expanded value; the staged line keeps the $HOME token for eval
+            local EXPANDED="${VALUE//\$\{HOME\}/$HOME}"
+            EXPANDED="${EXPANDED//\$HOME/$HOME}"
+            parcelrc_check_binary "parcelrc: $KEY" "$EXPANDED"
             ;;
         *)
             return 1

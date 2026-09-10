@@ -1407,6 +1407,27 @@ exit 1
         }
     });
 
+    test("accepts a $HOME-prefixed GPG binary override", async () => {
+        const env = createTestEnv();
+        const fakebin = join(env.home, "fakebin");
+        mkdirSync(fakebin);
+        const homeGpg = join(fakebin, "gpg");
+        writeFileSync(homeGpg, `#!/bin/bash\nexec "${env.mockGpgPath}" "$@"\n`);
+        chmodSync(homeGpg, 0o755);
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        writeFileSync(parcelrc, readFileSync(parcelrc, "utf8") + 'GPG="$HOME/fakebin/gpg"\n');
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const listMsg = await read();
+            assert.ok(Array.isArray(listMsg.data), `Expected the $HOME-prefixed gpg to work, got: ${JSON.stringify(listMsg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("strict PATH filter drops caller-controlled directories without trusting stat", () => {
         if (process.getuid?.() === 0) return; // meaningless as root: every directory is euid-owned/root-owned
         const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
