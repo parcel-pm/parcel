@@ -1421,6 +1421,12 @@ exit 1
             chmodSync(join(ownedDir, "gpg"), 0o555);
             chmodSync(ownedDir, 0o555);
 
+            // Attacker setup: a caller-created symlink into a root-owned dir. All trust
+            // tests dereference it, so it passes ownership checks - but it can be
+            // retargeted after startup, so it must still go.
+            const linkDir = join(tmp, "linked");
+            symlinkSync("/usr/bin", linkDir);
+
             const res = spawnSync(
                 "bash",
                 [
@@ -1429,7 +1435,7 @@ exit 1
                     "-c",
                     `${extractBootstrapFn("parcel_strict_filter_path")}\nparcel_strict_filter_path\nprintf 'FILTERED:%s\\n' "$PATH"`,
                 ],
-                { encoding: "utf8", env: { PATH: `${ownedDir}:/private/tmp:/usr/bin:/bin` } },
+                { encoding: "utf8", env: { PATH: `${ownedDir}:${linkDir}:/private/tmp:/usr/bin:/bin` } },
             );
             assert.strictEqual(res.status, 0, `harness failed: ${res.stderr}`);
             const kept = res.stdout
@@ -1437,10 +1443,69 @@ exit 1
                 .replace(/^FILTERED:/, "")
                 .split(":");
             assert.ok(!kept.includes(ownedDir), "caller-owned 0555 dir must be dropped despite the lying fake stat");
+            assert.ok(!kept.includes(linkDir), "symlinked dir must be dropped despite resolving to /usr/bin");
             assert.ok(!kept.includes("/private/tmp"), "world-writable dir must be dropped");
             assert.ok(kept.includes("/usr/bin") && kept.includes("/bin"), `system dirs must be kept, got: ${kept}`);
         } finally {
             if (existsSync(ownedDir)) chmodSync(ownedDir, 0o700); // unlock for deletion
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    test("strict original-PATH sanitiser drops caller-owned symlinks but keeps system dirs", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every element is euid-owned
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        const ownedDir = join(tmp, "owned-dir");
+        try {
+            mkdirSync(ownedDir);
+            // Caller-controlled elements: a symlink into a root-owned dir, and a real dir.
+            const linkDir = join(tmp, "linked");
+            symlinkSync("/usr/bin", linkDir);
+            const run = (originalPath) =>
+                spawnSync(
+                    "bash",
+                    [
+                        "--noprofile",
+                        "--norc",
+                        "-c",
+                        `${extractBootstrapFn("parcel_strict_sanitise_original_path")}
+ORIGINAL_PATH='${originalPath}'
+parcel_strict_sanitise_original_path
+printf 'FILTERED:%s\\n' "$PATH"`,
+                    ],
+                    // The harness PATH stands in for the pass-1 result: stat must resolve through it.
+                    { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } },
+                );
+            const kept = (r) =>
+                r.stdout
+                    .trim()
+                    .replace(/^FILTERED:/, "")
+                    .split(":");
+
+            const res = run(`${ownedDir}:${linkDir}:/private/tmp:/usr/bin:/bin`);
+            assert.strictEqual(res.status, 0, `harness failed: ${res.stderr}`);
+            assert.ok(!kept(res).includes(ownedDir), "caller-owned dir must be dropped");
+            assert.ok(!kept(res).includes(linkDir), "caller-owned symlink must be dropped despite a root-owned target");
+            assert.ok(!kept(res).includes("/private/tmp"), "world-writable dir must be dropped");
+            assert.ok(kept(res).includes("/usr/bin") && kept(res).includes("/bin"), `system dirs must be kept: ${kept(res)}`);
+
+            // Fail-closed: with stat unresolvable through PATH, the pass-1 result must survive untouched.
+            const noStat = spawnSync(
+                "/bin/bash", // absolute: the harness PATH deliberately resolves nothing
+                [
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    `${extractBootstrapFn("parcel_strict_sanitise_original_path")}
+ORIGINAL_PATH='${linkDir}:/usr/bin'
+parcel_strict_sanitise_original_path
+printf 'FILTERED:%s\\n' "$PATH"`,
+                ],
+                { encoding: "utf8", env: { PATH: "/nonexistent-no-stat" } },
+            );
+            assert.strictEqual(noStat.status, 0, `harness failed: ${noStat.stderr}`);
+            assert.strictEqual(noStat.stdout.trim(), "FILTERED:/nonexistent-no-stat", "stat unavailability must fail closed");
+        } finally {
             rmSync(tmp, { recursive: true, force: true });
         }
     });

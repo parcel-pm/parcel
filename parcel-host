@@ -28,16 +28,20 @@ BOOTSTRAP_VERSION="3"
 STRICT_BINARIES=false
 if [ ! -O "$0" ]; then STRICT_BINARIES=true; fi
 
-# In strict mode, sanitise PATH before any external command runs: user-level control of
-# PATH would otherwise allow shadowing every helper the bootstrap and its hardening
-# checks rely on (stat, grep, cut, sha256sum, find, ...). Keep only absolute directories
-# that are neither owned by nor writable by the caller; dropped elements are not logged,
-# since PATH legitimately contains user-owned items on many systems. Pass 1 uses bash
-# builtins only, so the filtering cannot itself be shadowed; note that writability alone
-# is insufficient here, as the owner of a directory can re-enable write access at will.
-# Once PATH contains no caller-controlled directories, pass 2 can trust stat to enforce
-# the stricter root-ownership policy. The test suite extracts this function verbatim
-# from the bootstrap source, so it must remain a single self-contained function.
+# Save the invoker's PATH before any filtering: strict mode re-sanitises this original
+# value (rather than the pass-1 result) so that root-owned symlinks can be kept,
+# while permissive mode restores it untouched.
+ORIGINAL_PATH="$PATH"
+
+# Pass 1 of strict-mode PATH sanitisation: reduce PATH to absolute, real (non-symlinked)
+# directories that are neither owned by nor writable by the caller. Uses bash builtins
+# only, so the filtering cannot itself be shadowed; note that writability alone is
+# insufficient here, as the owner of a directory can re-enable write access at will, and
+# symlinks are rejected outright because ownership/writability tests dereference them.
+# Dropped elements are not logged, since PATH legitimately contains user-owned items on
+# many systems. Once PATH contains no caller-controlled directories, tools resolved
+# through it (stat in particular) can be trusted. The test suite extracts this function
+# verbatim from the bootstrap source, so it must remain a single self-contained function.
 #
 # @since 1.0.7
 function parcel_strict_filter_path() {
@@ -47,7 +51,7 @@ function parcel_strict_filter_path() {
     IFS=':' read -ra PATH_ELEMENTS <<< "$PATH"
     for DIR in "${PATH_ELEMENTS[@]}"; do
         # keep the [ ] tests appended to the chain: some bracket-alternation chains hit a bash 3.2 parse quirk
-        if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ] && [ ! -O "$DIR" ]; then
+        if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ] && [ ! -O "$DIR" ] && [ ! -L "$DIR" ]; then
             FILTERED+="${FILTERED:+:}$DIR"
         fi
     done
@@ -67,8 +71,47 @@ function parcel_strict_filter_path() {
     fi
 }
 
+# Pass 2 of strict-mode PATH sanitisation: re-filter the invoker's original PATH (not the
+# pass-1 result), keeping elements whose ultimate target is root-owned and not writable
+# by the caller. stat is trustworthy here because pass 1 (already applied to PATH)
+# guarantees it cannot be shadowed, which lets symlinked elements be judged precisely:
+# a caller-owned symlink is dropped (the caller can retarget it), while a root-owned
+# symlink such as merged-usr /bin is kept. If stat is unavailable even through the
+# pass-1 PATH, fail closed by keeping the pass-1 result instead. The test suite extracts
+# this function verbatim from the bootstrap source, so it must remain a single
+# self-contained function.
+#
+# @since 1.0.7
+function parcel_strict_sanitise_original_path() {
+    command -v stat >/dev/null 2>&1 || return 0
+    local FILTERED=""
+    local DIR LINK_OWNER TARGET_OWNER
+    local -a PATH_ELEMENTS
+    IFS=':' read -ra PATH_ELEMENTS <<< "$ORIGINAL_PATH"
+    for DIR in "${PATH_ELEMENTS[@]}"; do
+        # keep the [ ] tests appended to the chain: some bracket-alternation chains hit a bash 3.2 parse quirk
+        # -w and -d dereference symlinks, so they judge the target; stat without -L judges the link itself
+        if [[ "$DIR" == /* ]] && [ -d "$DIR" ] && [ ! -w "$DIR" ]; then
+            LINK_OWNER="$(stat -c %u "$DIR" 2>/dev/null || stat -f %u "$DIR" 2>/dev/null)" || LINK_OWNER=""
+            TARGET_OWNER="$(stat -L -c %u "$DIR" 2>/dev/null || stat -L -f %u "$DIR" 2>/dev/null)" || TARGET_OWNER=""
+            if [ "$LINK_OWNER" = "0" ] && [ "$TARGET_OWNER" = "0" ]; then
+                FILTERED+="${FILTERED:+:}$DIR"
+            fi
+        fi
+    done
+    PATH="$FILTERED"
+    hash -r
+}
+
+# Pass 1 runs in every mode: it guarantees that any tool resolved while deciding or
+# enforcing mode (e.g. ownership checks) cannot be shadowed. Permissive mode then
+# restores the invoker's original PATH, including caller-controlled elements.
+parcel_strict_filter_path
 if $STRICT_BINARIES; then
-    parcel_strict_filter_path
+    parcel_strict_sanitise_original_path
+else
+    PATH="$ORIGINAL_PATH"
+    hash -r
 fi
 
 # transmit message in native messaging host protocol
