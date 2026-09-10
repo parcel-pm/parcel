@@ -18,7 +18,7 @@ import assert from "node:assert";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { runBash, SETUP_SCRIPT, makeTempHome, writeMockBin } from "./harness.js";
+import { runBash, SETUP_SCRIPT, makeTempHome, sourceScript, writeMockBin } from "./harness.js";
 
 // A browser/app the installer will detect via a fixture path we create.
 const HOST_NAME = "com.github.erayd.parcel";
@@ -125,6 +125,30 @@ test("full --yes --user install installs the host, manifest, and parcelrc; smoke
         assert.ok(readFileSync(parcelrc, "utf8").includes(`PASSWORD_STORE_DIR="${pass}"`), "parcelrc must persist the resolved store");
 
         assert.match(res.stderr, /Second smoke test passed/, "the verification smoke test must pass");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies install_bootstrap_host rewrites the shebang to the real bash path on NixOS. */
+test("install_bootstrap_host rewrites the shebang for NixOS", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const binDir = join(home, "bin");
+        const res = sourceScript(
+            `IS_NIXOS=true
+HOST_BIN_DIR="${binDir}"
+HOST_BIN_PATH="$HOST_BIN_DIR/parcel-host"
+RESOLVED_LEVEL="user"
+BOOTSTRAP_HOST="$(printf '#!/bin/bash\\necho installed')"
+install_bootstrap_host
+printf '%s\n' "$(head -n 1 "$HOST_BIN_PATH")" "$(tail -n 1 "$HOST_BIN_PATH")" "$BASH"`,
+            { env: { HOME: home } },
+        );
+        assert.strictEqual(res.code, 0, `install must succeed (stderr:\n${res.stderr})`);
+        const [shebang, body, bashPath] = res.stdout.split("\n");
+        assert.strictEqual(shebang, `#!${bashPath}`, "shebang must be rewritten to the running bash's path");
+        assert.strictEqual(body, "echo installed", "host content must be preserved");
     } finally {
         cleanup();
     }
