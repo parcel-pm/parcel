@@ -433,7 +433,7 @@ resolve_install_level() {
     # Interactive: ask whether to operate system-wide
     local verb="Install"
     [ "$ACTION" = "uninstall" ] && verb="Uninstall"
-    if prompt_yesno "$verb system-wide? (requires sudo)" true; then
+    if prompt_yesno "$verb system-wide? (recommended for better security; requires sudo)" true; then
         log_info "Re-running with sudo for system-wide $ACTION..."
         exec sudo env "PARCEL_SUDO_ELEVATED=1" "USER_PATH=$USER_PATH" "XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-}" bash "$0" --system "$@"
     fi
@@ -535,8 +535,8 @@ print_usage() {
 Usage: parcel-setup.sh [options]
 
 Install options:
-  --system            Install system-wide (requires sudo, will prompt if omitted)
-  --user              Install user-level (no sudo needed, no prompt if omitted)
+  --system            Install system-wide (recommended for better security; requires sudo)
+  --user              Install user-level (no sudo needed)
   --prefix <path>     Custom installation prefix
   --passdir <path>    Custom password store directory (overrides PASSWORD_STORE_DIR)
   --browser <name>    Set up only the specified browser(s) (comma or space separated)
