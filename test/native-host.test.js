@@ -499,6 +499,22 @@ function extractBootstrapFn(name) {
     return match[0];
 }
 
+/**
+ * Neither host script may invoke bash: a bash child re-imports the raw BASH_FUNC_*
+ * residue that the bootstrap's -p mode leaves in the environment (those entries
+ * cannot be unset), resurrecting attacker function definitions inside the child.
+ * This check is textual only: it catches invocations whose source line contains
+ * "bash" (e.g. `bash -c`, `bash script`). It cannot detect executing an external
+ * script with a bash shebang, where no "bash" text appears in these files; that
+ * case remains a review-time rule.
+ */
+test("neither host script invokes bash", () => {
+    const res = spawnSync("bash", ["-c", "grep -h bash parcel-host src/parcel-host | grep -v '^[[:space:]]*#'"], {
+        encoding: "utf8",
+    });
+    assert.strictEqual(res.status, 1, `Non-comment bash references exist in the host scripts:\n${res.stdout}`);
+});
+
 describe("Bootstrap script", () => {
     test("sends bootstrap message on startup", async () => {
         const env = createTestEnv();
