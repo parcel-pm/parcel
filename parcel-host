@@ -217,7 +217,7 @@ PARCELRC_NOTES=""
 # $1: note text
 # @since 1.0.7
 function parcelrc_note() {
-    PARCELRC_NOTES+="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] parcelrc: $1"$'\n'
+    PARCELRC_NOTES+="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] $1"$'\n'
 }
 
 # Report a fatal startup problem to the extension and abort. Uses static message text
@@ -243,7 +243,7 @@ function parcelrc_fatal() {
 # override is itself a symlink, the link must be root-owned too (a caller-owned link
 # could be repointed after validation).
 #
-# $1: context label for error messages
+# $1: label naming the tool and its source, e.g. "parcelrc GPG setting" or "bootstrap gpg default"
 # $2: value to check
 # @return 0 if usable; reports a fatal error and exits otherwise
 # @since 1.0.7
@@ -292,7 +292,7 @@ function parcelrc_apply() {
     case "$KEY" in
         VALID_SIGNERS)
             [[ "$VALUE" =~ ^${FPR_PATTERN}( ${FPR_PATTERN})*$ ]] ||
-                parcelrc_fatal "parcelrc: VALID_SIGNERS must be a space-separated list of key fingerprints"
+                parcelrc_fatal "VALID_SIGNERS must be a space-separated list of key fingerprints"
             ;;
         BLACKLIST_SIGNERS)
             if [[ ! "$VALUE" =~ $BLACKLIST_VALUE_RE ]]; then
@@ -302,7 +302,7 @@ function parcelrc_apply() {
             ;;
         HOST_HASH)
             [[ "$VALUE" =~ ^[0-9A-Fa-f]{64}$ ]] ||
-                parcelrc_fatal "parcelrc: HOST_HASH must be a 64-character hex sha256 hash"
+                parcelrc_fatal "HOST_HASH must be a 64-character hex sha256 hash"
             ;;
         LOGFILE | STATEFILE | PASSWORD_STORE_DIR)
             case "$VALUE" in
@@ -317,7 +317,7 @@ function parcelrc_apply() {
             # check the expanded value; the staged line keeps the $HOME token for eval
             local EXPANDED="${VALUE//\$\{HOME\}/$HOME}"
             EXPANDED="${EXPANDED//\$HOME/$HOME}"
-            parcelrc_check_binary "parcelrc: $KEY" "$EXPANDED"
+            parcelrc_check_binary "parcelrc $KEY setting" "$EXPANDED"
             ;;
         *)
             return 1
@@ -339,7 +339,7 @@ function load_parcelrc() {
     local ASSIGN_RE='^([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"$'
     local HOMEVAR_RE='[$]HOME[A-Za-z0-9_]'
     PARCELRC_SANITISED=""
-    CONTENT="$(head -c 1048576 "$PARCELRC")" || parcelrc_fatal "parcelrc: unable to read $PARCELRC"
+    CONTENT="$(head -c 1048576 "$PARCELRC")" || parcelrc_fatal "unable to read $PARCELRC"
     while IFS= read -r LINE || [ -n "$LINE" ]; do
         N=$((N + 1))
         [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
@@ -383,7 +383,7 @@ load_parcelrc
 if $STRICT_BINARIES; then
     for TOOL in gpg jq openssl; do
         VAR="$(tr '[:lower:]' '[:upper:]' <<< "$TOOL")"
-        parcelrc_check_binary "bootstrap: $TOOL" "${!VAR:-$TOOL}"
+        parcelrc_check_binary "bootstrap $TOOL default" "${!VAR:-$TOOL}"
     done
     unset TOOL VAR
 fi
