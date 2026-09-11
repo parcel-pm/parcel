@@ -899,9 +899,6 @@ detect_tool_paths() {
 }
 
 # Test whether the invoking user can modify a path.
-# System-wide installs run under sudo, where [ -w ] is meaningless, so test as the real
-# user. A literal root shell has no real user to test as; fall back to the mode bits,
-# conservatively treating anything writable by group or others as user-writable.
 # @param {string} path - Path to check.
 # @return {boolean} True if the invoking user can modify it.
 # @since 1.0.7
@@ -1034,10 +1031,7 @@ detect_single_tool_path() {
 }
 
 # Warn when the effective tool binaries would fail the bootstrap's strict-mode bar
-# (root-owned and not writable by the invoking user) during a system-wide install:
-# the system-wide bootstrap refuses to use them, so the install would not pass its
-# smoke test. Resolution order mirrors the bootstrap: an existing parcelrc override,
-# then a newly detected path, then the default command name.
+# (root-owned and not writable by the invoking user) during a system-wide install.
 # @since 1.0.7
 warn_nonroot_tools() {
     [ "$INSTALL_LEVEL" = "system" ] || return 0
@@ -1675,9 +1669,7 @@ install_flatpak_wrappers() {
 # ===========================================================================
 
 # Extract the bootstrap host's first native-protocol error message from its captured
-# stdout. Sets HOST_FAILURE_MSG (empty when nothing could be extracted). Startup
-# failures are reported as a single length-prefixed JSON message, so skipping the
-# 4-byte length header yields the payload.
+# stdout into HOST_FAILURE_MSG (empty when nothing could be extracted).
 # @param {string} out_file - File containing captured host stdout.
 # @since 1.0.7
 extract_host_error() {
@@ -1686,9 +1678,7 @@ extract_host_error() {
     HOST_FAILURE_MSG="$(tail -c +5 "$1" 2>/dev/null | jq -r '.error // empty' 2>/dev/null)"
 }
 
-# Run the bootstrap host as the correct user. Raw protocol output stays off the
-# terminal (it is confusing there), but any reported error is extracted into
-# HOST_FAILURE_MSG so the smoke tests can surface it.
+# Run the bootstrap host as the correct user.
 # @param {string} host_bin - Path to the bootstrap host binary.
 # @returns {number} Exit code of the host.
 # @since 1.0.7
