@@ -222,8 +222,7 @@ function parcelrc_note() {
 
 # Report a fatal startup problem to the extension and abort. Uses static message text
 # with a caller-supplied context prefix, as jq is not yet known to be available this
-# early in startup; control characters, double quotes and backslashes are stripped so
-# interpolated values cannot break the JSON.
+# early in startup; control characters, double quotes and backslashes are stripped.
 #
 # $1: error message
 # @return never returns
@@ -240,8 +239,7 @@ function parcelrc_fatal() {
 # Check a binary value: either a bare command name (resolved via the inherited PATH) or
 # an absolute path to an existing, executable regular file. In strict mode the resolved
 # file must additionally be owned by root and not writable by the caller, and if the
-# override is itself a symlink, the link must be root-owned too (a caller-owned link
-# could be repointed after validation).
+# override is itself a symlink, the link must be root-owned too.
 #
 # $1: label naming the tool and its source, e.g. "parcelrc GPG setting" or "bootstrap gpg default"
 # $2: value to check
