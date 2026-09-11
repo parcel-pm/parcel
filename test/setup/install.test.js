@@ -147,7 +147,7 @@ printf '%s\n' "$(head -n 1 "$HOST_BIN_PATH")" "$(tail -n 1 "$HOST_BIN_PATH")" "$
         );
         assert.strictEqual(res.code, 0, `install must succeed (stderr:\n${res.stderr})`);
         const [shebang, body, bashPath] = res.stdout.split("\n");
-        assert.strictEqual(shebang, `#!${bashPath}`, "shebang must be rewritten to the running bash's path");
+        assert.strictEqual(shebang, `#!${bashPath} -p`, "shebang must be rewritten to the running bash's path with -p");
         assert.strictEqual(body, "echo installed", "host content must be preserved");
     } finally {
         cleanup();

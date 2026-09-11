@@ -1424,7 +1424,7 @@ install_bootstrap_host() {
         fi
         local tmp_shebang
         tmp_shebang="$(make_temp)"
-        { printf '#!%s\n' "$bash_path"; tail -n +2 "$tmp_host"; } > "$tmp_shebang" || \
+        { printf '#!%s -p\n' "$bash_path"; tail -n +2 "$tmp_host"; } > "$tmp_shebang" || \
             die "Failed to rewrite host shebang (no /bin/bash on this system)"
         mv "$tmp_shebang" "$tmp_host"
     fi

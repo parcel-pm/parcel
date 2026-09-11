@@ -1,15 +1,36 @@
-#!/bin/bash
+#!/bin/bash -p
 # shellcheck disable=SC2155,SC1090
 set -e
 
-# BASH_ENV is sourced into every non-interactive bash, and LD_PRELOAD (Linux) or
-# DYLD_INSERT_LIBRARIES (macOS) injects a library into the bootstrap and every child it
-# spawns (gpg, jq, openssl); if any is set, drop them and re-exec before anything else
-# runs. Builtin-only: PATH is not yet sanitised.
-if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ] || [ -n "${DYLD_INSERT_LIBRARIES:-}" ]; then
-    unset BASH_ENV LD_PRELOAD DYLD_INSERT_LIBRARIES
+# BASH_ENV is sourced into every non-interactive bash. LD_PRELOAD (Linux) and
+# DYLD_INSERT_LIBRARIES (macOS) inject a library into the bootstrap and every child it
+# spawns (gpg, jq, openssl). The remaining loader variables redirect library resolution:
+# LD_LIBRARY_PATH, LD_AUDIT and GCONV_PATH on glibc; DYLD_LIBRARY_PATH and
+# DYLD_FALLBACK_LIBRARY_PATH on macOS; each suffices to execute attacker-controlled code
+# in any child that links a shadowable library. If any is set, drop them all and re-exec
+# before anything else runs. Builtin-only: PATH is not yet sanitised.
+if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ] || [ -n "${LD_AUDIT:-}" ] || [ -n "${LD_LIBRARY_PATH:-}" ] ||
+   [ -n "${GCONV_PATH:-}" ] || [ -n "${DYLD_INSERT_LIBRARIES:-}" ] || [ -n "${DYLD_LIBRARY_PATH:-}" ] ||
+   [ -n "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]; then
+    unset BASH_ENV LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH GCONV_PATH \
+        DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
     exec "$0" "$@"
 fi
+
+# Exported functions arrive as BASH_FUNC_* environment entries and are imported before
+# the first script line, so they can shadow any command the bootstrap later resolves
+# (gpg, jq, stat). Nothing is legitimately defined as a function this early, so unset
+# every one; this also removes the BASH_FUNC_* entry from exported environment.
+# Process substitution is required: a pipe would unset in a subshell.
+#
+# WARNING: never spawn a bash child from this script or from the main host script.
+# This guard does not protect it. Under the -p shebang the raw BASH_FUNC_* entries
+# stay in the environment (invalid names cannot be held or unset), and a bash child
+# re-imports them as live functions; under plain invocation the scrub is bypassable
+# by shadowing compgen. No child of either host script may therefore be bash.
+while IFS= read -r FN; do
+    unset -f "$FN"
+done < <(compgen -A function)
 
 # ISC License
 #
