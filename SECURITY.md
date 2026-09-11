@@ -68,13 +68,21 @@ sha256sum src/parcel-host
 
 This ensures the value you pin matches what the host computes at runtime.
 
+This is an **opt-in** defence-in-depth measure. It is not set by default because it requires manual intervention on every update. However, as the native host has shell access to your system outside of the browser sandbox, it is ***strongly*** recommended that you enable this feature.
+
 ### parcelrc hardening
 
 `parcelrc` is a trusted file owned by the user. The bootstrap host honours only canonical `KEY="value"` lines (comments and blank lines permitted) for the fixed set of recognised keys documented below; every other line is ignored. As a consequence, content added to `parcelrc` cannot alter host-critical settings such as `PATH`, and user-level malware that can edit the file gains no additional effect beyond toggling the documented options. Values are validated before use: signer and revocation lists must be well-formed fingerprints (an invalid `VALID_SIGNERS` or `HOST_HASH` refuses startup), path settings must be absolute, and binary overrides (`GPG`, `JQ`, `OPENSSL`) must resolve to executable files.
 
-For binary overrides, enforcement scales with how protected the bootstrap host itself is. When the bootstrap host is owned by the invoking user (the default per-user install), user-level malware could modify the bootstrap directly, so restricting binary ownership would add friction without benefit; any executable binary is therefore accepted. When the bootstrap host is installed system-wide such that the invoking user cannot modify it, overrides must resolve to root-owned binaries that the user cannot write (and any override that is itself a symlink must have a root-owned link, so it cannot be repointed after validation), and the bootstrap refuses to start otherwise. Because helpers the bootstrap itself relies on (`stat`, `grep`, `sha256sum`, ...) are also `PATH`-resolved, strict mode begins by filtering `PATH` down to absolute elements whose ultimate target is a root-owned directory that the user cannot write, and whose link itself is root-owned when the element is a symlink (caller-owned symlinks are dropped, since the caller can retarget them after startup); no tool the bootstrap uses can therefore be shadowed by user-controlled content. The filtering is two-stage: a builtins-only pass establishes a PATH through which `stat` cannot be shadowed, and the invoker's original PATH is then filtered against it. Defaults without an override (`gpg`, `jq`, `openssl`) are held to the same root-owned bar. Permissive mode keeps the invoker's original PATH untouched. Strict mode assumes root-owned binaries are not placed inside caller-writable directories. This is defence-in-depth against user-level malware when Parcel itself is installed somewhere the user lacks write access to; it is not a protection against full system compromise. A system-wide install (`parcel-setup.sh --system`) is recommended for this stronger guarantee.
+### Environment hardening (strict mode)
 
-This is an **opt-in** defence-in-depth measure. It is not set by default because it requires manual intervention on every update. However, as the native host has shell access to your system outside of the browser sandbox, it is ***strongly*** recommended that you enable this feature.
+When the bootstrap is installed system-wide such that the invoking user cannot modify it (`parcel-setup.sh --system`, recommended for this stronger guarantee), it constrains its own environment as defence-in-depth against user-level malware - not full system compromise:
+
+- `PATH` is filtered down to root-owned, user-non-writable directories. Root-owned symlinks like merged-usr `/bin -> usr/bin` are kept; caller-owned ones are dropped. A builtins-only first pass ensures `stat` itself cannot be shadowed during filtering.
+- `gpg`/`jq`/`openssl` - defaults and `parcelrc` overrides alike - must resolve to root-owned binaries the user cannot write; a symlinked override needs a root-owned link too.
+- The pinned `#!/bin/bash` shebang cannot be redirected via `PATH`.
+
+For user-owned installs (the default) these checks are skipped, since malware could just edit the bootstrap itself. Strict mode assumes root-owned binaries are not placed inside caller-writable directories.
 
 ### Whitelist-based entry visibility
 
