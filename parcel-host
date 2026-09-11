@@ -32,6 +32,32 @@ while IFS= read -r FN; do
     unset -f "$FN"
 done < <(compgen -A function)
 
+# Environment whitelist: everything not listed here is unset before any other code runs.
+# Host requirements: HOME, XDG_CONFIG_HOME (config dir), PATH (tool resolution;
+# re-sanitised in strict mode), PASSWORD_STORE_DIR (documented option), GNUPGHOME
+# (pass users with a custom gpg home), plus the runtime knobs the host scripts consume
+# by design (PARCEL_* such as the idle timeout, and STATE_LOCK_TIMEOUT; numeric).
+# The pinentry interaction set is deliberately broad: an over-strict whitelist breaks
+# passphrase prompts on minority setups, and none of these can execute code: GPG_TTY,
+# TERM, TERMINFO, TERMINFO_DIRS, DISPLAY, XAUTHORITY, WAYLAND_DISPLAY, XDG_RUNTIME_DIR
+# (default socket directory used by dbus, wayland and gpg-agent socket discovery),
+# DBUS_SESSION_BUS_ADDRESS, GTK_IM_MODULE, QT_IM_MODULE, XMODIFIERS, PINENTRY_USER_DATA,
+# plus LANG/LC_* for localised prompts. BASH_FUNC_* residue is unaffected: those entries
+# may be enumerated here but cannot actually be unset (see the warning above).
+for PARCEL_ENV_VAR in $(compgen -e); do
+    case "$PARCEL_ENV_VAR" in
+        HOME|XDG_CONFIG_HOME|PATH|PASSWORD_STORE_DIR|GNUPGHOME) ;;
+        GPG_TTY|TERM|TERMINFO|TERMINFO_DIRS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY) ;;
+        XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|PINENTRY_USER_DATA) ;;
+        PARCEL_*|STATE_LOCK_TIMEOUT) ;;
+        LANG|LC_*) ;;
+        *)
+            unset "$PARCEL_ENV_VAR" 2>/dev/null || true
+            ;;
+    esac
+done
+unset PARCEL_ENV_VAR
+
 # ISC License
 #
 # Copyright (c) 2023-2026 Erayd LTD

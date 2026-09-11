@@ -84,6 +84,10 @@ When the bootstrap is installed system-wide such that the invoking user cannot m
 
 For user-owned installs (the default) these checks are skipped, since malware could just edit the bootstrap itself (a system-wide install into a user-writable directory is likewise treated as permissive, since the bootstrap could be replaced via rename). Root-owned binaries placed inside caller-writable directories are rejected at startup.
 
+### Environment whitelist
+
+In every mode, the bootstrap treats its inherited environment as untrusted configuration and drops every variable that is not on a small whitelist before any other code runs. The whitelist covers the host's own requirements (`HOME`, `XDG_CONFIG_HOME`, `PATH`, `PASSWORD_STORE_DIR`, `GNUPGHOME`, plus its runtime knobs such as `PARCEL_IDLE_TIMEOUT` and `STATE_LOCK_TIMEOUT`) and a deliberately broad pinentry interaction set (tty, term, display, Wayland, D-Bus, socket-directory and input-method variables, plus locale), none of which can cause code execution. This closes the open-ended family of loader-redirection variables (such as `LD_LIBRARY_PATH`, `LD_AUDIT`, `GCONV_PATH` and their macOS equivalents) and any future entry in that class. Residuals remain: a variable that has already run code (a preloaded library, or `BASH_ENV` before the shebang applies) cannot be undone by unsetting it, and the unsettable raw `BASH_FUNC_*` entries ride along in the environment, which is why no child of either host script may be bash.
+
 ### Whitelist-based entry visibility
 
 The native host reads `$PASSWORD_STORE_DIR/.parcel.json` to determine which password-store entries are visible to Parcel. Rules are evaluated on the host side, so the extension cannot bypass them. If `.parcel.json` is absent, the host defaults to making **all** entries visible. Users who want to restrict visibility should create an explicit rule set, and doing so is highly recommended.
