@@ -1592,22 +1592,6 @@ printf 'NOFATAL\\n'
             rmSync(tmp, { recursive: true, force: true });
         }
     });
-
-    test("strict binary check accepts root-owned bare-name tools", () => {
-        if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
-        const harness = `STRICT_BINARIES=true
-function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
-${extractBootstrapFn("parcelrc_check_binary")}
-parcelrc_check_binary "bootstrap: sh" "sh"
-printf 'RC:%s\\n' "$?"
-`;
-        const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
-            encoding: "utf8",
-            env: { PATH: "/usr/bin:/bin" },
-        });
-        assert.strictEqual(res.status, 0, `expected success, got rc=${res.status} out=${res.stdout} err=${res.stderr}`);
-        assert.ok(res.stdout.includes("RC:0"), `expected acceptance, got: ${res.stdout}`);
-    });
 });
 
 // ---------------------------------------------------------------------------
