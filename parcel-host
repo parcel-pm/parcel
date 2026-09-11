@@ -371,7 +371,7 @@ function load_parcelrc() {
         # only permitted expansion tokens are $HOME and ${HOME}
         # shellcheck disable=SC1003 # the single-quoted backtick pattern is intentional
         case "$VALUE" in
-            *'`'* | *'\\'* | *[[:cntrl:]]*)
+            *'`'* | *'\'* | *[[:cntrl:]]*)
                 parcelrc_note "ignoring unsafe value at line $N"
                 continue
                 ;;
