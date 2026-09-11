@@ -1226,39 +1226,26 @@ function action_test_override() {
         }
     });
 
-    test("rejects a malformed VALID_SIGNERS in parcelrc", async () => {
-        const env = createTestEnv();
-        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const existing = readFileSync(parcelrc, "utf8");
-        writeFileSync(parcelrc, existing + 'VALID_SIGNERS="not-a-fingerprint"\n');
+    test("rejects malformed recognised-key values in parcelrc", async () => {
+        for (const [key, value] of [
+            ["VALID_SIGNERS", "not-a-fingerprint"],
+            ["HOST_HASH", "abc123"],
+        ]) {
+            const env = createTestEnv();
+            const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+            const existing = readFileSync(parcelrc, "utf8");
+            writeFileSync(parcelrc, existing + `${key}="${value}"\n`);
 
-        const { proc, read } = spawnBootstrap(env);
-        try {
-            const msg = await read();
-            assert.ok(msg.error?.includes("VALID_SIGNERS"), `Expected VALID_SIGNERS error, got: ${JSON.stringify(msg)}`);
-            await new Promise((resolve) => proc.on("exit", resolve));
-            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
-        } finally {
-            if (!proc.killed) proc.kill();
-            env.cleanup();
-        }
-    });
-
-    test("rejects a malformed HOST_HASH in parcelrc", async () => {
-        const env = createTestEnv();
-        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const existing = readFileSync(parcelrc, "utf8");
-        writeFileSync(parcelrc, existing + 'HOST_HASH="abc123"\n');
-
-        const { proc, read } = spawnBootstrap(env);
-        try {
-            const msg = await read();
-            assert.ok(msg.error?.includes("HOST_HASH"), `Expected HOST_HASH error, got: ${JSON.stringify(msg)}`);
-            await new Promise((resolve) => proc.on("exit", resolve));
-            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
-        } finally {
-            if (!proc.killed) proc.kill();
-            env.cleanup();
+            const { proc, read } = spawnBootstrap(env);
+            try {
+                const msg = await read();
+                assert.ok(msg.error?.includes(key), `Expected ${key} error, got: ${JSON.stringify(msg)}`);
+                await new Promise((resolve) => proc.on("exit", resolve));
+                assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
+            } finally {
+                if (!proc.killed) proc.kill();
+                env.cleanup();
+            }
         }
     });
 
@@ -1545,51 +1532,39 @@ printf 'FILTERED:%s\\n' "$PATH"`,
         }
     });
 
-    test("strict binary check rejects caller-owned executables", () => {
+    test("strict binary check rejects caller-owned tools", () => {
         if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
-        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
-        try {
-            const fakeGpg = join(tmp, "gpg");
-            writeFileSync(fakeGpg, "#!/bin/bash\necho shadowed\n");
-            chmodSync(fakeGpg, 0o555);
-            const harness = `STRICT_BINARIES=true
+        for (const [fixture, expected] of [
+            ["file", "owned by root"],
+            ["symlink", "caller-owned symlink"],
+        ]) {
+            const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+            try {
+                let fakeGpg;
+                if (fixture === "symlink") {
+                    // Laundering attempt: caller-owned symlink resolving to a root-owned binary.
+                    fakeGpg = join(tmp, "gpg");
+                    symlinkSync("/bin/ls", fakeGpg);
+                } else {
+                    fakeGpg = join(tmp, "gpg");
+                    writeFileSync(fakeGpg, "#!/bin/bash\necho shadowed\n");
+                    chmodSync(fakeGpg, 0o555);
+                }
+                const harness = `STRICT_BINARIES=true
 function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
 ${extractBootstrapFn("parcelrc_check_binary")}
 parcelrc_check_binary "parcelrc: GPG" "$FAKE"
 printf 'NOFATAL\\n'
 `;
-            const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
-                encoding: "utf8",
-                env: { PATH: `${tmp}:/usr/bin:/bin`, FAKE: fakeGpg },
-            });
-            assert.strictEqual(res.status, 43, `expected fatal rejection, got rc=${res.status} out=${res.stdout}`);
-            assert.ok(res.stdout.includes("owned by root"), `expected ownership error, got: ${res.stdout}`);
-        } finally {
-            rmSync(tmp, { recursive: true, force: true });
-        }
-    });
-
-    test("strict binary check rejects caller-owned symlinks to root-owned binaries", () => {
-        if (process.getuid?.() === 0) return; // meaningless as root: every link is euid-owned
-        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
-        try {
-            // Laundering attempt: caller-owned symlink resolving to a root-owned binary.
-            const linkBin = join(tmp, "gpg");
-            symlinkSync("/bin/ls", linkBin);
-            const harness = `STRICT_BINARIES=true
-function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
-${extractBootstrapFn("parcelrc_check_binary")}
-parcelrc_check_binary "parcelrc: GPG" "$LINKBIN"
-printf 'NOFATAL\\n'
-`;
-            const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
-                encoding: "utf8",
-                env: { PATH: `${tmp}:/usr/bin:/bin`, LINKBIN: linkBin },
-            });
-            assert.strictEqual(res.status, 43, `expected fatal rejection, got rc=${res.status} out=${res.stdout}`);
-            assert.ok(res.stdout.includes("caller-owned symlink"), `expected symlink rejection, got: ${res.stdout}`);
-        } finally {
-            rmSync(tmp, { recursive: true, force: true });
+                const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
+                    encoding: "utf8",
+                    env: { PATH: `${tmp}:/usr/bin:/bin`, FAKE: fakeGpg },
+                });
+                assert.strictEqual(res.status, 43, `expected fatal rejection, got rc=${res.status} out=${res.stdout}`);
+                assert.ok(res.stdout.includes(expected), `expected "${expected}" error, got: ${res.stdout}`);
+            } finally {
+                rmSync(tmp, { recursive: true, force: true });
+            }
         }
     });
 });
