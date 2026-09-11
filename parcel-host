@@ -2,6 +2,14 @@
 # shellcheck disable=SC2155,SC1090
 set -e
 
+# BASH_ENV is sourced into every non-interactive bash and LD_PRELOAD injects a library
+# into the bootstrap and every child it spawns (gpg, jq, openssl); if either is set, drop
+# it and re-exec before anything else runs. Builtin-only: PATH is not yet sanitised.
+if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ]; then
+    unset BASH_ENV LD_PRELOAD
+    exec "$0" "$@"
+fi
+
 # ISC License
 #
 # Copyright (c) 2023-2026 Erayd LTD
