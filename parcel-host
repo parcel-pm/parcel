@@ -2,11 +2,12 @@
 # shellcheck disable=SC2155,SC1090
 set -e
 
-# BASH_ENV is sourced into every non-interactive bash and LD_PRELOAD injects a library
-# into the bootstrap and every child it spawns (gpg, jq, openssl); if either is set, drop
-# it and re-exec before anything else runs. Builtin-only: PATH is not yet sanitised.
-if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ]; then
-    unset BASH_ENV LD_PRELOAD
+# BASH_ENV is sourced into every non-interactive bash, and LD_PRELOAD (Linux) or
+# DYLD_INSERT_LIBRARIES (macOS) injects a library into the bootstrap and every child it
+# spawns (gpg, jq, openssl); if any is set, drop them and re-exec before anything else
+# runs. Builtin-only: PATH is not yet sanitised.
+if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ] || [ -n "${DYLD_INSERT_LIBRARIES:-}" ]; then
+    unset BASH_ENV LD_PRELOAD DYLD_INSERT_LIBRARIES
     exec "$0" "$@"
 fi
 
