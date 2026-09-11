@@ -917,7 +917,8 @@ test_writable_by_user() {
 
 # Test whether a binary path would be accepted by the bootstrap: an absolute-path
 # executable regular file, plus (for system-wide installs) root ownership and no
-# write access for the invoking user, mirroring the bootstrap's strict-mode rules.
+# write access for the invoking user, with the containing directory also off-limits,
+# mirroring the bootstrap's strict-mode rules.
 # @param {string} path - Absolute path to check.
 # @return {boolean} True if acceptable.
 # @since 1.0.7
@@ -933,6 +934,9 @@ tool_acceptable() {
     owner="$(stat -L -c %u "$path" 2>/dev/null || stat -L -f %u "$path" 2>/dev/null)" || owner=""
     [ "$owner" = "0" ] || return 1
     ! test_writable_by_user "$path"
+    local parent="${path%/*}"
+    [ -n "$parent" ] || parent="/"
+    ! test_writable_by_user "$parent"
 }
 
 # Detect a single tool's path.
@@ -999,7 +1003,7 @@ detect_single_tool_path() {
         done
     fi
     if [ -n "$skipped" ] && [ "$INSTALL_LEVEL" = "system" ]; then
-        log_info "rejected for strict mode (must be root-owned and not writable by you):$skipped"
+        log_info "rejected for strict mode (must be root-owned, in a directory not writable by you):$skipped"
     fi
 
     if [ -z "$found_path" ]; then
@@ -1009,7 +1013,7 @@ detect_single_tool_path() {
             if [ -n "$found_path" ]; then
                 found_path="$(expand_tilde "$found_path")"
                 if ! tool_acceptable "$found_path"; then
-                    log_warn "$found_path is not acceptable (must be executable, and root-owned + not writable by you for system-wide installs)"
+                    log_warn "$found_path is not acceptable (must be executable, and root-owned in a directory not writable by you for system-wide installs)"
                     found_path=""
                 fi
             fi
@@ -1057,7 +1061,7 @@ warn_nonroot_tools() {
             continue
         fi
         if ! tool_acceptable "$resolved"; then
-            log_warn "$name ($resolved) is not root-owned or is writable by you - a system-wide bootstrap will refuse to use it"
+            log_warn "$name ($resolved) is not root-owned, or is writable by you or sits in a directory writable by you - a system-wide bootstrap will refuse to use it"
             warned=true
         fi
     done
@@ -1428,6 +1432,11 @@ install_bootstrap_host() {
     # Install
     if [ "$RESOLVED_LEVEL" = "system" ]; then
         mkdir -p "$HOST_BIN_DIR"
+        # A system-wide install into a user-writable directory offers no extra protection:
+        # the bootstrap could be replaced via rename, so strict mode would be unavailable.
+        if test_writable_by_user "$HOST_BIN_DIR"; then
+            log_warn "$HOST_BIN_DIR is writable by you - a bootstrap installed there could be replaced by user-level malware, so it will not gain strict-mode hardening"
+        fi
         install -m 0755 "$tmp_host" "$HOST_BIN_PATH"
     elif [ "$(id -u)" -eq 0 ] && [ -n "$SERVICES_USER" ]; then
         mkdir -p "$HOST_BIN_DIR"

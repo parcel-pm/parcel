@@ -15,7 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { runBash, SETUP_SCRIPT, makeTempHome, sourceScript, writeMockBin } from "./harness.js";
@@ -149,6 +149,49 @@ printf '%s\n' "$(head -n 1 "$HOST_BIN_PATH")" "$(tail -n 1 "$HOST_BIN_PATH")" "$
         const [shebang, body, bashPath] = res.stdout.split("\n");
         assert.strictEqual(shebang, `#!${bashPath}`, "shebang must be rewritten to the running bash's path");
         assert.strictEqual(body, "echo installed", "host content must be preserved");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies a system install into a user-writable bin dir warns (strict mode unavailable). */
+test("system install warns when the host bin dir is user-writable", () => {
+    if (process.getuid?.() === 0) return; // as root the /022 heuristic applies instead of ownership
+    const { home, cleanup } = makeTempHome();
+    const installHost = (snippet) =>
+        sourceScript(
+            `BOOTSTRAP_SHEBANG_BASH="/bin/bash"
+RESOLVED_LEVEL="system"
+HOST_BIN_DIR="${home}/sys-bin"
+HOST_BIN_PATH="$HOST_BIN_DIR/parcel-host"
+BOOTSTRAP_HOST="$(printf '#!/bin/bash\\necho host')"
+${snippet}
+install_bootstrap_host`,
+            { env: { HOME: home } },
+        );
+    try {
+        const warn = installHost("");
+        assert.strictEqual(warn.code, 0, `install must succeed (stderr:\n${warn.stderr})`);
+        assert.ok(/writable by you/.test(warn.stderr), `expected strict-mode warning, got: ${warn.stderr}`);
+        assert.ok(existsSync(join(home, "sys-bin", "parcel-host")), "host must be installed");
+
+        // User-level installs must not warn about the same directory
+        const userLevel = sourceScript(
+            `BOOTSTRAP_SHEBANG_BASH="/bin/bash"
+RESOLVED_LEVEL="user"
+HOST_BIN_DIR="${home}/user-bin"
+HOST_BIN_PATH="$HOST_BIN_DIR/parcel-host"
+BOOTSTRAP_HOST="$(printf '#!/bin/bash\\necho host')"
+install_bootstrap_host`,
+            { env: { HOME: home } },
+        );
+        assert.strictEqual(userLevel.code, 0, `install must succeed (stderr:\n${userLevel.stderr})`);
+        assert.ok(!/writable by you/.test(userLevel.stderr), `user installs must not warn, got: ${userLevel.stderr}`);
+
+        // A bin dir that is not user-writable must not warn
+        const quiet = installHost("test_writable_by_user() { return 1; }\n");
+        assert.strictEqual(quiet.code, 0, `install must succeed (stderr:\n${quiet.stderr})`);
+        assert.ok(!/writable by you/.test(quiet.stderr), `expected no warning, got: ${quiet.stderr}`);
     } finally {
         cleanup();
     }

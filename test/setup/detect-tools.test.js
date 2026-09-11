@@ -14,7 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { sourceScript, makeTempHome, writeMockBin } from "./harness.js";
@@ -92,6 +92,29 @@ test("tool_acceptable rejects user-owned binaries on system installs", () => {
         assert.ok(!acceptable("system", gpg), "system install must reject a user-owned binary");
         assert.ok(acceptable("system", "/bin/ls"), "system install must accept a root-owned system binary");
         assert.ok(!acceptable("user", NOENT), "missing paths are never acceptable");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies tool_acceptable also rejects binaries in user-writable directories. */
+test("tool_acceptable rejects root-owned binaries in writable directories on system installs", () => {
+    if (process.getuid?.() === 0) return; // as root the /022 heuristic cannot see owner-only write bits
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        const gpg = writeMockBin(bin, "gpg", "exit 0");
+        chmodSync(gpg, 0o555);
+        // A lying stat (any stat output is uid 0) launders the fixture past the
+        // ownership gate so the directory rejection is exercised in isolation.
+        const statDir = join(home, "statbin");
+        writeMockBin(statDir, "stat", "echo 0");
+        const env = { env: { HOME: home, PATH: `${statDir}:${process.env.PATH ?? ""}` } };
+        const acceptable = (level, path) => sourceScript(`INSTALL_LEVEL="${level}"\ntool_acceptable '${path}'`, env).code === 0;
+
+        assert.ok(acceptable("system", "/bin/ls"), "root-owned binary in a non-writable dir stays acceptable");
+        assert.ok(!acceptable("system", gpg), "system install must reject a binary whose directory is user-writable");
+        assert.ok(acceptable("user", gpg), "user-level install must accept the same binary");
     } finally {
         cleanup();
     }

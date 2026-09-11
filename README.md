@@ -144,7 +144,7 @@ The script will:
 
 - Detect your operating system.
 - Check that `jq` and `gpg` are installed.
-- Ask whether to install system-wide (requires `sudo`) or user-level. A system-wide install is recommended for better security: the bootstrap host is then owned by root, out of reach of user-level tampering, and it will additionally require that any binary overrides in `parcelrc` resolve to root-owned binaries. Note that this strictness also applies to the default `gpg`/`jq`/`openssl` resolution: system distro packages typically qualify; the setup script prefers a root-owned copy of each tool when one is available, so if every available `gpg`/`jq`/`openssl` binary is owned by you (as with a default macOS homebrew install), choose a user-level install instead.
+- Ask whether to install system-wide (requires `sudo`) or user-level. A system-wide install is recommended for better security: the bootstrap host is then owned by root, out of reach of user-level tampering, and it will additionally require that any binary overrides in `parcelrc` resolve to root-owned binaries in directories you cannot write to. Note that this strictness also applies to the default `gpg`/`jq`/`openssl` resolution: system distro packages typically qualify; the setup script prefers a root-owned copy of each tool when one is available, so if every available `gpg`/`jq`/`openssl` binary is owned by you (as with a default macOS homebrew install), choose a user-level install instead.
 - Detect installed browsers and ask which ones to set up.
 - Install the bootstrap host (`parcel-host`) to the appropriate prefix.
 - Generate and install native-messaging manifests for each selected browser.
@@ -257,7 +257,7 @@ If this file does not exist, the bootstrap host creates a commented template on 
 
 **Format:** one setting per line as `KEY="value"`, plus comments and blank lines. Only the documented keys below take effect; anything else is ignored, so files continue to work across bootstrap host updates. Path values may begin with `$HOME`. Values cannot contain double quotes, backslashes, backticks, or other variable expansions.
 
-When the bootstrap host is installed system-wide (owned by root rather than by your user), the `GPG`, `JQ`, and `OPENSSL` overrides must resolve to root-owned binaries that your user cannot modify; the bootstrap host refuses to start otherwise. When the bootstrap host is owned by your user (the default per-user install), any executable binary is accepted.
+When the bootstrap host is installed system-wide (owned by root rather than by your user), the `GPG`, `JQ`, and `OPENSSL` overrides must resolve to root-owned binaries that your user cannot modify, in directories your user cannot write to; the bootstrap host refuses to start otherwise. When the bootstrap host is owned by your user (the default per-user install), any executable binary is accepted.
 
 | Option | Default | Description |
 |--------|---------|-------------|

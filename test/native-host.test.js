@@ -1567,6 +1567,84 @@ printf 'NOFATAL\\n'
             }
         }
     });
+
+    test("strict binary check rejects root-owned binaries in caller-writable directories", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every directory writable check is distorted
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        const harness = `STRICT_BINARIES=true
+function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcelrc_check_binary")}
+parcelrc_check_binary "parcelrc: GPG" "$FAKE"
+printf 'NOFATAL\\n'
+`;
+        try {
+            // A user-owned executable in a user-writable directory, laundered past the
+            // ownership gate by a lying stat (any stat output is uid 0).
+            const fakeDir = join(tmp, "fakebin");
+            const statDir = join(tmp, "statbin");
+            mkdirSync(fakeDir);
+            mkdirSync(statDir);
+            const fakeGpg = join(fakeDir, "gpg");
+            writeFileSync(fakeGpg, "#!/bin/bash\necho shadowed\n");
+            chmodSync(fakeGpg, 0o555);
+            writeFileSync(join(statDir, "stat"), "#!/bin/bash\necho 0\n");
+            chmodSync(join(statDir, "stat"), 0o755);
+
+            const res = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
+                encoding: "utf8",
+                env: { PATH: `${statDir}:/usr/bin:/bin`, FAKE: fakeGpg },
+            });
+            assert.strictEqual(res.status, 43, `expected fatal rejection, got rc=${res.status} out=${res.stdout}`);
+            assert.ok(res.stdout.includes("directory writable by you"), `expected writable-directory error, got: ${res.stdout}`);
+
+            // Counter-check: a real root-owned binary in a non-writable directory passes.
+            const ok = spawnSync("bash", ["--noprofile", "--norc", "-c", harness], {
+                encoding: "utf8",
+                env: { PATH: "/usr/bin:/bin", FAKE: "/bin/ls" },
+            });
+            assert.strictEqual(ok.status, 0, `expected acceptance, got rc=${ok.status} out=${ok.stdout}`);
+            assert.ok(ok.stdout.includes("NOFATAL"), `expected acceptance, got: ${ok.stdout}`);
+        } finally {
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    test("strict mode requires the bootstrap itself and its directory to be out of reach", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        try {
+            // The arg after -c becomes $0 inside the child; cwd is set separately
+            const run = (argv0, cwd) =>
+                spawnSync(
+                    "bash",
+                    [
+                        "--noprofile",
+                        "--norc",
+                        "-c",
+                        `${extractBootstrapFn("parcel_strict_mode_enabled")}\nparcel_strict_mode_enabled && printf 'STRICT\\n' || printf 'PERMISSIVE\\n'`,
+                        argv0,
+                    ],
+                    { encoding: "utf8", cwd },
+                ).stdout.trim();
+
+            // root-owned bootstrap in a non-writable directory
+            assert.strictEqual(run("/bin/ls", "/usr/bin"), "STRICT");
+            // user-owned bootstrap: permissive even in a locked directory
+            const owned = join(tmp, "owned-host");
+            writeFileSync(owned, "#!/bin/bash\nexit 0\n");
+            chmodSync(owned, 0o755);
+            chmodSync(tmp, 0o555);
+            assert.strictEqual(run(owned, tmp), "PERMISSIVE");
+            // root-owned bootstrap in a caller-writable directory: replaceable, so permissive
+            chmodSync(tmp, 0o755);
+            const linked = join(tmp, "linked-host");
+            symlinkSync("/bin/ls", linked);
+            assert.strictEqual(run(linked, tmp), "PERMISSIVE");
+        } finally {
+            chmodSync(tmp, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
