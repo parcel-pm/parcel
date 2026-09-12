@@ -663,6 +663,36 @@ describe("Agent", () => {
         assert.strictEqual(b, true, "bridge disconnect receiver");
     });
 
+    test("bridge relay failure tears down both sides", async () => {
+        // A dead tabPort whose relay post throws must tear down the bridge rather than
+        // silently dropping the popup's message while the popup believes it was delivered.
+        const noopEvent = { addListener() {} };
+        const fakeTabPort = {
+            name: "tok",
+            postMessage() {
+                throw new Error("tab port dead");
+            },
+            disconnect() {},
+            onMessage: noopEvent,
+            onDisconnect: noopEvent,
+        };
+        const origTabsConnect = chrome.tabs.connect;
+        chrome.tabs.connect = () => fakeTabPort;
+        try {
+            const bridge = mock.chrome.runtime.connect({ name: "popup-bridge:tok:0", sender: { tab: { id: 11, url: "https://x.com" } } });
+            await settleAsync();
+            let disconnected = false;
+            bridge.onDisconnect.addListener(() => {
+                disconnected = true;
+            });
+            bridge.postMessage({ action: "ready" });
+            await settleAsync();
+            assert.ok(disconnected, "bridge port disconnected when the relay post failed");
+        } finally {
+            chrome.tabs.connect = origTabsConnect;
+        }
+    });
+
     test("error relay report sends a stash instruction to the sender's tab without badging directly", async () => {
         mock.fireRuntimeMessage({ type: "parcel-error-stash", error: "boom" }, { tab: { id: 7 } });
         await settleAsync();

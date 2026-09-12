@@ -73,6 +73,7 @@ function makeValidConfig() {
 }
 
 let document, window, mock, tabPortReceiver, popupPortReceiver;
+const fillLog = [];
 
 before(async () => {
     globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
@@ -143,7 +144,14 @@ before(async () => {
     const origTabsConnect = chrome.tabs.connect.bind(chrome.tabs);
     chrome.tabs.connect = function (tabId, info = {}) {
         const caller = origTabsConnect(tabId, info);
-        tabPortReceiver = mock.findTabPort(tabId, info.frameId ?? 0);
+        const receiver = mock.findTabPort(tabId, info.frameId ?? 0);
+        tabPortReceiver = receiver;
+        // respond as a healthy content script would: ready handshake plus fill acks
+        receiver.onMessage.addListener((msg) => {
+            if (msg?.action === "fill" || msg?.action === "fill-value") fillLog.push(msg);
+            if (msg?.action === "ready") receiver.postMessage({ action: "origin", origin: "https://example.com" });
+            else if (msg?.action === "fill" || msg?.action === "fill-value") receiver.postMessage({ action: "ack", ack: msg.action });
+        });
         return caller;
     };
 
@@ -329,18 +337,21 @@ describe("Context popup", { concurrency: false }, () => {
         await settleAsync();
 
         // A digit keydown triggers postToTab, which lazily reconnects the tab
-        // port and delivers fill-value over the fresh port. The message is
-        // buffered on the new (listener-less) receiver until nextMessage attaches.
+        // port and delivers fill-value over the fresh port. The harness-level
+        // fill log records delivery on whichever receiver is current.
+        const fillsBefore = fillLog.filter((m) => m.action === "fill-value").length;
         window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true, cancelable: true }));
+        await settleAsync();
         await settleAsync();
 
         assert.ok(!tabPortReceiver.disconnected, "tabPortReceiver was re-established after disconnect");
 
         // The fill MUST be delivered — this is the user-visible symptom:
         // "decrypts, but does not fill".
-        const msg = await nextMessage(tabPortReceiver, "fill-value", 3000);
-        assert.strictEqual(msg.action, "fill-value");
-        assert.strictEqual(msg.value, "swordfish");
+        const delivered = fillLog.slice(fillsBefore).find((m) => m.action === "fill-value");
+        assert.ok(delivered, "fill-value delivered over the fresh port");
+        assert.strictEqual(delivered.value, "swordfish");
+        assert.ok(!/could not contact the page/i.test(document.querySelector("p.error")?.textContent || ""), "no contact error shown");
 
         detail.remove();
     });

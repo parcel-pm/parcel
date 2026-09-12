@@ -9,6 +9,8 @@
     const mode = new URLSearchParams(window.location.search).get("mode");
     const targetClass = new URLSearchParams(window.location.search).get("targetClass");
     const isWindowMode = new URLSearchParams(window.location.search).get("window") === "1";
+    // shown when the tab port cannot deliver a message to the page even after a reconnect attempt
+    const CONTACT_ERROR = "Parcel could not contact the page. Close this popup and reload the page.";
     let frameOrigin; // intended origin for the actual fill operation
     if (token === "broadcast" && window !== window.top) {
         const msg =
@@ -89,9 +91,10 @@
      * @since 1.0.2
      * @param {() => chrome.runtime.Port} connect - Factory that opens a fresh port to the content script.
      * @param {chrome.runtime.Port} initialPort - The first port (already opened by `connectToTab`).
+     * @param {() => void} [onReconnect=null] - Called whenever a fresh port replaces a dead one (never for the initial port).
      * @returns {{ postMessage: (msg: any) => boolean, onMessage: { addListener: (fn: (msg: any) => void) => void, removeListener: (fn: (msg: any) => void) => void } }} A port-like wrapper.
      */
-    function reconnectingTabPort(connect, initialPort) {
+    function reconnectingTabPort(connect, initialPort, onReconnect = null) {
         let port = initialPort;
         const listeners = new Set();
         /**
@@ -116,12 +119,27 @@
             });
         }
         attach(initialPort);
+        /**
+         * Open and attach a fresh port. `port` is assigned before the reconnect hook fires,
+         * so posts made by the hook itself (e.g. the ready handshake) use the fresh port.
+         * @returns {chrome.runtime.Port} The fresh port.
+         */
+        function bindFreshPort() {
+            const p = connect();
+            attach(p);
+            port = p;
+            try {
+                onReconnect?.();
+            } catch (_err) {
+                // A hook failure must not break message posting.
+            }
+            return p;
+        }
         return {
             postMessage(msg) {
                 if (!port) {
                     try {
-                        port = connect();
-                        attach(port);
+                        bindFreshPort();
                     } catch (_err) {
                         // Extension context invalidated (popup frame torn down).
                         return false;
@@ -130,8 +148,7 @@
                 return postWithRetry(
                     () => port.postMessage(msg),
                     () => {
-                        port = connect();
-                        attach(port);
+                        bindFreshPort();
                     },
                 );
             },
@@ -167,15 +184,16 @@
     /**
      * Connect to the active tab content script, falling back to relay via the background service if necessary.
      * @since 1.0.0
+     * @param {() => void} [onReconnect=null] - Fired whenever the tab port transparently reconnects after a disconnect.
      * @returns {Promise<{tab: chrome.tabs.Tab, tabPort: object}>} `tabPort` is a reconnecting wrapper (see {@link reconnectingTabPort}).
      * @throws {Error} If the bridge to the active tab reports an error or disconnects unexpectedly.
      */
-    async function connectToTab() {
+    async function connectToTab(onReconnect = null) {
         if (chrome.tabs?.getCurrent && chrome.tabs?.query && chrome.tabs?.connect) {
             const tab = (await chrome.tabs.getCurrent()) || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
             tab.contextualIdentity = tab?.cookieStoreId;
             const connect = () => chrome.tabs.connect(tab.id, { name: token, frameId });
-            return { tab, tabPort: reconnectingTabPort(connect, connect()) };
+            return { tab, tabPort: reconnectingTabPort(connect, connect(), onReconnect) };
         }
 
         const connect = () => chrome.runtime.connect({ name: `popup-bridge:${token}:${frameId}` });
@@ -201,14 +219,16 @@
             initialPort.onDisconnect.addListener(onDisconnect);
         });
 
-        return { tab, tabPort: reconnectingTabPort(connect, initialPort) };
+        return { tab, tabPort: reconnectingTabPort(connect, initialPort, onReconnect) };
     }
 
     // In window mode (new-tab http-auth), there's no content script to connect
     // to. Use a dummy port that handles close via window.close(), and synthesise
     // a tab object; the URL is filled in below from the authoritative background.
     const { tab, tabPort } =
-        isWindowMode && mode === "http-auth" ? { tab: { contextualIdentity: undefined }, tabPort: windowTabPort() } : await connectToTab();
+        isWindowMode && mode === "http-auth"
+            ? { tab: { contextualIdentity: undefined }, tabPort: windowTabPort() }
+            : await connectToTab(resyncTabPort);
 
     let suppressErrors = false;
     const port = chrome.runtime.connect({ name: "popup" });
@@ -362,7 +382,9 @@
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    tabPort.postMessage({ action: "fill-value", value: this.getValue() });
+                    void postFillWithAck({ action: "fill-value", value: this.getValue() }).then((delivered) => {
+                        if (!delivered) showError(CONTACT_ERROR);
+                    });
                 });
             }
         }
@@ -486,7 +508,11 @@
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    tabPort.postMessage({ action: "fill-value", value: this.#root.querySelector(".value").textContent });
+                    void postFillWithAck({ action: "fill-value", value: this.#root.querySelector(".value").textContent }).then(
+                        (delivered) => {
+                            if (!delivered) showError(CONTACT_ERROR);
+                        },
+                    );
                 });
             }
         }
@@ -652,6 +678,53 @@
         });
     }
 
+    /**
+     * Re-establish the ready handshake after a transparent tab-port reconnect, re-reporting
+     * the popup size on the fresh pipe so the host frame stays in sync.
+     * @since 1.0.7
+     * @returns {void}
+     */
+    function resyncTabPort() {
+        void waitForTabReady().then((acknowledged) => {
+            if (acknowledged && token !== "broadcast") reportPopupSize();
+        });
+    }
+
+    /**
+     * Post a one-shot fill message on the tab port and confirm receipt via the content
+     * script's ack, retrying once on a fresh port on timeout. Guards against silently
+     * dropped fills when the pipe breaks between posts.
+     * @since 1.0.7
+     * @param {object} msg - The fill message to post (its `action` selects the ack to await).
+     * @returns {Promise<boolean>} Whether the content script acked the message.
+     */
+    async function postFillWithAck(msg) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            let timer, onMessage;
+            const acked = new Promise((resolve) => {
+                timer = setTimeout(() => resolve(false), 600);
+                onMessage = (inbound) => {
+                    if (inbound?.action !== "ack" || inbound.ack !== msg.action) return;
+                    resolve(true);
+                };
+                // registered before posting so a fast (or synchronous) ack can't be missed
+                tabPort.onMessage.addListener(onMessage);
+            });
+            const cleanup = () => {
+                clearTimeout(timer);
+                tabPort.onMessage.removeListener(onMessage);
+            };
+            if (!tabPort.postMessage(msg)) {
+                cleanup();
+                continue;
+            }
+            const ok = await acked;
+            cleanup();
+            if (ok) return true;
+        }
+        return false;
+    }
+
     // init specific to the popup invocation type
     if (token === "broadcast") {
         document.body.classList.add("action-popup");
@@ -760,7 +833,9 @@
             const i = parseInt(index, 10);
             if (!Number.isNaN(i) && i >= 1 && i <= lines.length) {
                 const line = lines[i - 1];
-                tabPort.postMessage({ action: "fill-value", value: line.getValue() });
+                void postFillWithAck({ action: "fill-value", value: line.getValue() }).then((delivered) => {
+                    if (!delivered) showError(CONTACT_ERROR);
+                });
             }
         }
     }
@@ -1497,7 +1572,7 @@
             scheduleRender(msg.entries);
         } else if (msg.action === "plaintext") {
             if (msg.intent === "fill") {
-                const delivered = tabPort.postMessage({
+                const delivered = await postFillWithAck({
                     action: "fill",
                     token,
                     plaintext: msg.plaintext,
@@ -1505,7 +1580,7 @@
                     origin: frameOrigin,
                 });
                 if (!delivered) {
-                    showError("Parcel could not contact the page. Close this popup and reload the page.");
+                    showError(CONTACT_ERROR);
                 }
                 // Only record history when the fill was actually delivered to the content
                 // script; otherwise we would log a fill against a stale tab that never happened.

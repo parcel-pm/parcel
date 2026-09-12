@@ -1132,9 +1132,28 @@ export class Agent extends EventTarget {
             tab: { id: tabId, url: tabURL, contextualIdentity: port.sender?.tab?.cookieStoreId },
         });
 
-        port.onMessage.addListener((message) => tabPort.postMessage(message));
+        // Relay each direction defensively: a throwing post drops the message silently while
+        // the sender believes delivery succeeded, so tear the bridge down on failure to let
+        // the popup's reconnecting port observe the death and reconnect.
+        port.onMessage.addListener((message) => {
+            try {
+                tabPort.postMessage(message);
+            } catch (_err) {
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[popup-bridge] relay→tab postMessage failed:", err.message);
+                disconnect();
+            }
+        });
         port.onDisconnect.addListener(disconnect);
-        tabPort.onMessage.addListener((message) => port.postMessage(message));
+        tabPort.onMessage.addListener((message) => {
+            try {
+                port.postMessage(message);
+            } catch (_err) {
+                const err = chrome.runtime.lastError;
+                if (err) console.debug("[popup-bridge] tab→relay postMessage failed:", err.message);
+                disconnect();
+            }
+        });
         tabPort.onDisconnect.addListener(() => {
             chrome.runtime.lastError; // suppress content script connect errors
             disconnect();

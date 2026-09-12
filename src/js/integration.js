@@ -1795,6 +1795,8 @@
             } else if (msg?.action === "focus-resume") {
                 delete el._parcelFocusSuspended;
             } else if (msg?.action === "fill-value") {
+                // ack before touching the DOM so the popup can confirm delivery of one-shot fills
+                maybePost(port, { action: "ack", ack: "fill-value" });
                 // Fill the target field with the selected value
                 updateStatus("Filling value...");
                 await fillBoundField(null, null, null, msg.value);
@@ -1802,6 +1804,8 @@
                 maybePost(port, { action: "close" });
                 triggerPort.postMessage({ action: "close-popup" });
             } else if (msg?.action === "fill") {
+                // ack before payload validation so the popup can distinguish a dead pipe from a fill error
+                maybePost(port, { action: "ack", ack: "fill" });
                 // fill the target field, and related fields if configured
                 try {
                     updateStatus("Filling values...");

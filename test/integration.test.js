@@ -446,6 +446,56 @@ describe("Integration script", { concurrency: false }, () => {
     // fill via port
     // -----------------------------------------------------------------------
 
+    test("fill-value is acknowledged on receipt", async () => {
+        clearBody();
+        const input = makeInput({ type: "text", name: "user" });
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await click(input);
+        await popupPromise;
+
+        const token = input._parcelToken;
+        assert.ok(token);
+
+        const port = mock.chrome.runtime.connect({ name: token });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        const ackPromise = nextMessage(port, "ack", 3000);
+        port.postMessage({ action: "fill-value", value: "annie" });
+        const ack = await ackPromise;
+        assert.strictEqual(ack.ack, "fill-value");
+        await nextMessage(port, "close", 3000);
+        assert.strictEqual(input.value, "annie");
+    });
+
+    test("fill is acknowledged on receipt", async () => {
+        clearBody();
+        const input = makeInput({ type: "text", name: "username" });
+        const triggerReceiver = portReceivers["trigger"];
+        const popupPromise = nextMessage(triggerReceiver, "trigger-popup", 3000);
+        await click(input);
+        await popupPromise;
+
+        const token = input._parcelToken;
+        assert.ok(token);
+
+        const port = mock.chrome.runtime.connect({ name: token });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const originPromise = nextMessage(port, "origin", 3000);
+        port.postMessage({ action: "ready" });
+        await originPromise;
+
+        const ackPromise = nextMessage(port, "ack", 3000);
+        port.postMessage({ action: "fill", config: makeValidConfig(), plaintext: "login: alice\nsecret: wonderland" });
+        const ack = await ackPromise;
+        assert.strictEqual(ack.ack, "fill");
+        await nextMessage(port, "close", 3000);
+        assert.strictEqual(input.value, "alice");
+    });
+
     test("fill-value sets input value and green outline", async () => {
         clearBody();
         const input = makeInput({ type: "text", name: "user" });

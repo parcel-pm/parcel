@@ -88,6 +88,8 @@ function makeValidConfig(overrides = {}) {
 
 let dom, document, window, mock, portReceivers, portCallers;
 let readyAcknowledgements = 0;
+let fillsReceived = 0;
+let fillAcksSuppressed = false;
 
 before(async () => {
     const _realConsole = globalThis.console;
@@ -231,9 +233,13 @@ before(async () => {
         if (pair) {
             portReceivers[info.name || ""] = pair;
             pair.onMessage.addListener((msg) => {
-                if (msg?.action !== "ready") return;
-                readyAcknowledgements += 1;
-                pair.postMessage({ action: "origin", origin: "https://example.com" });
+                if (msg?.action === "ready") {
+                    readyAcknowledgements += 1;
+                    pair.postMessage({ action: "origin", origin: "https://example.com" });
+                } else if (msg?.action === "fill" || msg?.action === "fill-value") {
+                    fillsReceived += 1;
+                    if (!fillAcksSuppressed) pair.postMessage({ action: "ack", ack: msg.action });
+                }
             });
         }
         return caller;
@@ -825,6 +831,47 @@ describe("Popup script", { concurrency: false }, () => {
 
         const lis = document.querySelectorAll('ul#entries > li[data-path="test/site.com"]');
         assert.strictEqual(lis.length, 1, "the entry is rendered exactly once");
+    });
+
+    test("fill recovers over a fresh port after the tab port dies mid-popup", async () => {
+        const popupReceiver = portReceivers["popup"];
+        const staleReceiver = portReceivers["broadcast"];
+        const readyBefore = readyAcknowledgements;
+        const fillsBefore = fillsReceived;
+        portCallers["broadcast"].disconnect();
+        await settleAsync();
+
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "fill",
+            plaintext: "user: bob\npassword: hunter2\n",
+        });
+        await settleAsync();
+
+        assert.notStrictEqual(portReceivers["broadcast"], staleReceiver, "a fresh tab-port pair was established");
+        assert.ok(readyAcknowledgements > readyBefore, "the reconnect re-ran the ready handshake");
+        assert.ok(fillsReceived > fillsBefore, "fill was delivered after the reconnect");
+        assert.ok(!/could not contact the page/i.test(document.querySelector("p.error")?.textContent || ""), "no contact error shown");
+    });
+
+    test("missing fill acknowledgement shows the contact error", async () => {
+        const popupReceiver = portReceivers["popup"];
+        fillAcksSuppressed = true;
+        try {
+            popupReceiver.postMessage({
+                action: "plaintext",
+                intent: "fill",
+                plaintext: "user: carol\npassword: letmein\n",
+            });
+            const deadline = Date.now() + 3000;
+            while (Date.now() < deadline && !/could not contact the page/i.test(document.querySelector("p.error")?.textContent || "")) {
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            assert.match(document.querySelector("p.error")?.textContent || "", /could not contact the page/i);
+        } finally {
+            fillAcksSuppressed = false;
+            document.querySelectorAll("p.error").forEach((el) => el.remove());
+        }
     });
 
     test("missing ready acknowledgements show a contact error", async () => {
