@@ -340,6 +340,30 @@ function parcelrc_check_binary() {
             if [ "$LINK_OWNER" != "0" ]; then
                 parcelrc_fatal "$KEY: $TARGET must be owned by root, not a caller-owned symlink (the bootstrap host is installed system-wide)"
             fi
+            # resolve the whole link chain: a root-owned link pointing into a
+            # caller-writable directory can be swapped by replacing its pointee,
+            # so the final target's directory must be out of reach too
+            local RESOLVED NEXT HOPS
+            RESOLVED="$TARGET"
+            HOPS=0
+            while [ -L "$RESOLVED" ]; do
+                # mirrors the kernel's 40-link resolution limit; only reachable
+                # if the chain changed after the [ -f ] test above
+                HOPS=$((HOPS + 1))
+                if [ "$HOPS" -gt 40 ]; then
+                    parcelrc_fatal "$KEY: cannot resolve $TARGET (symlink chain too long or cyclic)"
+                fi
+                NEXT="$(readlink "$RESOLVED")" || parcelrc_fatal "$KEY: cannot resolve $TARGET"
+                case "$NEXT" in
+                    /*) RESOLVED="$NEXT" ;;
+                    *) RESOLVED="${RESOLVED%/*}/$NEXT" ;;
+                esac
+            done
+            local RESOLVED_DIR="${RESOLVED%/*}"
+            [ -n "$RESOLVED_DIR" ] || RESOLVED_DIR="/"
+            if [ -w "$RESOLVED_DIR" ]; then
+                parcelrc_fatal "$KEY: $TARGET resolves into a directory writable by you (the bootstrap host is installed system-wide)"
+            fi
         fi
         # a caller-writable directory allows the binary to be swapped via rename
         # after startup even when the file itself is root-owned and read-only

@@ -79,7 +79,7 @@ This is an **opt-in** defence-in-depth measure. It is not set by default because
 When the bootstrap is installed system-wide such that the invoking user cannot modify it or the directory it is installed in (`parcel-setup.sh --system`, recommended for this stronger guarantee), it constrains its own environment as defence-in-depth against user-level malware - not full system compromise:
 
 - `PATH` is filtered down to root-owned, user-non-writable directories. Root-owned symlinks like merged-usr `/bin -> usr/bin` are kept; caller-owned ones are dropped. A builtins-only first pass ensures `stat` itself cannot be shadowed during filtering.
-- `gpg`/`jq`/`openssl` - defaults and `parcelrc` overrides alike - must resolve to root-owned binaries the user cannot write in directories the user cannot write to; a symlinked override needs a root-owned link too.
+- `gpg`/`jq`/`openssl` - defaults and `parcelrc` overrides alike - must resolve to root-owned binaries the user cannot write in directories the user cannot write to; a symlinked override needs a root-owned link too, and the link's fully-resolved target must also sit outside user-writable directories.
 - The pinned `#!/bin/bash` shebang cannot be redirected via `PATH`.
 
 For user-owned installs (the default) these checks are skipped, since malware could just edit the bootstrap itself (a system-wide install into a user-writable directory is likewise treated as permissive, since the bootstrap could be replaced via rename). Root-owned binaries placed inside caller-writable directories are rejected at startup.

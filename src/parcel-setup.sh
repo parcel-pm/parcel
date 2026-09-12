@@ -908,17 +908,49 @@ test_writable_by_user() {
         if [ -n "$SERVICES_USER" ]; then
             sudo -u "$SERVICES_USER" test -w "$path"
         else
-            [ -n "$(find "$path" -perm /022 2>/dev/null)" ]
+            # As root the owner-writability test is meaningless, so judge the path's
+            # own permission bits instead: group- or other-writable means modifiable.
+            # stat is used rather than find: -perm /022 is GNU-only, and find without
+            # -maxdepth 0 would walk the entire subtree of every path checked.
+            local mode
+            mode="$(stat -L -c %a "$path" 2>/dev/null || stat -L -f %p "$path" 2>/dev/null)" || return 0
+            mode="${mode: -3}"
+            case "$mode" in
+                "" | *[!0-7]*) return 0 ;;
+            esac
+            [ "$((8#$mode & 8#022))" -ne 0 ]
         fi
     else
         [ -w "$path" ]
     fi
 }
 
+# Resolve a symlink chain to its final target. Relative link targets are
+# resolved against the directory of the link; .. segments are not normalised
+# (writability tests do not require it). Chains longer than 40 links fail.
+# @param {string} path - Absolute start path.
+# @output {string} The resolved path.
+# @return 0 on success, 1 if a link cannot be read.
+# @since 1.0.7
+resolve_symlink_chain() {
+    local path="$1" next hops=0
+    while [ -L "$path" ]; do
+        hops=$((hops + 1))
+        [ "$hops" -le 40 ] || return 1
+        next="$(readlink "$path")" || return 1
+        case "$next" in
+            /*) path="$next" ;;
+            *) path="${path%/*}/$next" ;;
+        esac
+    done
+    printf '%s\n' "$path"
+}
+
 # Test whether a binary path would be accepted by the bootstrap: an absolute-path
 # executable regular file, plus (for system-wide installs) root ownership and no
 # write access for the invoking user, with the containing directory also off-limits,
-# mirroring the bootstrap's strict-mode rules.
+# mirroring the bootstrap's strict-mode rules (including a root-owned symlink link
+# and a fully-resolved target outside writable directories).
 # @param {string} path - Absolute path to check.
 # @return {boolean} True if acceptable.
 # @since 1.0.7
@@ -933,10 +965,29 @@ tool_acceptable() {
     local owner
     owner="$(stat -L -c %u "$path" 2>/dev/null || stat -L -f %u "$path" 2>/dev/null)" || owner=""
     [ "$owner" = "0" ] || return 1
-    ! test_writable_by_user "$path"
+    if test_writable_by_user "$path"; then
+        return 1
+    fi
     local parent="${path%/*}"
     [ -n "$parent" ] || parent="/"
-    ! test_writable_by_user "$parent"
+    if test_writable_by_user "$parent"; then
+        return 1
+    fi
+    if [ -L "$path" ]; then
+        # the bootstrap requires the link itself to be root-owned too (a
+        # caller-owned symlink can be repointed after startup), and the final
+        # target to sit outside writable directories
+        local link_owner resolved resolved_parent
+        link_owner="$(stat -c %u "$path" 2>/dev/null || stat -f %u "$path" 2>/dev/null)" || link_owner=""
+        [ "$link_owner" = "0" ] || return 1
+        resolved="$(resolve_symlink_chain "$path")" || return 1
+        resolved_parent="${resolved%/*}"
+        [ -n "$resolved_parent" ] || resolved_parent="/"
+        if test_writable_by_user "$resolved_parent"; then
+            return 1
+        fi
+    fi
+    return 0
 }
 
 # Detect a single tool's path.

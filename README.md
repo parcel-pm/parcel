@@ -257,7 +257,7 @@ If this file does not exist, the bootstrap host creates a commented template on 
 
 **Format:** one setting per line as `KEY="value"`, plus comments and blank lines. Only the documented keys below take effect; anything else is ignored, so files continue to work across bootstrap host updates. Path values may begin with `$HOME`. Values cannot contain double quotes, backslashes, backticks, or other variable expansions.
 
-When the bootstrap host is installed system-wide (owned by root rather than by your user), the `GPG`, `JQ`, and `OPENSSL` overrides must resolve to root-owned binaries that your user cannot modify, in directories your user cannot write to; the bootstrap host refuses to start otherwise. When the bootstrap host is owned by your user (the default per-user install), any executable binary is accepted.
+When the bootstrap host is installed system-wide (owned by root rather than by your user), the `GPG`, `JQ`, and `OPENSSL` overrides must resolve to root-owned binaries that your user cannot modify, in directories your user cannot write to; a symlinked override additionally needs a root-owned link and a fully-resolved target outside user-writable directories. The bootstrap host refuses to start otherwise. When the bootstrap host is owned by your user (the default per-user install), any executable binary is accepted.
 
 | Option | Default | Description |
 |--------|---------|-------------|
