@@ -1220,7 +1220,7 @@ function action_test_override() {
         }
     });
 
-    test("silently ignores PATH settings in parcelrc", async () => {
+    test("ignores PATH settings in parcelrc, with a log warning", async () => {
         const env = createTestEnv();
         const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
         const existing = readFileSync(parcelrc, "utf8");
@@ -1233,9 +1233,9 @@ function action_test_override() {
             send({ action: "install", script: "console.log('host script');", signature: "sig" });
             const msg = await read();
             assert.strictEqual(msg.data?.success, true, `Expected successful install, got: ${JSON.stringify(msg)}`);
-            // the ignored PATH must not be flagged to the user
+            // the ignored PATH must be explained in the log
             const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
-            assert.ok(!logContent.includes("parcelrc:"), `PATH must be ignored silently, got: ${logContent}`);
+            assert.ok(logContent.includes("PATH is no longer a parcelrc option"), `Expected a PATH warning in the log, got: ${logContent}`);
         } finally {
             proc.kill();
             env.cleanup();

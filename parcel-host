@@ -447,6 +447,12 @@ function load_parcelrc() {
         fi
         NAME="${BASH_REMATCH[1]}"
         VALUE="${BASH_REMATCH[2]}"
+        # PATH was a documented option before the whitelist parser; warn on its
+        # removal rather than ignoring the line without explanation
+        if [ "$NAME" = "PATH" ]; then
+            parcelrc_note "PATH is no longer a parcelrc option; ignoring it (set GPG/JQ/OPENSSL to a command name or absolute path instead)"
+            continue
+        fi
         # values may not contain backticks, backslashes or control characters, and the
         # only permitted expansion tokens are $HOME and ${HOME}
         # shellcheck disable=SC1003 # the single-quoted backtick pattern is intentional
