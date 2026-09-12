@@ -2,62 +2,6 @@
 # shellcheck disable=SC2155,SC1090
 set -e
 
-# BASH_ENV is sourced into every non-interactive bash. LD_PRELOAD (Linux) and
-# DYLD_INSERT_LIBRARIES (macOS) inject a library into the bootstrap and every child it
-# spawns (gpg, jq, openssl). The remaining loader variables redirect library resolution:
-# LD_LIBRARY_PATH, LD_AUDIT and GCONV_PATH on glibc; DYLD_LIBRARY_PATH and
-# DYLD_FALLBACK_LIBRARY_PATH on macOS; each suffices to execute attacker-controlled code
-# in any child that links a shadowable library. If any is set, drop them all and re-exec
-# before anything else runs. Builtin-only: PATH is not yet sanitised.
-if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ] || [ -n "${LD_AUDIT:-}" ] || [ -n "${LD_LIBRARY_PATH:-}" ] ||
-   [ -n "${GCONV_PATH:-}" ] || [ -n "${DYLD_INSERT_LIBRARIES:-}" ] || [ -n "${DYLD_LIBRARY_PATH:-}" ] ||
-   [ -n "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]; then
-    unset BASH_ENV LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH GCONV_PATH \
-        DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
-    exec "$0" "$@"
-fi
-
-# Exported functions arrive as BASH_FUNC_* environment entries and are imported before
-# the first script line, so they can shadow any command the bootstrap later resolves
-# (gpg, jq, stat). Nothing is legitimately defined as a function this early, so unset
-# every one; this also removes the BASH_FUNC_* entry from exported environment.
-# Process substitution is required: a pipe would unset in a subshell.
-#
-# WARNING: never spawn a bash child from this script or from the main host script.
-# This guard does not protect it. Under the -p shebang the raw BASH_FUNC_* entries
-# stay in the environment (invalid names cannot be held or unset), and a bash child
-# re-imports them as live functions; under plain invocation the scrub is bypassable
-# by shadowing compgen. No child of either host script may therefore be bash.
-while IFS= read -r FN; do
-    unset -f "$FN"
-done < <(compgen -A function)
-
-# Environment whitelist: everything not listed here is unset before any other code runs.
-# Host requirements: HOME, XDG_CONFIG_HOME (config dir), PATH (tool resolution;
-# re-sanitised in strict mode), PASSWORD_STORE_DIR (documented option), GNUPGHOME
-# (pass users with a custom gpg home), plus the runtime knobs the host scripts consume
-# by design (PARCEL_* such as the idle timeout, and STATE_LOCK_TIMEOUT; numeric).
-# The pinentry interaction set is deliberately broad: an over-strict whitelist breaks
-# passphrase prompts on minority setups, and none of these can execute code: GPG_TTY,
-# TERM, TERMINFO, TERMINFO_DIRS, DISPLAY, XAUTHORITY, WAYLAND_DISPLAY, XDG_RUNTIME_DIR
-# (default socket directory used by dbus, wayland and gpg-agent socket discovery),
-# DBUS_SESSION_BUS_ADDRESS, GTK_IM_MODULE, QT_IM_MODULE, XMODIFIERS, PINENTRY_USER_DATA,
-# plus LANG/LC_* for localised prompts. BASH_FUNC_* residue is unaffected: those entries
-# may be enumerated here but cannot actually be unset (see the warning above).
-for PARCEL_ENV_VAR in $(compgen -e); do
-    case "$PARCEL_ENV_VAR" in
-        HOME|XDG_CONFIG_HOME|PATH|PASSWORD_STORE_DIR|GNUPGHOME) ;;
-        GPG_TTY|TERM|TERMINFO|TERMINFO_DIRS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY) ;;
-        XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|PINENTRY_USER_DATA) ;;
-        PARCEL_*|STATE_LOCK_TIMEOUT) ;;
-        LANG|LC_*) ;;
-        *)
-            unset "$PARCEL_ENV_VAR" 2>/dev/null || true
-            ;;
-    esac
-done
-unset PARCEL_ENV_VAR
-
 # ISC License
 #
 # Copyright (c) 2023-2026 Erayd LTD
@@ -74,16 +18,46 @@ unset PARCEL_ENV_VAR
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+# WARNING: never spawn a bash child from this script or from the main host script.
+# Privileged mode never imports functions from the environment, but the raw
+# BASH_FUNC_* entries it leaves behind stay exported for the life of the process
+# (invalid names cannot be held or unset), and a bash child re-imports them as live
+# functions. No child of either host script may therefore be bash.
+
+# Re-exec into privileged mode to prevent shadowing. Cannot prevent shadowed exec.
+if [[ ! -o privileged ]]; then exec "$BASH" -p "$0" "$@"; fi
+
+# Sanitise load environment
+if [ -n "${BASH_ENV:-}" ] || [ -n "${LD_PRELOAD:-}" ] || [ -n "${LD_AUDIT:-}" ] || [ -n "${LD_LIBRARY_PATH:-}" ] ||
+   [ -n "${GCONV_PATH:-}" ] || [ -n "${DYLD_INSERT_LIBRARIES:-}" ] || [ -n "${DYLD_LIBRARY_PATH:-}" ] ||
+   [ -n "${DYLD_FALLBACK_LIBRARY_PATH:-}" ]; then
+    unset BASH_ENV LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH GCONV_PATH \
+        DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
+    exec "$0" "$@"
+fi
+
+# Whitelist-based environment cleanup. Keep vars needed for the Parcel host itself, and GPG
+# (pinentry etc) downstream requirements. Please open an issue if you need more than this.
+for PARCEL_ENV_VAR in $(compgen -e); do
+    case "$PARCEL_ENV_VAR" in
+        HOME|XDG_CONFIG_HOME|PATH|PASSWORD_STORE_DIR|GNUPGHOME) ;;
+        GPG_TTY|TERM|TERMINFO|TERMINFO_DIRS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY) ;;
+        XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|GTK_IM_MODULE|QT_IM_MODULE|XMODIFIERS|PINENTRY_USER_DATA) ;;
+        PARCEL_*|STATE_LOCK_TIMEOUT) ;;
+        LANG|LC_*) ;;
+        *)
+            unset "$PARCEL_ENV_VAR" 2>/dev/null || true
+            ;;
+    esac
+done
+unset PARCEL_ENV_VAR
+
 TOKEN="broadcast"
 PARCEL_HOST=""
 BOOTSTRAP_VERSION="3"
 
-# Binary and helper-tool ownership is only meaningful when the bootstrap itself is out
-# of the user's reach (a system-wide install): not user-owned, and not sitting in a
-# directory the user can write to (a writable directory allows replacement via rename).
-# In permissive mode user-level malware could modify the bootstrap directly, so no such
-# checks are applied. Builtin tests only: this runs before PATH sanitisation. Must remain
-# a single self-contained function: the test suite extracts it verbatim.
+# Strict mode: the bootstrap is beyond the user's reach (not user-owned, directory not user-writable).
+# Builtin tests only (before PATH sanitisation); must remain one self-contained function: tests extract it verbatim.
 #
 # @since 1.0.7
 function parcel_strict_mode_enabled() {
