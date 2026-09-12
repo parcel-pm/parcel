@@ -1452,6 +1452,10 @@ exit 1
             const linkDir = join(tmp, "linked");
             symlinkSync("/usr/bin", linkDir);
 
+            const worldDir = join(tmp, "world-writable");
+            mkdirSync(worldDir);
+            chmodSync(worldDir, 0o777);
+
             const res = spawnSync(
                 "bash",
                 [
@@ -1460,7 +1464,7 @@ exit 1
                     "-c",
                     `${extractBootstrapFn("parcel_strict_filter_path")}\nparcel_strict_filter_path\nprintf 'FILTERED:%s\\n' "$PATH"`,
                 ],
-                { encoding: "utf8", env: { PATH: `${ownedDir}:${linkDir}:/private/tmp:/usr/bin:/bin` } },
+                { encoding: "utf8", env: { PATH: `${ownedDir}:${linkDir}:${worldDir}:/usr/bin:/bin` } },
             );
             assert.strictEqual(res.status, 0, `harness failed: ${res.stderr}`);
             const kept = res.stdout
@@ -1469,7 +1473,7 @@ exit 1
                 .split(":");
             assert.ok(!kept.includes(ownedDir), "caller-owned 0555 dir must be dropped despite the lying fake stat");
             assert.ok(!kept.includes(linkDir), "symlinked dir must be dropped despite resolving to /usr/bin");
-            assert.ok(!kept.includes("/private/tmp"), "world-writable dir must be dropped");
+            assert.ok(!kept.includes(worldDir), "world-writable dir must be dropped");
             assert.ok(kept.includes("/usr/bin"), `system dirs must be kept, got: ${kept}`);
             // /bin is a merged-usr symlink on some distros; pass 1 must drop it then
             if (lstatSync("/bin").isSymbolicLink()) {
@@ -1492,6 +1496,9 @@ exit 1
             // Caller-controlled elements: a symlink into a root-owned dir, and a real dir.
             const linkDir = join(tmp, "linked");
             symlinkSync("/usr/bin", linkDir);
+            const worldDir = join(tmp, "world-writable");
+            mkdirSync(worldDir);
+            chmodSync(worldDir, 0o777);
             const run = (originalPath) =>
                 spawnSync(
                     "bash",
@@ -1513,11 +1520,11 @@ printf 'FILTERED:%s\\n' "$PATH"`,
                     .replace(/^FILTERED:/, "")
                     .split(":");
 
-            const res = run(`${ownedDir}:${linkDir}:/private/tmp:/usr/bin:/bin`);
+            const res = run(`${ownedDir}:${linkDir}:${worldDir}:/usr/bin:/bin`);
             assert.strictEqual(res.status, 0, `harness failed: ${res.stderr}`);
             assert.ok(!kept(res).includes(ownedDir), "caller-owned dir must be dropped");
             assert.ok(!kept(res).includes(linkDir), "caller-owned symlink must be dropped despite a root-owned target");
-            assert.ok(!kept(res).includes("/private/tmp"), "world-writable dir must be dropped");
+            assert.ok(!kept(res).includes(worldDir), "world-writable dir must be dropped");
             assert.ok(kept(res).includes("/usr/bin") && kept(res).includes("/bin"), `system dirs must be kept: ${kept(res)}`);
 
             // No PATH-resolvable stat: a pinned absolute stat must be used anyway (so the
