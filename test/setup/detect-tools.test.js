@@ -120,6 +120,69 @@ test("tool_acceptable rejects root-owned binaries in writable directories on sys
     }
 });
 
+/** Verifies warn_nonroot_tools validates the paths detection accepted, not re-resolved USER_PATH lookups. */
+test("warn_nonroot_tools validates the accepted path instead of re-resolving it via USER_PATH", () => {
+    if (process.getuid?.() === 0) return; // ownership semantics are distorted as root
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "bin");
+        writeMockBin(bin, "gpg", "exit 0");
+        // detection accepts the root-owned default, so a user-owned gpg earlier in
+        // USER_PATH must not produce a strict-mode warning the bootstrap can never hit
+        const res = sourceScript(
+            `YES=true
+INSTALL_LEVEL=system
+CUSTOM_GPG=""
+CUSTOM_JQ=""
+CUSTOM_OPENSSL=""
+detect_single_tool_path gpg '' /bin/ls CUSTOM_GPG FORCE_GPG
+warn_nonroot_tools`,
+            { env: { PATH: `${bin}:${process.env.PATH}`, USER_PATH: bin, HOME: home } },
+        );
+        assert.strictEqual(res.code, 0, `run failed (stderr:\n${res.stderr})`);
+        assert.ok(!res.stderr.includes("GPG ("), `must not warn about the unaccepted USER_PATH entry, got:\n${res.stderr}`);
+        assert.ok(res.stderr.includes("No acceptable jq binary was found"), `expected a missing-jq warning, got:\n${res.stderr}`);
+        assert.ok(res.stderr.includes("No acceptable openssl binary was found"), `expected a missing-openssl warning, got:\n${res.stderr}`);
+
+        // an effective path that fails the strict-mode bar is still called out
+        const strict = sourceScript(
+            `INSTALL_LEVEL=system
+CUSTOM_GPG=""
+CUSTOM_JQ=""
+CUSTOM_OPENSSL=""
+EFFECTIVE_GPG="${join(bin, "gpg")}"
+warn_nonroot_tools`,
+            { env: { HOME: home } },
+        );
+        assert.strictEqual(strict.code, 0, `run failed (stderr:\n${strict.stderr})`);
+        assert.ok(strict.stderr.includes("is not root-owned"), `expected a strict-mode warning, got:\n${strict.stderr}`);
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies $HOME-prefixed parcelrc values are left in place and recorded expanded. */
+test("detect_single_tool_path respects a $HOME-prefixed parcelrc value", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const bin = join(home, "fakebin");
+        const gpg = writeMockBin(bin, "gpg", "exit 0");
+        for (const form of ["$HOME", "${HOME}"]) {
+            const res = sourceScript(
+                `INSTALL_LEVEL=user
+CUST="c"; FORCE="f"
+detect_single_tool_path gpg '${form}/fakebin/gpg' '${NOENT}' CUST FORCE
+printf '%s|%s|%s' "$CUST" "$FORCE" "$EFFECTIVE_GPG"`,
+                { env: { HOME: home } },
+            );
+            assert.strictEqual(res.code, 0, `run failed (stderr:\n${res.stderr})`);
+            assert.strictEqual(res.stdout, `c|f|${gpg}`, "a usable $HOME-prefixed value must be left alone and recorded expanded");
+        }
+    } finally {
+        cleanup();
+    }
+});
+
 /** Verifies detect_tool_paths reads all three parcelrc values and delegates correctly. */
 test("detect_tool_paths dispatches over gpg, jq, and openssl", () => {
     const { home, cleanup } = makeTempHome();

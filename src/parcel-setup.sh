@@ -906,6 +906,18 @@ test_writable_by_user() {
     local path="$1"
     if [ "$(id -u)" -eq 0 ]; then
         if [ -n "$SERVICES_USER" ]; then
+            # Sanity-check the dropped-privilege probe once: the services user
+            # cannot write the root directory, so only exit code 1 proves the
+            # probe itself ran. Anything else (unknown user, policy denial,
+            # missing sudo) fails closed: every path is reported as user-writable
+            # so callers reject instead of accept.
+            if [ -z "${SERVICES_USER_PROBE_RC:-}" ]; then
+                SERVICES_USER_PROBE_RC=1
+                sudo -u "$SERVICES_USER" test -w / 2>/dev/null || SERVICES_USER_PROBE_RC=$?
+            fi
+            if [ "$SERVICES_USER_PROBE_RC" -ne 1 ]; then
+                return 0
+            fi
             sudo -u "$SERVICES_USER" test -w "$path"
         else
             # As root the owner-writability test is meaningless, so judge the path's
@@ -1000,21 +1012,30 @@ tool_acceptable() {
 # @param {string} default_path - Default system path (e.g. /usr/bin/gpg).
 # @param {string} custom_var - Name of the global to set with the custom path.
 # @param {string} force_var - Name of the global to set true if clobbering.
+# @output Sets EFFECTIVE_<TOOL> (tool name uppercased) to the path that was
+#     accepted or left in place, for validation by warn_nonroot_tools.
 # @since 1.0.7
 detect_single_tool_path() {
     local tool="$1" existing="$2" default_path="$3"
     local custom_var="$4" force_var="$5"
     local found_path=""
+    local effective_var
+    effective_var="EFFECTIVE_$(printf '%s' "$tool" | tr '[:lower:]' '[:upper:]')"
+    printf -v "$effective_var" '%s' ''
 
     # 1. Existing parcelrc value - respect it if still usable
     if [ -n "$existing" ]; then
         local existing_resolved="$existing"
+        # shellcheck disable=SC2016 # single quotes are intentional: branch patterns match literal $HOME and ${HOME} tokens
         case "$existing" in
-            */*) ;;
+            '$HOME'/*) existing_resolved="$HOME/${existing#'$HOME'/}" ;;
+            '${HOME}'/*) existing_resolved="$HOME/${existing#'${HOME}'/}" ;;
+            /* | */*) ;;
             *) existing_resolved="$(PATH="$USER_PATH" command -v "$existing" 2>/dev/null || echo "")" ;;
         esac
         if tool_acceptable "$existing_resolved"; then
             log_info "$tool already set in parcelrc ($existing) - leaving as-is"
+            printf -v "$effective_var" '%s' "$existing_resolved"
             return
         fi
         log_warn "$tool in parcelrc ($existing) is not usable - will overwrite"
@@ -1022,6 +1043,7 @@ detect_single_tool_path() {
 
     # 2. Default path visible to the host (no customisation needed)
     if [ -z "$existing" ] && tool_acceptable "$default_path"; then
+        printf -v "$effective_var" '%s' "$default_path"
         return
     fi
 
@@ -1080,6 +1102,7 @@ detect_single_tool_path() {
 
     # Set the custom path; force if we're replacing a broken existing value
     printf -v "$custom_var" '%s' "$found_path"
+    printf -v "$effective_var" '%s' "$found_path"
     if [ -n "$existing" ]; then
         printf -v "$force_var" '%s' true
     fi
@@ -1087,32 +1110,31 @@ detect_single_tool_path() {
 
 # Warn when the effective tool binaries would fail the bootstrap's strict-mode bar
 # (root-owned and not writable by the invoking user) during a system-wide install.
+# Validates the paths detection actually accepted (or left in place) rather than
+# re-resolving tool names via USER_PATH: the bootstrap resolves bare names through
+# its own sanitised PATH, so a re-resolution here could point at a binary the host
+# would never use.
 # @since 1.0.7
 warn_nonroot_tools() {
     [ "$INSTALL_LEVEL" = "system" ] || return 0
 
-    local parcelrc="$CONFIG_DIR/parcelrc"
     local warned=false
-    local spec rest name tool detected path resolved
-    for spec in "GPG:gpg:${CUSTOM_GPG:-}" "JQ:jq:${CUSTOM_JQ:-}" "OPENSSL:openssl:${CUSTOM_OPENSSL:-}"; do
-        name="${spec%%:*}"
-        rest="${spec#*:}"
-        tool="${rest%%:*}"
-        detected="${rest#*:}"
-        path=""
-        if [ -f "$parcelrc" ]; then
-            path="$(sed -n "s/^${name}=\"\\(.*\\)\"\$/\\1/p" "$parcelrc" 2>/dev/null)"
+    local name ref effective tool
+    for name in GPG JQ OPENSSL; do
+        ref="CUSTOM_$name"
+        effective="${!ref:-}"
+        if [ -z "$effective" ]; then
+            ref="EFFECTIVE_$name"
+            effective="${!ref:-}"
         fi
-        resolved="${path:-${detected:-$tool}}"
-        case "$resolved" in
-            */*) ;;
-            *) resolved="$(PATH="$USER_PATH" command -v "$resolved" 2>/dev/null)" || resolved="" ;;
-        esac
-        if [ -z "$resolved" ] || [ ! -e "$resolved" ]; then
+        tool="$(tr '[:upper:]' '[:lower:]' <<< "$name")"
+        if [ -z "$effective" ]; then
+            log_warn "No acceptable $tool binary was found - a system-wide bootstrap will refuse to start"
+            warned=true
             continue
         fi
-        if ! tool_acceptable "$resolved"; then
-            log_warn "$name ($resolved) is not root-owned, or is writable by you or sits in a directory writable by you - a system-wide bootstrap will refuse to use it"
+        if ! tool_acceptable "$effective"; then
+            log_warn "$name ($effective) is not root-owned, or is writable by you or sits in a directory writable by you - a system-wide bootstrap will refuse to use it"
             warned=true
         fi
     done
