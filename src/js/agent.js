@@ -1127,10 +1127,16 @@ export class Agent extends EventTarget {
             tabPort.disconnect();
         };
 
-        port.postMessage({
-            action: "tab-context",
-            tab: { id: tabId, url: tabURL, contextualIdentity: port.sender?.tab?.cookieStoreId },
-        });
+        try {
+            port.postMessage({
+                action: "tab-context",
+                tab: { id: tabId, url: tabURL, contextualIdentity: port.sender?.tab?.cookieStoreId },
+            });
+        } catch (err) {
+            console.debug("[popup-bridge] tab-context postMessage failed:", err.message);
+            disconnect();
+            return;
+        }
 
         // Relay each direction defensively: a throwing post drops the message silently while
         // the sender believes delivery succeeded, so tear the bridge down on failure to let
@@ -1138,9 +1144,10 @@ export class Agent extends EventTarget {
         port.onMessage.addListener((message) => {
             try {
                 tabPort.postMessage(message);
-            } catch (_err) {
-                const err = chrome.runtime.lastError;
-                if (err) console.debug("[popup-bridge] relay→tab postMessage failed:", err.message);
+            } catch (err) {
+                // lastError is only set for callback-style API errors; a synchronous
+                // post throw carries the real failure in the caught error itself.
+                console.debug("[popup-bridge] relay→tab postMessage failed:", err.message);
                 disconnect();
             }
         });
@@ -1148,9 +1155,8 @@ export class Agent extends EventTarget {
         tabPort.onMessage.addListener((message) => {
             try {
                 port.postMessage(message);
-            } catch (_err) {
-                const err = chrome.runtime.lastError;
-                if (err) console.debug("[popup-bridge] tab→relay postMessage failed:", err.message);
+            } catch (err) {
+                console.debug("[popup-bridge] tab→relay postMessage failed:", err.message);
                 disconnect();
             }
         });

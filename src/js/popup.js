@@ -700,8 +700,9 @@
      */
     async function postFillWithAck(msg) {
         for (let attempt = 0; attempt < 2; attempt++) {
-            let timer, onMessage;
+            let timer, onMessage, resolveAcked;
             const acked = new Promise((resolve) => {
+                resolveAcked = resolve;
                 timer = setTimeout(() => resolve(false), 600);
                 onMessage = (inbound) => {
                     if (inbound?.action !== "ack" || inbound.ack !== msg.action) return;
@@ -713,6 +714,8 @@
             const cleanup = () => {
                 clearTimeout(timer);
                 tabPort.onMessage.removeListener(onMessage);
+                // settle even when abandoned (retry after failed post) so the promise never goes unsettled
+                resolveAcked(false);
             };
             if (!tabPort.postMessage(msg)) {
                 cleanup();
