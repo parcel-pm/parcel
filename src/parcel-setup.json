@@ -168,6 +168,21 @@
             }
         },
         {
+            "name": "glide",
+            "engine": "firefox",
+            "detect_command": ["glide"],
+            "detect": {
+                "darwin": ["/Applications/Glide.app"],
+                "linux": ["/usr/bin/glide", "/usr/local/bin/glide", "/opt/glide/glide", "/usr/lib/glide/glide"]
+            },
+            "manifestDir": {
+                "darwin-system": "/Library/Application Support/Glide Browser/NativeMessagingHosts",
+                "darwin-user": "~/Library/Application Support/Glide Browser/NativeMessagingHosts",
+                "linux-system": "/usr/lib/glide-browser/native-messaging-hosts",
+                "linux-user": "~/.glide-browser/native-messaging-hosts"
+            }
+        },
+        {
             "name": "firefox",
             "engine": "firefox",
             "detect_command": ["firefox"],
