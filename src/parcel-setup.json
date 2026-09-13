@@ -170,10 +170,17 @@
         {
             "name": "glide",
             "engine": "firefox",
-            "detect_command": ["glide"],
+            "detect_command": ["glide", "glide-bin"],
             "detect": {
                 "darwin": ["/Applications/Glide.app"],
-                "linux": ["/usr/bin/glide", "/usr/local/bin/glide", "/opt/glide/glide", "/usr/lib/glide/glide"]
+                "linux": [
+                    "/usr/bin/glide",
+                    "/usr/local/bin/glide",
+                    "/opt/glide/glide",
+                    "/usr/lib/glide/glide",
+                    "/opt/glide-browser",
+                    "/opt/glide-browser-bin"
+                ]
             },
             "manifestDir": {
                 "darwin-system": "/Library/Application Support/Glide Browser/NativeMessagingHosts",
