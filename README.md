@@ -110,6 +110,41 @@ make firefox
 make clean
 ```
 
+Note that the build signs the bundled main host script (`parcel-host`) with GPG. The default signing key is a Parcel release key that only release maintainers have, so a build from a fresh clone stops at the signing step. To build with your own key instead, see [Self-build signing](#self-build-signing).
+
+### Self-build signing
+
+Every build signs the main host script (`src/parcel-host`) with GPG, producing the bundled `parcel-host.asc`. The installed bootstrap host refuses to run the host script unless its signature comes from a key listed in `VALID_SIGNERS` in your `parcelrc` (see [parcelrc](#parcelrc)), so the signing step cannot be skipped.
+
+The default signing key is only available to Parcel release maintainers. To build and run your own copy, sign with a key you control and tell your `parcelrc` to trust it. Do not add any other key for this: a fingerprint in `VALID_SIGNERS` grants the ability to run host scripts inside your password-store session, so it should only ever name keys you generated yourself (or the official release keys).
+
+**1. Generate a key** (skip this if you already have a signing key you want to use):
+
+```bash
+gpg --quick-generate-key "you@example.com" ed25519 sign never
+gpg -K --fingerprint
+```
+
+Copy the 40-character fingerprint of the key you generated.
+
+**2. Build with your key:**
+
+```bash
+make all SIGN_KEY=<your key fingerprint>
+```
+
+The `SIGN_KEY` override works with every build target (`all`, `extension`, `chrome`, `firefox`). If `src/dist/parcel-host.asc` already exists from a build with a different key, run `make clean` first: the `.asc` is only rebuilt when `parcel-host` itself changes.
+
+**3. Trust your key in `parcelrc`:** set `VALID_SIGNERS` to include your fingerprint. Listing only your own fingerprint is the strongest posture: the bootstrap host will then refuse host scripts signed by anyone else, including the official release keys, so you explicitly review every host script update you install. Note that this locks you out of the official extension builds: the versions distributed through the webstores bundle a host script signed with the release keys, which your bootstrap host will refuse, so for as long as that policy is in place you must build and load the extension from source yourself. Keeping the release keys in the list preserves automatic acceptance of upstream-signed host script updates (and webstore compatibility) instead; that is a convenience tradeoff. For example:
+
+```bash
+VALID_SIGNERS="<your key fingerprint>"
+```
+
+Optionally also set `HOST_HASH` in `parcelrc` to pin the exact host script contents on top of the signature check (see [parcelrc](#parcelrc)).
+
+The build never edits `parcelrc` for you: adding a fingerprint to `VALID_SIGNERS` is a deliberate, manual trust decision.
+
 ### Load into the browser
 
 **Chrome:**
@@ -261,7 +296,7 @@ When the bootstrap host is installed system-wide (owned by root rather than by y
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `VALID_SIGNERS` | Release signing keys | Space-separated list of GPG key fingerprints that are trusted to sign the main host script. |
+| `VALID_SIGNERS` | Release signing keys | Space-separated list of GPG key fingerprints that are trusted to sign the main host script. For self-builds, see [Self-build signing](#self-build-signing). |
 | `BLACKLIST_SIGNERS` | *(none)* | Space-separated list of revoked GPG key fingerprints (primary or subkey form both match; matching is case-insensitive). |
 | `GPG` | `gpg` | GPG binary: a command name found via `PATH`, or an absolute path (e.g. `/opt/homebrew/bin/gpg` on macOS). |
 | `JQ` | `jq` | `jq` binary, specified the same way as `GPG`. |
