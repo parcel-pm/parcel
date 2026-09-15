@@ -91,11 +91,7 @@ let readyAcknowledgements = 0;
 let fillsReceived = 0;
 let fillAcksSuppressed = false;
 
-before(async () => {
-    const _realConsole = globalThis.console;
-    globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
-
-    const popupHtml = `<!doctype html>
+const popupHtml = `<!doctype html>
 <html lang="en">
 <head><meta charset="UTF-8" /></head>
 <body>
@@ -119,6 +115,10 @@ before(async () => {
 <div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 </body>
 </html>`;
+
+before(async () => {
+    const _realConsole = globalThis.console;
+    globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 
     dom = new JSDOM(popupHtml, { url: "http://localhost/", pretendToBeVisual: true });
     window = dom.window;
@@ -301,14 +301,23 @@ describe("Popup script", { concurrency: false }, () => {
                     sortOrder: 2,
                     isInHistory: false,
                 },
+                {
+                    // selector-hostile path: only renders if CSS.escape() guards selector interpolation
+                    path: 'test/we"ird[1].com',
+                    name: 'we"ird[1].com',
+                    rule: { tag: "login", color: "00ff00", strip: "" },
+                    sortOrder: 3,
+                    isInHistory: false,
+                },
             ],
         });
         await settleAsync();
 
         const lis = document.querySelectorAll("ul#entries > li");
-        assert.strictEqual(lis.length, 2, "two list items rendered");
+        assert.strictEqual(lis.length, 3, "three list items rendered");
         assert.strictEqual(lis[0].getAttribute("data-path"), "test/site.com");
         assert.strictEqual(lis[1].getAttribute("data-path"), "test/other.org");
+        assert.strictEqual(lis[2].getAttribute("data-path"), 'test/we"ird[1].com');
     });
 
     test("match message shows no-matches notice when empty", async () => {
@@ -747,6 +756,156 @@ describe("Popup script", { concurrency: false }, () => {
         const hist = stored[`history:${scope}:${hash}`] || [];
         const cardInHistory = hist.some((h) => h.path === cardPathHash);
         assert.ok(!cardInHistory, "card entry was not added to history");
+    });
+
+    test("fill history is scoped to the tab's container", async () => {
+        const url = new URL("https://example.com/login");
+        const originHash = sha256Native(url.origin);
+        const containerScope = sha256Native("firefox-container-1");
+        const defaultScope = sha256Native("default");
+        const entryPathHash = sha256Native("test/site.com");
+
+        // A second popup instance bound to a container tab via cookieStoreId.
+        // Globals are swapped for the fresh import, then restored afterwards.
+        const savedGlobals = {
+            window: globalThis.window,
+            document: globalThis.document,
+            Event: globalThis.Event,
+            CustomEvent: globalThis.CustomEvent,
+            MouseEvent: globalThis.MouseEvent,
+            HTMLElement: globalThis.HTMLElement,
+            customElements: globalThis.customElements,
+            location: globalThis.location,
+            chrome: globalThis.chrome,
+        };
+        try {
+            const containerDom = new JSDOM(popupHtml, { url: "http://localhost/", pretendToBeVisual: true });
+            const cWindow = containerDom.window;
+            const cDocument = cWindow.document;
+
+            if (!cWindow.Element.prototype.checkVisibility) {
+                cWindow.Element.prototype.checkVisibility = function () {
+                    return this.style.display !== "none" && this.style.display !== "hidden";
+                };
+            }
+            if (!cWindow.crypto.randomUUID) {
+                cWindow.crypto.randomUUID = () => "test-uuid-" + Math.random().toString(36).slice(2);
+            }
+            const origAttachShadow = cWindow.Element.prototype.attachShadow;
+            cWindow.Element.prototype.attachShadow = function (opts) {
+                const root = origAttachShadow.call(this, opts);
+                Object.defineProperty(this, "shadowRoot", { value: root, configurable: true });
+                return root;
+            };
+            cWindow.close = () => {};
+            cWindow.Element.prototype.scrollIntoView = function () {};
+
+            globalThis.window = cWindow;
+            globalThis.document = cDocument;
+            globalThis.Event = cWindow.Event;
+            globalThis.CustomEvent = cWindow.CustomEvent;
+            globalThis.MouseEvent = cWindow.MouseEvent;
+            globalThis.HTMLElement = cWindow.HTMLElement;
+            globalThis.customElements = cWindow.customElements;
+            globalThis.location = cWindow.location;
+
+            const containerMock = createChromeMock({ baseUrl: "file://" + process.cwd() + "/src/" });
+            containerMock.installChrome();
+            containerMock.installBrowserPolyfills();
+            containerMock.setCurrentTab({ id: 42, url: "https://example.com/login", cookieStoreId: "firefox-container-1" });
+
+            // Seed the default container's history for this origin. The
+            // container popup must neither read nor overwrite it.
+            await containerMock.chrome.storage.local.set({
+                [`history:${defaultScope}:${originHash}`]: [{ path: entryPathHash, when: Date.now() }],
+            });
+
+            let containerPopupReceiver = null;
+            chrome.runtime.onConnect.addListener((receiver) => {
+                if (receiver.name !== "popup") return;
+                containerPopupReceiver = receiver;
+                receiver.onMessage.addListener((msg) => {
+                    if (msg?.action === "config") receiver.postMessage({ action: "config", config: makeValidConfig() });
+                });
+            });
+
+            // Ack fills from the tab-port side so the popup records history
+            const origTabsConnect = chrome.tabs.connect.bind(chrome.tabs);
+            chrome.tabs.connect = function (tabId, info = {}) {
+                const caller = origTabsConnect(tabId, info);
+                const pair = containerMock.findTabPort(tabId, info.frameId ?? 0);
+                if (pair) {
+                    pair.onMessage.addListener((msg) => {
+                        if (msg?.action === "ready") pair.postMessage({ action: "origin", origin: "https://example.com" });
+                        else if (msg?.action === "fill" || msg?.action === "fill-value")
+                            pair.postMessage({ action: "ack", ack: msg.action });
+                    });
+                }
+                return caller;
+            };
+
+            await import("../src/js/popup.js?container-scope");
+            await settleAsync();
+
+            containerPopupReceiver.postMessage({
+                action: "match",
+                entries: [
+                    {
+                        path: "test/site.com",
+                        name: "site.com",
+                        rule: { tag: "login", color: "ff0000", strip: "" },
+                        sortOrder: 1,
+                        isInHistory: false,
+                    },
+                ],
+            });
+            await settleAsync();
+
+            const li = cDocument.querySelector("ul#entries > li");
+            assert.ok(li, "list item rendered");
+            assert.ok(!li.querySelector("button.historyNuke"), "default-container history not shown in the container popup");
+
+            // Fill round-trip so the popup writes history for the entry
+            const decryptPromise = new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error("Timeout waiting for decrypt")), 3000);
+                const listener = (msg) => {
+                    if (msg?.action === "decrypt") {
+                        clearTimeout(timer);
+                        containerPopupReceiver.onMessage.removeListener(listener);
+                        resolve(msg);
+                    }
+                };
+                containerPopupReceiver.onMessage.addListener(listener);
+            });
+            li.dispatchEvent(new cWindow.MouseEvent("click", { bubbles: true }));
+            await settleAsync();
+
+            const decryptMsg = await decryptPromise;
+            assert.strictEqual(decryptMsg.intent, "fill");
+
+            containerPopupReceiver.postMessage({
+                action: "plaintext",
+                intent: "fill",
+                plaintext: "user: alice\nsecret: secret123\n",
+            });
+            await settleAsync();
+            await settleAsync();
+
+            // The fill must be recorded under the container's scope only
+            const stored = await containerMock.chrome.storage.local.get(null);
+            const containerHistory = stored[`history:${containerScope}:${originHash}`];
+            assert.ok(
+                Array.isArray(containerHistory) && containerHistory.some((h) => h.path === entryPathHash),
+                "fill recorded under the container scope",
+            );
+            const defaultHistory = stored[`history:${defaultScope}:${originHash}`];
+            assert.ok(
+                Array.isArray(defaultHistory) && defaultHistory.length === 1 && defaultHistory[0].path === entryPathHash,
+                "default-container history untouched",
+            );
+        } finally {
+            Object.assign(globalThis, savedGlobals);
+        }
     });
 
     // -----------------------------------------------------------------------

@@ -1,11 +1,19 @@
 "use strict";
 import { test, describe, beforeEach, afterEach, after } from "node:test";
 import assert from "node:assert";
+import nodeCrypto from "node:crypto";
 import { createChromeMock } from "./chrome-api-mock.js";
 import { Agent } from "../src/js/agent.js";
 
 const noopConsole = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 let realConsole;
+
+/**
+ * Hex SHA-256 digest, matching Helpers.sha256 for storage-key derivation.
+ */
+function sha256Native(s) {
+    return nodeCrypto.createHash("sha256").update(s).digest("hex");
+}
 
 /**
  * Yield to the event loop until the entire microtask queue is drained.
@@ -618,6 +626,27 @@ describe("Agent", () => {
         popup.postMessage({ action: "exfiltrate" });
         const err = await errPromise;
         assert.ok(err.error?.includes("not permitted"), "unknown action blocked");
+    });
+
+    test("removing a contextual identity clears only that container's history", async () => {
+        const originHash = sha256Native("https://example.com");
+        const containerA = `history:${sha256Native("container-a")}:${originHash}`;
+        const containerB = `history:${sha256Native("container-b")}:${originHash}`;
+        const defaultScope = `history:${sha256Native("default")}:${originHash}`;
+        await chrome.storage.local.set({
+            [containerA]: [{ path: "a", when: 1 }],
+            [containerB]: [{ path: "b", when: 1 }],
+            [defaultScope]: [{ path: "d", when: 1 }],
+        });
+
+        mock.fireContextualIdentityRemoved({ contextualIdentity: { cookieStoreId: "container-a" } });
+        await settleAsync();
+        await settleAsync();
+
+        const stored = await chrome.storage.local.get(null);
+        assert.ok(!stored[containerA], "removed container's history cleared");
+        assert.ok(stored[containerB], "other container's history retained");
+        assert.ok(stored[defaultScope], "default-scope history retained");
     });
 
     test("trigger relay", async () => {

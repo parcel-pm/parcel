@@ -246,6 +246,18 @@ describe("Schema.validate", () => {
         );
     });
 
+    test("object: throws on prototype-pollution keys", () => {
+        const schema = {
+            type: "object",
+            properties: {
+                name: { type: "string" },
+            },
+        };
+        // JSON.parse is required: object literals cannot declare an own __proto__ key
+        assert.throws(() => Schema.validate(schema, JSON.parse('{"name":"alice","__proto__":"polluted"}')), /Unknown property \/__proto__/);
+        assert.throws(() => Schema.validate(schema, { name: "alice", constructor: "bad" }), /Unknown property \/constructor/);
+    });
+
     test("object: reports correct nested path in errors", () => {
         assert.throws(
             () =>
