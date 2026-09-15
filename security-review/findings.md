@@ -18,7 +18,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries n
 
 **Description:** `action_list` splits `find` output on newlines, so a store filename containing an embedded newline yields phantom (non-store) entries that pass the line-count TOCTOU check and enter `ALLOWED_FILES` and the popup list; fragments are single components only (no `/`), and no plaintext leak was constructible. Decrypting a phantom that matches an existing file in the host's CWD wedges the host permanently: `path_uses_links` collapses to the `dirname .` fixed point and loops forever, until the extension's ping watchdog recovers by respawning a fresh host. TM4 (hostile store contents).
 
-**Response:** <pending>
+**Response:** Fixed in #195; newline-containing paths now throw an explicit error.
 
 ### F61L - Strict-mode detection omits a writability check on the bootstrap file itself (LOW)
 
