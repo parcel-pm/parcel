@@ -1464,7 +1464,7 @@
      *
      * Note that passkey user consent lives here, *not* in the background worker.
      * Note also that as passkeys do not have an associated clicked field, they do not carry an 'auth'
-     * correlation ID when launching the popup, which is ultimately triggered by the webauthn API intercept.
+     * correlation ID when launching the popup, which is ultimately triggered by the WebAuthn API intercept.
      *
      * @since 1.0.4
      * @param {chrome.runtime.Port} port - The bridged popup connection.
