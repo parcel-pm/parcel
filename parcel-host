@@ -69,16 +69,12 @@ function parcel_strict_mode_enabled() {
 STRICT_BINARIES=false
 if parcel_strict_mode_enabled; then STRICT_BINARIES=true; fi
 
-# Fail closed on a broken install: if the bootstrap looks system-wide (not owned by the caller, or
-# in a directory the caller cannot write) yet the file itself is caller-writable, user-level malware
-# can rewrite the very script that decides and enforces strict mode. A symlinked bootstrap is
-# additionally resolved link by link (mirroring parcelrc_check_binary): every link and the pointee
-# must be non-caller-owned and must not sit in a caller-writable directory, otherwise the executed
-# content can be swapped via rename or chmod. Abort with fix guidance rather than running in either
-# mode. The file and directory tests are builtins; the chain walk resolves with readlink and judges
-# element ownership with stat (the strict shapes it guards run with a sanitised PATH, and permissive
-# shapes are already caller-controlled). Must remain one self-contained function: tests extract it
-# verbatim.
+# Fail closed on a broken install: a bootstrap that looks system-wide (not caller-owned, or in a
+# directory the caller cannot write) yet is caller-reachable via its file, link chain, or pointee
+# can be rewritten or swapped by user-level malware; abort with fix guidance rather than running
+# in either mode. The walk's readlink/stat run under a sanitised PATH in the strict shapes;
+# permissive shapes are already caller-controlled. Must remain one self-contained function:
+# tests extract it verbatim.
 #
 # @since 1.0.8
 function refuse_writable_system_bootstrap() {
@@ -87,6 +83,7 @@ function refuse_writable_system_bootstrap() {
     [[ "$0" == */* ]] && BOOTSTRAP_DIR="${0%/*}"
     { [ -O "$0" ] && [ -w "$BOOTSTRAP_DIR" ]; } && return 0
     if [ -L "$0" ] && [ ! -w "$BOOTSTRAP_DIR" ] && [ ! -w "$0" ]; then
+        # resolve and check the whole chain of a system-looking symlinked install
         local ENTRY="$0" RESOLVED NEXT DIR HOPS=0
         RESOLVED="$ENTRY"
         while true; do
@@ -98,7 +95,7 @@ function refuse_writable_system_bootstrap() {
                     break
                 fi
             fi
-            # stat without -L judges the link (or file) itself; an unreadable owner is never the caller
+            # stat without -L judges the link (or file) itself; a failed stat reads as not caller-owned
             OWNER="$(stat -c %u "$RESOLVED" 2>/dev/null || stat -f %u "$RESOLVED" 2>/dev/null)" || OWNER=""
             MODE="$(stat -c %a "$RESOLVED" 2>/dev/null || stat -f %Lp "$RESOLVED" 2>/dev/null)" || MODE=""
             if [ "$OWNER" = "$EUID" ]; then
@@ -108,7 +105,7 @@ function refuse_writable_system_bootstrap() {
             if [ ! -L "$RESOLVED" ]; then
                 break
             fi
-            # mirrors the kernel's 40-link resolution limit; cyclic chains cannot survive it
+            # mirrors the kernel's 40-link resolution limit
             HOPS=$((HOPS + 1))
             if [ "$HOPS" -gt 40 ]; then
                 MSG="bootstrap $0 has a symlink chain that is too long or cyclic; refusing to start"
@@ -247,8 +244,7 @@ function parcel_transmit() {
     printf '%b%s' "$b" "$s"
 }
 
-# Run the broken-install guard before anything relies on the mode decision; placed here so the
-# error can be framed in the native messaging protocol (parcel_transmit is now defined).
+# Run the broken-install guard once parcel_transmit is defined, before any operational work.
 refuse_writable_system_bootstrap
 
 # resolve the config directory, respecting $XDG_CONFIG_HOME per the XDG Base

@@ -1699,10 +1699,9 @@ printf 'CONTINUED\\n'
             writeFileSync(target, "#!/bin/bash\nexit 0\n");
             chmodSync(target, 0o555);
 
-            // System-looking symlinked install whose pointee is replaceable by rename: the link
-            // sits in a locked directory, its pointee in a caller-writable one. Unprivileged tests
-            // cannot fake a root-owned link, so the refusal fires on the caller-owned entry link;
-            // the pointee-dir branch needs a root-owned link, as with the F61L root variant.
+            // System-looking symlinked install: the link sits in a locked directory, its pointee
+            // in a caller-writable one. Root ownership cannot be faked unprivileged, so the
+            // refusal fires on the caller-owned link, as with the F61L root variant.
             const systemEntry = join(locked, "parcel-host");
             symlinkSync(target, systemEntry);
             chmodSync(locked, 0o555);
@@ -1755,10 +1754,9 @@ printf 'CONTINUED\\n'
                     { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } },
                 );
 
-            // System-wide-looking install: the directory is out of reach, but the bootstrap
-            // file itself is still caller-writable (a broken install per F61L). Must abort.
-            // The true F61L variant (root-owned writable file in root-owned dir) drives the
-            // same fail-closed branch via `! -O`, which an unprivileged test cannot fake.
+            // System-wide-looking install whose bootstrap file is still caller-writable: must
+            // abort. The root-owned F61L variant hits the same branch via `! -O`, which an
+            // unprivileged test cannot fake.
             const host = join(tmp, "parcel-host");
             writeFileSync(host, "#!/bin/bash\nexit 0\n");
             chmodSync(host, 0o644);
@@ -1829,9 +1827,9 @@ printf 'CONTINUED\\n'
         mkdirSync(entryDir);
         mkdirSync(hostDir);
         try {
-            // The entry link sits in a locked directory (mimicking a system-wide install
-            // location) but its pointee is caller-reachable in a writable directory; the
-            // caller-owned link is itself a refusal cause, so the guard must abort either way.
+            // The entry link sits in a locked directory (system-wide install location) with a
+            // caller-reachable pointee: the caller-owned link alone is a refusal cause, so the
+            // guard must abort.
             const hostCopy = join(hostDir, "parcel-host");
             writeFileSync(hostCopy, readFileSync("parcel-host", "utf8"));
             chmodSync(hostCopy, 0o555);
