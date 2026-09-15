@@ -112,6 +112,8 @@ make test-setup
 
 If you would prefer to test your changes in an isolated container instead of installing the test requirements on your system, you can use the provided `Dockerfile` to build an image with all necessary test dependencies pre-installed.
 
+The image tracks a current Ubuntu release (`ubuntu:latest`, matching the distribution of the `ubuntu-latest` CI runner) rather than pinning exact package versions, so treat it as a convenient approximation of a clean dev machine rather than a reproducible build. It is used for testing only and is never shipped.
+
 ```bash
 # Build the Docker image
 DOCKER_BUILDKIT=1 docker build -t parcel-test .
