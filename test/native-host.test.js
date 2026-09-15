@@ -224,6 +224,31 @@ function createMessageReader(stream) {
 }
 
 /**
+ * Await a promise with a safety timeout, killing a stalled child process and
+ * failing the test when the deadline passes first.
+ * @param {Promise} promise - Value being awaited.
+ * @param {import("node:child_process").ChildProcess} proc - Child killed when the timeout fires.
+ * @param {string} step - Awaited step description for the failure message.
+ * @param {number} [timeoutMs=10000] - Safety timeout in milliseconds.
+ * @returns {Promise} The awaited value.
+ * @since 1.0.8
+ */
+async function waitOrKill(promise, proc, step, timeoutMs = 10_000) {
+    let timer;
+    const guard = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            if (!proc.killed) proc.kill();
+            reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${step}`));
+        }, timeoutMs);
+    });
+    try {
+        return await Promise.race([promise, guard]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
  * Spawn the bootstrap script with a test environment.
  */
 function spawnBootstrap(env, extraEnv = {}) {
@@ -1804,13 +1829,17 @@ printf 'CONTINUED\\n'
                 },
             });
             proc.stdin.on("error", () => {});
-            const read = createMessageReader(proc.stdout);
-            const msg = await read();
-            assert.ok(msg.error, `Expected an error broadcast, got: ${JSON.stringify(msg)}`);
-            assert.ok(msg.error.includes("writable by you"), `Expected the complaint, got: ${JSON.stringify(msg)}`);
-            assert.strictEqual(msg.data?.action, undefined, "bootstrap announcement must not be sent");
-            const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
-            assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
+            try {
+                const read = createMessageReader(proc.stdout);
+                const msg = await waitOrKill(read(), proc, "bootstrap error broadcast");
+                assert.ok(msg.error, `Expected an error broadcast, got: ${JSON.stringify(msg)}`);
+                assert.ok(msg.error.includes("writable by you"), `Expected the complaint, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data?.action, undefined, "bootstrap announcement must not be sent");
+                const exitCode = await waitOrKill(new Promise((resolve) => proc.on("exit", resolve)), proc, "host exit after refusal");
+                assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
+            } finally {
+                if (!proc.killed) proc.kill();
+            }
         } finally {
             chmodSync(tmp, 0o700);
             rmSync(tmp, { recursive: true, force: true });
@@ -1848,11 +1877,11 @@ printf 'CONTINUED\\n'
             proc.stdin.on("error", () => {});
             try {
                 const read = createMessageReader(proc.stdout);
-                const msg = await read();
+                const msg = await waitOrKill(read(), proc, "bootstrap error broadcast");
                 assert.ok(msg.error, `Expected an error broadcast, got: ${JSON.stringify(msg)}`);
                 assert.ok(msg.error.includes("system-wide"), `Expected the complaint, got: ${JSON.stringify(msg)}`);
                 assert.strictEqual(msg.data?.action, undefined, "bootstrap announcement must not be sent");
-                const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
+                const exitCode = await waitOrKill(new Promise((resolve) => proc.on("exit", resolve)), proc, "host exit after refusal");
                 assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
             } finally {
                 if (!proc.killed) proc.kill();
@@ -1883,7 +1912,7 @@ printf 'CONTINUED\\n'
             proc.stdin.on("error", () => {});
             try {
                 const read = createMessageReader(proc.stdout);
-                const msg = await read();
+                const msg = await waitOrKill(read(), proc, "bootstrap announcement");
                 assert.strictEqual(msg.token, "broadcast");
                 assert.strictEqual(msg.data?.action, "bootstrap");
                 assert.strictEqual(msg.data?.version, "4");
