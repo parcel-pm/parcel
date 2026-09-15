@@ -24,31 +24,31 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries n
 
 **Description:** `parcel_strict_mode_enabled` tests only that the bootstrap file is not caller-owned and its directory is not writable, never `[ ! -w "$0" ]`, so a root-owned but user-writable bootstrap file (hand-installed with a broken mode) enables strict mode while remaining directly editable by user-level malware. No privilege boundary is crossed; the finding is the false assurance of the strict-mode guarantee. TM5.
 
-**Response:** <pending>
+**Response:** Fixed in #198; the bootstrap now aborts with an explicit error when a system-wide-looking install is user-writable.
 
 ### F62L - http-auth token's intent restriction is transient (LOW)
 
 **Description:** The per-challenge http-auth token restricts decryption to `intent: "http-auth"` only while its challenge is pending; once the callback resolves (credentials supplied, cancel, popup disconnect, or expiry timer), the popup port that authenticated with it stays authorised and can then decrypt with `intent: "fill"`. Under TM2 this adds nothing beyond the maintainer-accepted F40M posture; the substance is that SECURITY.md:158 states the restriction as an absolute. TM0.
 
-**Response:** <pending>
+**Response:** Fixed in #201; a port authenticated with an http-auth token is restricted to `intent: "http-auth"` for the port's whole lifetime.
 
 ### F63L - Documented from-source build cannot succeed without a release signer's secret key (LOW)
 
 **Description:** Every documented build target hard-depends on `dist/parcel-host.asc`, signed with a maintainer key (`--default-key` is hard-coded in src/Makefile); `src/dist/` is untracked, so `make all`/`make chrome`/`make firefox` aborts with a GPG "no secret key" error on a fresh clone, and the README documents no self-signing plus `VALID_SIGNERS` path even though the constitution invites forks. Fail-safe (the build aborts rather than producing an unsigned bundle), hence LOW. TM0.
 
-**Response:** <pending>
+**Response:** Fixed in #203; the signing key is now overridable via the `SIGN_KEY` make variable.
 
 ### F64L - Test Dockerfile builds on unpinned, unverified third-party code (LOW)
 
 **Description:** The test container builds `FROM ubuntu:latest` (no digest pin) and installs Node.js by piping the NodeSource setup script straight into a root shell with no version pin, checksum, or signature, despite its header claiming to provide a reproducible environment. Same class as the fixed F37L. Dev/test convenience only, never shipped; CI uses `actions/setup-node` instead. TM5.
 
-**Response:** <pending>
+**Response:** As intended; added documentation in #202 that the Dockerfile deliberately tracks current Ubuntu and is a dev/test convenience, not a reproducible or shipped build.
 
 ### F65L - No popup-side regression test for the F36L origin carriage (LOW)
 
 **Description:** No test asserts that the popup's fill message carries the `origin` field that makes the F34M destination-origin guard cover the primary fill path; a future refactor dropping the field would silently re-open the F34M cross-origin fill with zero test failures. Same silent-regression class as F56L, for a MEDIUM-severity control. TM5.
 
-**Response:** <pending>
+**Response:** Fixed in #204; the popup fill test now asserts the fill message carries the frame origin reported by the content script.
 
 ### F66I - Fixed gates lacking regression tests (INFORMATIONAL)
 
@@ -60,7 +60,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries n
 
 **Description:** SECURITY.md's tradeoff table still says Parcel does not implement clipboard auto-clear, while the v1.0.7 protections section documents the host-side auto-clear after `clipboardTimeout` seconds added in #167. Documentation tension only; the implementation is stronger than documented. TM0.
 
-**Response:** <pending>
+**Response:** Updated the tradeoff wording in #205 to accommodate the new native-host clipboard mechanism.
 
 ## [v1.0.6 / kimi-k3 + glm-5.2](reviews/v1.0.6/merged-glm-5.2.md)
 
