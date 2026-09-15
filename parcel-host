@@ -54,7 +54,7 @@ unset PARCEL_ENV_VAR
 
 TOKEN="broadcast"
 PARCEL_HOST=""
-BOOTSTRAP_VERSION="3"
+BOOTSTRAP_VERSION="4"
 
 # Strict mode: the bootstrap is beyond the user's reach (not user-owned, directory not user-writable).
 # Builtin tests only (before PATH sanitisation); must remain one self-contained function: tests extract it verbatim.
