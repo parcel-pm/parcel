@@ -54,7 +54,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries n
 
 **Description:** Four fixed controls would regress silently (reverting the fix passes the entire test suite): the F48I `CSS.escape(entry.path)` render, the F57L `hasOwnProperty` unknown-key gate, the F10L audit field caps, and per-container history isolation (the latter two halves already noted by F50I's residuals). Defence-regression detectors only; no live hole. TM5.
 
-**Response:** <pending>
+**Response:** Regression tests added in #206, except for log field caps which are obvious and do not require a test.
 
 ### F67I - Stale "No clipboard auto-clear" tradeoff row (INFORMATIONAL)
 
