@@ -131,7 +131,7 @@ Parcel's passkey (WebAuthn / FIDO2) support keeps the trust boundary in the same
 
 Additional protections specific to passkeys:
 
-1. **Interactive consent** — No signature is produced without you explicitly selecting a credential in the consent popup, which displays the requesting site's true origin. A page cannot silently authenticate you, and there is no API for signing without the popup.
+1. **Interactive consent** - No signature is produced without you explicitly selecting a credential in the consent popup, which displays the requesting site's true origin. A page cannot silently authenticate you: page script cannot reach the signing path, and the content script that relays each ceremony enforces the consent popup before requesting a signature.
 2. **Relying-party binding** — The host verifies that the passkey entry's embedded `rpId` matches the requesting site's relying-party ID before signing, and enforces any `allowCredentials` restriction supplied by the site: an entry registered for one site cannot be used for another.
 3. **Read-only store preserved** — New credentials are generated, encrypted to your store's `.gpg-id` recipients, and displayed to you as an armored blob; *you* save the entry verbatim into the store as the `.gpg` file (do **not** re-encrypt it with `pass insert` — the content is already encrypted to your store's recipients). The host does not write entry files.
 4. **Consent-gated fallback** — If you decline or dismiss the popup, or disable passkey support (`"handlePasskeys": false` in `.parcel.json`), ceremonies fall back to the browser's native implementation and Parcel is not involved.
