@@ -78,8 +78,10 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Do not wrap TODO comment lines with markdown emphasis (_, * etc).
 - Keep code comments brief and to-the-point. Do not write essays explaining behaviour - the code itself should already be clear and understandable.
 - If a comment is too long for one line, prefer a longer single line up to 120 columns over wrapping.
-- Inline comments should describe *what* the code does, not *why*. Reserve *why* comments for cases where the reasoning is genuinely non-obvious.
+- Comments should describe *what* the code does, not *why*. Reserve *why* comments for cases where the reasoning is genuinely non-obvious.
 - JSDoc descriptions and `@param` lines must be concise - a short phrase per item, not full sentences explaining implementation details.
+- If asked to propose a commit message, this should be very brief (5 lines maximum unless there is a *very* strong reason for more) and 80-column wrapped.
+- If asked to propose a PR description, this should be brief, and lines should not be wrapped at all.
 
 ## Security considerations
 
@@ -106,3 +108,10 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - When considering solutions, remember that security is paramount. More secure solutions are usually preferable unless there is a compelling reason for a tradeoff. If a proposed solution introduces or exacerbates security risks, those risks must be clearly communicated.
 - If a recommended solution mitigates security risks, explain how it does so and why it is a better approach than the alternatives.
 - Run `make todo` to check for any relevant outstanding tasks.
+
+## User approval
+
+- If the user asks a question, that is *not* an invitation to edit. Answer the question, but do not make changes.
+- If the user approves or instructs you to make one change, that does not imply permission to make other changes. Do not assume approval.
+- Do not infer approval to make changes from user statements that are not worded as a direct approval or instruction to do a specific thing.
+- When working through a list of items with the user, only make changes to the specific items the user has requested action on. Remaining items are out-of-scope.

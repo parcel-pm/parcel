@@ -131,7 +131,7 @@ Parcel's passkey (WebAuthn / FIDO2) support keeps the trust boundary in the same
 
 Additional protections specific to passkeys:
 
-1. **Interactive consent** — No signature is produced without you explicitly selecting a credential in the consent popup, which displays the requesting site's true origin. A page cannot silently authenticate you, and there is no API for signing without the popup.
+1. **Interactive consent** - No signature is produced without you explicitly selecting a credential in the consent popup, which displays the requesting site's true origin. A page cannot silently authenticate you: page script cannot reach the signing path, and the content script that relays each ceremony enforces the consent popup before requesting a signature.
 2. **Relying-party binding** — The host verifies that the passkey entry's embedded `rpId` matches the requesting site's relying-party ID before signing, and enforces any `allowCredentials` restriction supplied by the site: an entry registered for one site cannot be used for another.
 3. **Read-only store preserved** — New credentials are generated, encrypted to your store's `.gpg-id` recipients, and displayed to you as an armored blob; *you* save the entry verbatim into the store as the `.gpg` file (do **not** re-encrypt it with `pass insert` — the content is already encrypted to your store's recipients). The host does not write entry files.
 4. **Consent-gated fallback** — If you decline or dismiss the popup, or disable passkey support (`"handlePasskeys": false` in `.parcel.json`), ceremonies fall back to the browser's native implementation and Parcel is not involved.
@@ -219,6 +219,17 @@ Located at `$PASSWORD_STORE_DIR/.parcel.json`. Reloaded automatically when modif
 Parcel is subject to regular automated security reviews in order to surface any potential vulnerabilities. These reviews, along with a summary of findings and the maintainers' responses, are published in the `security-review` directory in this repository.
 
 If you are a security professional who is interested in contributing to the project by performing a review, please open a new issue to coordinate this.
+
+### Threat Models
+
+Each review evaluates findings against the following threat models. The criteria listed for each are examples, not an exhaustive enumeration:
+
+- **TM0 - Documentation tension.** Conflict, contradiction, or under-specification in the documentation that may cause the intended security posture to be unclear or compromised, or cause unknown vulnerabilities to be accidentally interpreted as intended behaviour.
+- **TM1 - Hostile web page.** The attacker controls page-realm JavaScript on a visited site (DOM, timing). Examples include fills steered to wrong origins or frames, forged page/isolated-world bridges (CustomEvents, postMessage), interference via the `attachShadow` patch, WebAuthn ceremony relay or redirect, mid-decrypt navigation redirecting a credential cross-origin, and page access to Parcel's internal state or to plaintext other than deliberately-filled values.
+- **TM2 - Compromised extension context.** The content script, the popup, or the service worker is compromised, independently or jointly. The native host is the enforcement boundary: from such a context it must remain impossible to decrypt non-whitelisted entries, obtain private key material, defeat rate limiting, or cause the native host to act outside of its designed constraints. This includes unnoticed introduction of malicious extension code within the official repository.
+- **TM3 - Malicious native-messaging peer / tampered host inputs.** Crafted native-messaging JSON reaches the host: `jq` extraction and injection surfaces, action-dispatch abuse, oversized or malformed payloads, and shell quoting bugs (unquoted variables, word splitting, glob expansion).
+- **TM4 - Hostile local filesystem.** Crafted password-store contents (symlinks, deep or huge trees, metacharacter filenames, list-to-decrypt TOCTOU races), crafted `.parcel.json` files (glob overreach, empty rules, symlink policy bypass), and hostile processes racing Parcel's own files.
+- **TM5 - Supply chain / build integrity.** Anything introducing third-party runtime code, network access, or non-auditable artifacts into the shipped extension or host; source-to-distribution parity (Makefile `chrome`/`firefox` targets, `.es6.js` shims, manifests); and the bootstrap verification chain (GPG detached-signature verification, `VALID_SIGNERS`, `HOST_HASH` pinning, fail-closed behaviour at every step).
 
 ## Reporting Security Issues
 

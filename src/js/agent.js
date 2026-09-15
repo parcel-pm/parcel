@@ -768,7 +768,7 @@ export class Agent extends EventTarget {
         const PORT_ACTIONS = {
             popup: ["auth", "clipboard", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
             integration: ["config"],
-            passkey: ["passkey"],
+            passkey: ["passkey"], // not correlated against a clicked field, so no 'auth' correlation token is required
         };
         const allowedActions = PORT_ACTIONS[port.name] || [];
 
