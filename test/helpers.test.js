@@ -219,6 +219,7 @@ describe("Helpers", () => {
                     name: "mystery",
                     pattern: "^nope:",
                     onMissing: "naked-top",
+                    trim: true,
                     transform: [],
                 },
             ],
@@ -226,6 +227,17 @@ describe("Helpers", () => {
         // first line is key:value, so naked-top should skip it and return nothing
         const result = await Helpers.getValue("login: alice\nsecret: 1234", config, "mystery");
         assert.strictEqual(result, null);
+    });
+
+    test("getValue returns null (not a crash) when no value resolves and trim is enabled", async () => {
+        // naked-top fails against a key:value first line; ntop fails when there is no second line
+        for (const [onMissing, plaintext] of [
+            ["naked-top", "login: alice\nsecret: 1234"],
+            ["ntop", "only line"],
+        ]) {
+            const config = { targets: [{ name: "mystery", pattern: "^nope:", onMissing, trim: true, transform: [] }] };
+            assert.strictEqual(await Helpers.getValue(plaintext, config, "mystery"), null);
+        }
     });
 
     test("getValue onMissing 'ntop' returns every line *except* the first", async () => {

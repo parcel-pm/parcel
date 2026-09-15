@@ -432,6 +432,7 @@
         if (!type) type = targetInfo.type;
         if (fillValue === null) fillValue = await Helpers.getValue(plaintext, config, type);
         if (typeof fillValue === "object" && Object.prototype.hasOwnProperty.call(fillValue, "value")) fillValue = fillValue.value;
+        if (typeof fillValue !== "string") throw new Error(`No value found for field type: ${type}`);
 
         // Send some keyboard events indicating that value modification has started (no associated keycode)
         for (const eventName of ["keydown", "keypress", "keyup", "input", "change"]) {

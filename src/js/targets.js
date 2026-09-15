@@ -40,6 +40,7 @@ export const defaultTargets = [
         label: "Card",
         hoist: true,
         class: "card",
+        onMissing: "naked-top",
         pattern: "^(card|card-number|ccn|credit-?card|debit-?card|card-?num):",
         related: ["cardholder", "cardexp", "cardexp-month", "cardexp-year", "cardcsc"],
     },

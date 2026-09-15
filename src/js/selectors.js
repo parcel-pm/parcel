@@ -130,6 +130,11 @@ for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=cc i][${s}*=num i]`, type: "card" });
     targetSelectors.push({ selector: `input[${s}^=credit i][${s}*=card i]`, type: "card" });
     targetSelectors.push({ selector: `input[${s}^=debit i][${s}*=card i]`, type: "card" });
+    targetSelectors.push({
+        // contains variant, to also catch names with a leading runup (e.g. roboform's digit-prefixed "41ccnumber")
+        selector: `input[${s}*=ccnum i], input[${s}*=cc_ i][${s}*=num i], input[${s}*=cc- i][${s}*=num i]`,
+        type: "card",
+    });
 }
 
 // bulk cardholder selectors
@@ -138,6 +143,11 @@ for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=holder i]`, type: "cardholder" });
     targetSelectors.push({ selector: `input[${s}^=cc i][${s}*=name i]`, type: "cardholder" });
     targetSelectors.push({ selector: `input[${s}^=holder i]`, type: "cardholder" });
+    targetSelectors.push({
+        // contains variant, to also catch names with a leading runup (e.g. roboform's digit-prefixed "44cc_uname")
+        selector: `input[${s}*=ccname i], input[${s}*=cc_ i][${s}*=name i], input[${s}*=cc- i][${s}*=name i]`,
+        type: "cardholder",
+    });
 }
 
 // bulk cardexp selectors
@@ -158,6 +168,9 @@ for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `select[${s}^=expiration i][${s}*=mon i]`, type: "cardexp-month" });
     targetSelectors.push({ selector: `select[${s}^=cc i][${s}*=exp i][${s}*=mon i]`, type: "cardexp-month" });
     targetSelectors.push({ selector: `select[${s}^=card i][${s}*=exp i][${s}*=mon i]`, type: "cardexp-month" });
+    // contains variants, to also catch names with a leading runup (e.g. roboform's digit-prefixed "42ccexp_mm")
+    targetSelectors.push({ selector: `input[${s}*=exp i][${s}*=mm i]`, type: "cardexp-month" });
+    targetSelectors.push({ selector: `select[${s}*=exp i][${s}*=mm i]`, type: "cardexp-month" });
 }
 
 // bulk cardexp-year selectors
@@ -172,11 +185,14 @@ for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `select[${s}^=expiration i][${s}*=year i]`, type: "cardexp-year" });
     targetSelectors.push({ selector: `select[${s}^=cc i][${s}*=exp i][${s}*=year i]`, type: "cardexp-year" });
     targetSelectors.push({ selector: `select[${s}^=card i][${s}*=exp i][${s}*=year i]`, type: "cardexp-year" });
+    // contains variants, to also catch names with a leading runup (e.g. roboform's digit-prefixed "43ccexp_yy")
+    targetSelectors.push({ selector: `input[${s}*=exp i][${s}*=yy i]`, type: "cardexp-year" });
+    targetSelectors.push({ selector: `select[${s}*=exp i][${s}*=yy i]`, type: "cardexp-year" });
 }
 
 // bulk cardcsc selectors
 for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
-    for (const t of ["csc", "cvv", "cvc"]) targetSelectors.push({ selector: `input[${s}^=${t} i]`, type: "cardcsc" });
+    for (const t of ["csc", "cvv", "cvc"]) targetSelectors.push({ selector: `input[${s}*=${t} i]`, type: "cardcsc" });
     targetSelectors.push({ selector: `input[${s}^=security i][${s}*=code i]`, type: "cardcsc", relatedOnly: true });
     targetSelectors.push({ selector: `input[${s}^=code i]`, type: "cardcsc", relatedOnly: true });
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=security i][${s}*=code i]`, type: "cardcsc" });

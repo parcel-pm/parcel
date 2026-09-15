@@ -174,6 +174,9 @@ export class Helpers {
             }
         }
 
+        // no value was found and the onMissing behaviour permits absence (e.g. naked-top of a key:value entry)
+        if (fillValue === null || fillValue === undefined) return null;
+
         // trim the value if configured
         if (targetRule.trim) fillValue = fillValue.trim();
 
