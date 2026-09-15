@@ -220,6 +220,17 @@ Parcel is subject to regular automated security reviews in order to surface any 
 
 If you are a security professional who is interested in contributing to the project by performing a review, please open a new issue to coordinate this.
 
+### Threat Models
+
+Each review evaluates findings against the following threat models. The criteria listed for each are examples, not an exhaustive enumeration:
+
+- **TM0 - Documentation tension.** Conflict, contradiction, or under-specification in the documentation that may cause the intended security posture to be unclear or compromised, or cause unknown vulnerabilities to be accidentally interpreted as intended behaviour.
+- **TM1 - Hostile web page.** The attacker controls page-realm JavaScript on a visited site (DOM, timing). Examples include fills steered to wrong origins or frames, forged page/isolated-world bridges (CustomEvents, postMessage), interference via the `attachShadow` patch, WebAuthn ceremony relay or redirect, mid-decrypt navigation redirecting a credential cross-origin, and page access to Parcel's internal state or to plaintext other than deliberately-filled values.
+- **TM2 - Compromised extension context.** The content script, the popup, or the service worker is compromised, independently or jointly. The native host is the enforcement boundary: from such a context it must remain impossible to decrypt non-whitelisted entries, obtain private key material, defeat rate limiting, or cause the native host to act outside of its designed constraints. This includes unnoticed introduction of malicious extension code within the official repository.
+- **TM3 - Malicious native-messaging peer / tampered host inputs.** Crafted native-messaging JSON reaches the host: `jq` extraction and injection surfaces, action-dispatch abuse, oversized or malformed payloads, and shell quoting bugs (unquoted variables, word splitting, glob expansion).
+- **TM4 - Hostile local filesystem.** Crafted password-store contents (symlinks, deep or huge trees, metacharacter filenames, list-to-decrypt TOCTOU races), crafted `.parcel.json` files (glob overreach, empty rules, symlink policy bypass), and hostile processes racing Parcel's own files.
+- **TM5 - Supply chain / build integrity.** Anything introducing third-party runtime code, network access, or non-auditable artifacts into the shipped extension or host; source-to-distribution parity (Makefile `chrome`/`firefox` targets, `.es6.js` shims, manifests); and the bootstrap verification chain (GPG detached-signature verification, `VALID_SIGNERS`, `HOST_HASH` pinning, fail-closed behaviour at every step).
+
 ## Reporting Security Issues
 
 If you discover a security vulnerability in Parcel, please open a GitHub issue for it. If the vulnerability is serious, please report it privately to the core maintainers listed in [`CONSTITUTION.md`](CONSTITUTION.md) so that it can be addressed before public disclosure. Vulnerabilities should be reported with a clear description of the issue, the steps to reproduce it, and the version affected.
