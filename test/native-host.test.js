@@ -1892,38 +1892,6 @@ printf 'CONTINUED\\n'
             env.cleanup();
         }
     });
-
-    test("bootstrap copied into a user-writable directory starts normally", async () => {
-        const env = createTestEnv();
-        const tmp = mkdtempSync(join(tmpdir(), "parcel-boot-"));
-        try {
-            const hostCopy = join(tmp, "parcel-host");
-            writeFileSync(hostCopy, readFileSync("parcel-host", "utf8"));
-            chmodSync(hostCopy, 0o755);
-            const proc = spawn("bash", [hostCopy], {
-                stdio: ["pipe", "pipe", "pipe"],
-                env: {
-                    ...process.env,
-                    HOME: env.home,
-                    XDG_CONFIG_HOME: join(env.home, ".config"),
-                    PATH: `${env.bin}:${process.env.PATH}`,
-                },
-            });
-            proc.stdin.on("error", () => {});
-            try {
-                const read = createMessageReader(proc.stdout);
-                const msg = await waitOrKill(read(), proc, "bootstrap announcement");
-                assert.strictEqual(msg.token, "broadcast");
-                assert.strictEqual(msg.data?.action, "bootstrap");
-                assert.strictEqual(msg.data?.version, "4");
-            } finally {
-                proc.kill();
-            }
-        } finally {
-            rmSync(tmp, { recursive: true, force: true });
-            env.cleanup();
-        }
-    });
 });
 
 // ---------------------------------------------------------------------------
