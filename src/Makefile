@@ -1,5 +1,8 @@
 CLEAN_FILES := dist
 PRETTIER_FILES := '**/*.{js,json,less,css,html,xhtml}'
+# Key that signs the main host script. Self-builds override with SIGN_KEY=<fingerprint>; see the
+# "Self-build signing" section of README.md before doing so.
+SIGN_KEY ?= 88FF14D6294AF4036B7F00FF676A3C09E2E47A72 # gitleaks:allow
 DIST_FILES := \
     manifest.json \
     parcel-host \
@@ -48,7 +51,25 @@ clean:
 
 dist/parcel-host.asc: parcel-host
 	echo $(VERSION)
-	gpg --yes --sign --detach-sign --include-key-block --armor --default-key 88FF14D6294AF4036B7F00FF676A3C09E2E47A72 --output ./$@ ./$<
+	@mkdir -p dist
+	@if ! command -v gpg >/dev/null 2>&1; then \
+		echo "error: gpg is required to sign dist/parcel-host.asc but was not found in PATH" >&2; \
+		exit 1; \
+	fi
+	@if ! gpg --list-secret-keys --quiet $(SIGN_KEY) >/dev/null 2>&1; then \
+		echo "error: no GPG secret key for $(SIGN_KEY), cannot sign dist/parcel-host.asc" >&2; \
+		echo "" >&2; \
+		echo "The host script must be signed at build time: the bootstrap host refuses to" >&2; \
+		echo "run it unless it is signed by a key listed in VALID_SIGNERS (see parcelrc)," >&2; \
+		echo "so this step cannot be skipped." >&2; \
+		echo "" >&2; \
+		echo "The default signing key is only available to Parcel release maintainers." >&2; \
+		echo "For a self-build, generate your own GPG key, rebuild with" >&2; \
+		echo "SIGN_KEY=<your key fingerprint>, and add that fingerprint to VALID_SIGNERS" >&2; \
+		echo "in your parcelrc. See the \"Self-build signing\" section of README.md." >&2; \
+		exit 1; \
+	fi
+	gpg --yes --sign --detach-sign --include-key-block --armor --default-key $(SIGN_KEY) --output ./$@ ./$<
 
 dist: $(addprefix dist/,$(DIST_FILES)) dist/parcel-host.asc dist/public_suffix_list.dat;
 

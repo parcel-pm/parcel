@@ -54,7 +54,7 @@ unset PARCEL_ENV_VAR
 
 TOKEN="broadcast"
 PARCEL_HOST=""
-BOOTSTRAP_VERSION="3"
+BOOTSTRAP_VERSION="4"
 
 # Strict mode: the bootstrap is beyond the user's reach (not user-owned, directory not user-writable).
 # Builtin tests only (before PATH sanitisation); must remain one self-contained function: tests extract it verbatim.
@@ -68,6 +68,79 @@ function parcel_strict_mode_enabled() {
 
 STRICT_BINARIES=false
 if parcel_strict_mode_enabled; then STRICT_BINARIES=true; fi
+
+# Fail closed on a broken install: a bootstrap that looks system-wide (not caller-owned, or in a
+# directory the caller cannot write) yet is caller-reachable via its file, link chain, or pointee
+# can be rewritten or swapped by user-level malware; abort with fix guidance rather than running
+# in either mode. The walk's readlink/stat run under a sanitised PATH in the strict shapes;
+# permissive shapes are already caller-controlled. Must remain one self-contained function:
+# tests extract it verbatim.
+#
+# @since 1.0.8
+function refuse_writable_system_bootstrap() {
+    local BOOTSTRAP_DIR="."
+    local OWNER MODE MSG=""
+    [[ "$0" == */* ]] && BOOTSTRAP_DIR="${0%/*}"
+    { [ -O "$0" ] && [ -w "$BOOTSTRAP_DIR" ]; } && return 0
+    if [ -L "$0" ] && [ ! -w "$BOOTSTRAP_DIR" ] && [ ! -w "$0" ]; then
+        # resolve and check the whole chain of a system-looking symlinked install
+        local ENTRY="$0" RESOLVED NEXT DIR HOPS=0
+        RESOLVED="$ENTRY"
+        while true; do
+            if [ "$RESOLVED" != "$ENTRY" ]; then
+                DIR="${RESOLVED%/*}"
+                [ -n "$DIR" ] || DIR="/"
+                if [ -w "$DIR" ]; then
+                    MSG="bootstrap $0 resolves through $DIR, which is writable by you but looks like a system-wide install; refusing to start. Fix with: keep the whole link chain outside caller-writable directories, or reinstall the bootstrap at user level"
+                    break
+                fi
+            fi
+            # stat without -L judges the link (or file) itself; a failed stat reads as not caller-owned
+            OWNER="$(stat -c %u "$RESOLVED" 2>/dev/null || stat -f %u "$RESOLVED" 2>/dev/null)" || OWNER=""
+            MODE="$(stat -c %a "$RESOLVED" 2>/dev/null || stat -f %Lp "$RESOLVED" 2>/dev/null)" || MODE=""
+            if [ "$OWNER" = "$EUID" ]; then
+                MSG="bootstrap $0 resolves through $RESOLVED (owner $OWNER, mode $MODE), which is owned by you but looks like a system-wide install; refusing to start. Fix with: sudo chown -h root $RESOLVED"
+                break
+            fi
+            if [ ! -L "$RESOLVED" ]; then
+                break
+            fi
+            # mirrors the kernel's 40-link resolution limit
+            HOPS=$((HOPS + 1))
+            if [ "$HOPS" -gt 40 ]; then
+                MSG="bootstrap $0 has a symlink chain that is too long or cyclic; refusing to start"
+                break
+            fi
+            NEXT="$(readlink "$RESOLVED" 2>/dev/null)" || NEXT=""
+            if [ -z "$NEXT" ]; then
+                MSG="bootstrap $0 cannot be resolved (link $RESOLVED cannot be read); refusing to start"
+                break
+            fi
+            case "$NEXT" in
+                /*) RESOLVED="$NEXT" ;;
+                *) RESOLVED="${RESOLVED%/*}/$NEXT" ;;
+            esac
+        done
+        if [ -n "$MSG" ]; then
+            # control characters, double quotes and backslashes are stripped: jq is not yet known available
+            MSG="${MSG//[[:cntrl:]]/}"
+            MSG="${MSG//\"/}"
+            MSG="${MSG//\\/}"
+            parcel_transmit '{"token": "broadcast", "error": "'"$MSG"'"}'
+            exit 1
+        fi
+    fi
+    [ -w "$0" ] || return 0
+    OWNER="$(stat -c %U "$0" 2>/dev/null || stat -f %Su "$0" 2>/dev/null || echo unknown)"
+    MODE="$(stat -c %a "$0" 2>/dev/null || stat -f %Lp "$0" 2>/dev/null || echo unknown)"
+    MSG="bootstrap $0 (owner $OWNER, mode $MODE) is writable by you but looks like a system-wide install; refusing to start. Fix with: sudo chown root $0 && sudo chmod 0755 $0"
+    # control characters, double quotes and backslashes are stripped: jq is not yet known available
+    MSG="${MSG//[[:cntrl:]]/}"
+    MSG="${MSG//\"/}"
+    MSG="${MSG//\\/}"
+    parcel_transmit '{"token": "broadcast", "error": "'"$MSG"'"}'
+    exit 1
+}
 
 # Save the invoker's PATH before any filtering: strict mode re-sanitises this original
 # value (rather than the pass-1 result) so that root-owned symlinks can be kept,
@@ -170,6 +243,9 @@ function parcel_transmit() {
         "$(( n >> 24 & 255 ))"
     printf '%b%s' "$b" "$s"
 }
+
+# Run the broken-install guard once parcel_transmit is defined, before any operational work.
+refuse_writable_system_bootstrap
 
 # resolve the config directory, respecting $XDG_CONFIG_HOME per the XDG Base
 # Directory Specification (falls back to $HOME/.config when unset, empty, or
@@ -636,6 +712,10 @@ function action_install() {
 
     # verify hash
     if [ -n "$HOST_HASH" ]; then
+        if [ -z "$SHA256" ]; then
+            parcel_error "Cannot verify host script hash: no sha256 utility (sha256sum or sha256) found in PATH"
+            return 1
+        fi
         HASH=$(jq -rj '.script' <<< "$1" | "$SHA256" | awk '{print $1}')
         if [ "$HASH" != "$HOST_HASH" ]; then
             parcel_error "Unapproved host script hash - please review the updated host script, then set the new hash $HASH in your parcelrc file and reload the browser extension."

@@ -1031,6 +1031,16 @@ describe("Agent", () => {
             const errorMsg = await errorPromise;
             assert.ok(errorMsg.error.includes("not permitted"), "fill intent rejected for http-auth token");
 
+            // Resolve the challenge so the token is spent; the port must stay barred from form fills
+            popup.postMessage({ action: "http-auth-cancel" });
+            await settleAsync();
+            await settleAsync();
+
+            const error2Promise = nextMessage(popup, "error");
+            popup.postMessage({ action: "decrypt", intent: "fill", origin: "https://example.com/", path: "example.com/admin" });
+            const errorMsg2 = await error2Promise;
+            assert.ok(errorMsg2.error.includes("not permitted"), "fill intent rejected for http-auth token after challenge resolved");
+
             popup.disconnect();
         });
 

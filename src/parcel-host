@@ -527,26 +527,53 @@ function action_list() {
         ROOTS+=("$ROOT")
     done < <(collect_roots "$PASSWORD_STORE_DIR" "$ALLOW_LINKS" "$ALLOW_EXTERNAL_LINKS")
 
-    local MIXED=""
+    # single null-delimited traversal: per root, the substitution writes find's paths, then an in-band
+    # exit-status sentinel, then find's stderr replayed as NUL-delimited lines - the pipe always has
+    # exactly one writer, and stderr text is NUL-free so the subshell can safely hold it in $ERR while
+    # find is running; protocol errors are reported only here, never in the substitution, to preserve
+    # the one-response-per-request invariant
+    local RECORDS=()
+    local REC=""
+    local RETURN_SEEN=0
+    local FIND_ERR=""
+    local FIND_RETURN=0
     for ROOT in "${ROOTS[@]}"; do
-        MIXED+="$(
-            find -H -- "$ROOT"/ \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" -name '*.gpg' -print \) 2>&1 || true
-        )"$'\n'
+        RETURN_SEEN=0
+        while IFS= read -r -d '' REC; do
+            if [ "$RETURN_SEEN" -eq 1 ]; then
+                [ -n "$REC" ] && FIND_ERR+="$REC"$'\n'
+            elif [[ "$REC" == __PARCEL_RETURN__* ]]; then
+                # cannot collide with a real path: paths are absolute, starting with $ROOT/
+                RETURN_SEEN=1
+                [ "$FIND_RETURN" -eq 0 ] && FIND_RETURN="${REC#__PARCEL_RETURN__}"
+            elif [ -n "$REC" ]; then
+                RECORDS+=("$REC")
+            fi
+        done < <(
+            exec 3>&1
+            ERR="$( find -H -- "$ROOT"/ \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" -name '*.gpg' -print0 \) 2>&1 1>&3; printf '__PARCEL_RETURN__%d\0' "$?" >&3 )"
+            while IFS= read -r ELINE; do [ -n "$ELINE" ] && printf '%s\0' "$ELINE"; done <<< "$ERR"
+        )
+        # a missing sentinel means the substitution died (e.g. killed by signal) before find's status could be relayed
+        [ "$RETURN_SEEN" -eq 0 ] && [ "$FIND_RETURN" -eq 0 ] && FIND_RETURN=1
+    done
+    if [ "$FIND_RETURN" -ne 0 ] || [ -n "$FIND_ERR" ]; then
+        parcel_error "Unable to scan files: $FIND_ERR"
+        return 0
+    fi
+
+    # refuse newlines in entry paths: the line-delimited stream below would split them into bogus entries
+    local ENTRY_PATH
+    for ENTRY_PATH in "${RECORDS[@]}"; do
+        if [[ "$ENTRY_PATH" == *$'\n'* ]]; then
+            parcel_error "Entry path contains a newline: ${ENTRY_PATH//$'\n'/\\n}"
+            return 0
+        fi
     done
 
     local FIND_OUT=""
-    local FIND_ERR=""
-    while true; do
-        IFS= read -r line || break
-        if [[ "$line" == "find:"* ]]; then
-            FIND_ERR+="$line"$'\n'
-        elif [ -n "$line" ]; then
-            FIND_OUT+="$line"$'\n'
-        fi
-    done <<< "$MIXED"
-    if [ -n "$FIND_ERR" ]; then
-        parcel_error "Unable to scan files: $FIND_ERR"
-        return 0
+    if [ "${#RECORDS[@]}" -gt 0 ]; then
+        FIND_OUT="$(printf '%s\n' "${RECORDS[@]}")"
     fi
 
     local REAL_OUT="$(printf '%s' "$FIND_OUT" | tr '\n' '\0' | xargs -0 -n100 readlink -f || true)"

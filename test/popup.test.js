@@ -606,6 +606,9 @@ describe("Popup script", { concurrency: false }, () => {
         assert.strictEqual(msg.action, "fill");
         assert.ok(msg.token);
         assert.ok(msg.plaintext);
+        // F34M guard: the content script only checks the origin of fills that
+        // carry one, so the popup must keep sending the reported frame origin.
+        assert.strictEqual(msg.origin, "https://example.com", "fill must carry the frame origin reported by the content script");
     });
 
     test("undeliverable fill shows an error", async () => {

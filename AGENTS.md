@@ -65,6 +65,10 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - Always verify that the full `make test` suite passes before considering a task complete.
 - When making decisions, consider the long-term implications and maintainability of the code. Avoid short-term fixes that may introduce technical debt or future issues.
 - Running the whole test suite is expensive, so for quick test runs during implementation or debugging prefer calling `node --test test/<file.test.js>` to invoke the relevant tests directly.
+- Do not run the full test suite after making documentation changes. Syntax & formatting checks only.
+- When adding tests, double-check to ensure that none are tautological or self-testing.
+- If multiple trivial tests can be combined, do so.
+- If implementing very minor changes, consider whether a test is warranted at all. The maintenance load of carrying additional tests needs to be taken into account.
 - Do not use emdashes, or any emdash-like characters, anywhere in the project. In situations where an emdash is called for, use a hyphen instead. If you edit a line that already includes an emdash, upgrade it to a hyphen during your edit.
 
 ## Comments

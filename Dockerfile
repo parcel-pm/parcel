@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1.7
 # Docker image for testing the Parcel extension.
 #
-# Provides a reproducible environment containing all of Parcel's build and test
-# toolchain: bash, make, node, npm, jq, gpg, rsync, zip, and moreutils (for
-# `sponge`).
+# Provides a current-Ubuntu test environment, equivalent to the ubuntu-latest
+# CI runners, containing all of Parcel's build and test toolchain: bash, make,
+# node, npm, jq, gpg, rsync, zip, and moreutils (for `sponge`). The base image
+# and packages are intentionally unpinned to track a current distribution; this
+# is a development convenience, not a reproducible build.
 #
 # BuildKit cache mounts are used for apt and npm. Build with DOCKER_BUILDKIT=1.
 
