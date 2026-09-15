@@ -2,7 +2,7 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
-## [v1.0.7 / kimi-k3 + glm-5.3](reviews/v1.0.7/merged-glm-5.3-flash-flex.md)
+## [v1.0.7 / kimi-k3 + glm-5.3](reviews/v1.0.7/merged-glm-5.3-flash.md)
 
 Two-model security review using kimi-k3 and glm-5.3, merged September 12, 2026 against Parcel v1.0.7 (commit `099857c`, exactly at tag `v1.0.7`; release review - HEAD is at the tag, 0 commits ahead). Both models independently completed both phases of the review protocol including cross-verification.
 

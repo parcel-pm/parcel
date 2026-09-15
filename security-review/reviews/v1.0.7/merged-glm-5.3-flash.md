@@ -301,7 +301,7 @@ No reachable exploit path was identified for any of the following by either mode
 
 ## About This Merge
 
-- **Merge editor model:** glm-5.3-flash-flex (model ID `glm-5.3-flash-flex`), via GitHub Copilot CLI - distinct from the glm-5.3 component reviewer.
+- **Merge editor model:** glm-5.3-flash (glm-5.3-flash-flex; execution-tier suffix omitted per convention), via GitHub Copilot CLI - distinct from the glm-5.3 component reviewer.
 - **Source reports:** `security-review/reviews/v1.0.7/glm-5.3.md` and `security-review/reviews/v1.0.7/kimi-k3.md`.
 - **Merge date:** 2026-09-12. **Commit ref:** `099857c` (short hash), exactly at tag `v1.0.7`.
 - The committed `security-review/prompt.md` is the canonical record of both prompts (not embedded here).
