@@ -1669,6 +1669,69 @@ printf 'NOFATAL\\n'
         }
     });
 
+    test("symlinked bootstrap in an out-of-reach install fails closed on caller-reachable links", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every directory is writable
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-symlink-"));
+        const locked = join(tmp, "locked");
+        try {
+            // Same stubbed-`parcel_transmit` isolation harness as the previous test.
+            const run = (argv0) =>
+                spawnSync(
+                    "bash",
+                    [
+                        "--noprofile",
+                        "--norc",
+                        "-c",
+                        `function parcel_transmit() { printf 'TRANSMIT:%s\\n' "$1"; }
+${extractBootstrapFn("refuse_writable_system_bootstrap")}
+refuse_writable_system_bootstrap
+printf 'CONTINUED\\n'
+`,
+                        argv0,
+                    ],
+                    { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } },
+                );
+
+            const unlocked = join(tmp, "unlocked");
+            mkdirSync(locked);
+            mkdirSync(unlocked);
+            const target = join(unlocked, "parcel-host");
+            writeFileSync(target, "#!/bin/bash\nexit 0\n");
+            chmodSync(target, 0o555);
+
+            // System-looking symlinked install whose pointee is replaceable by rename: the link
+            // sits in a locked directory, its pointee in a caller-writable one. Unprivileged tests
+            // cannot fake a root-owned link, so the refusal fires on the caller-owned entry link;
+            // the pointee-dir branch needs a root-owned link, as with the F61L root variant.
+            const systemEntry = join(locked, "parcel-host");
+            symlinkSync(target, systemEntry);
+            chmodSync(locked, 0o555);
+            const res = run(systemEntry);
+            assert.strictEqual(res.status, 1, `expected fatal exit, got rc=${res.status} out=${res.stdout}`);
+            assert.ok(res.stdout.includes("system-wide"), `expected the complaint, got: ${res.stdout}`);
+            assert.ok(res.stdout.includes("owned by you"), `expected the complaint, got: ${res.stdout}`);
+            assert.ok(res.stdout.includes(systemEntry), `error must name the link, got: ${res.stdout}`);
+            assert.ok(res.stdout.includes("chown"), `error must give fix guidance: ${res.stdout}`);
+            assert.ok(!res.stdout.includes("CONTINUED"), "execution must not continue past the guard");
+
+            // Correct system-wide install via root-owned symlink chain (/var is a root-owned
+            // symlink on macOS and a root-owned directory on Linux): no abort either way.
+            const strict = run("/var");
+            assert.strictEqual(strict.status, 0, `expected no abort, got rc=${strict.status} out=${strict.stdout}`);
+            assert.ok(strict.stdout.includes("CONTINUED"), `expected continuation, got: ${strict.stdout}`);
+
+            // Permissive user install via symlink (user-owned pointee in a user-writable dir): no abort.
+            const userEntry = join(unlocked, "user-entry");
+            symlinkSync(target, userEntry);
+            const ok = run(userEntry);
+            assert.strictEqual(ok.status, 0, `expected no abort, got rc=${ok.status} out=${ok.stdout}`);
+            assert.ok(ok.stdout.includes("CONTINUED"), `expected continuation, got: ${ok.stdout}`);
+        } finally {
+            if (existsSync(locked)) chmodSync(locked, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
     test("writable bootstrap in an out-of-reach install fails closed with fix guidance", () => {
         if (process.getuid?.() === 0) return; // meaningless as root: every directory is writable
         const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
@@ -1752,6 +1815,52 @@ printf 'CONTINUED\\n'
             assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
         } finally {
             chmodSync(tmp, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+            env.cleanup();
+        }
+    });
+
+    test("bootstrap reached via a symlink into a locked directory fails closed end-to-end", async () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every directory is writable
+        const env = createTestEnv();
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-symlink-"));
+        const entryDir = join(tmp, "locked");
+        const hostDir = join(tmp, "unlocked");
+        mkdirSync(entryDir);
+        mkdirSync(hostDir);
+        try {
+            // The entry link sits in a locked directory (mimicking a system-wide install
+            // location) but its pointee is caller-reachable in a writable directory; the
+            // caller-owned link is itself a refusal cause, so the guard must abort either way.
+            const hostCopy = join(hostDir, "parcel-host");
+            writeFileSync(hostCopy, readFileSync("parcel-host", "utf8"));
+            chmodSync(hostCopy, 0o555);
+            const entry = join(entryDir, "parcel-host");
+            symlinkSync(hostCopy, entry);
+            chmodSync(entryDir, 0o555);
+            const proc = spawn("bash", [entry], {
+                stdio: ["pipe", "pipe", "pipe"],
+                env: {
+                    ...process.env,
+                    HOME: env.home,
+                    XDG_CONFIG_HOME: join(env.home, ".config"),
+                    PATH: `${env.bin}:${process.env.PATH}`,
+                },
+            });
+            proc.stdin.on("error", () => {});
+            try {
+                const read = createMessageReader(proc.stdout);
+                const msg = await read();
+                assert.ok(msg.error, `Expected an error broadcast, got: ${JSON.stringify(msg)}`);
+                assert.ok(msg.error.includes("system-wide"), `Expected the complaint, got: ${JSON.stringify(msg)}`);
+                assert.strictEqual(msg.data?.action, undefined, "bootstrap announcement must not be sent");
+                const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
+                assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
+            } finally {
+                if (!proc.killed) proc.kill();
+            }
+        } finally {
+            chmodSync(entryDir, 0o700);
             rmSync(tmp, { recursive: true, force: true });
             env.cleanup();
         }

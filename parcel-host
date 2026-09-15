@@ -69,22 +69,74 @@ function parcel_strict_mode_enabled() {
 STRICT_BINARIES=false
 if parcel_strict_mode_enabled; then STRICT_BINARIES=true; fi
 
-# Fail closed on a broken install: if the bootstrap looks system-wide (not owned by the caller, or in
-# a directory the caller cannot write) yet the file itself is caller-writable, user-level malware can
-# rewrite the very script that decides and enforces strict mode. Abort with fix guidance rather than
-# running in either mode. Decision tests are builtins; stat feeds message text only.
-# Must remain one self-contained function: tests extract it verbatim.
+# Fail closed on a broken install: if the bootstrap looks system-wide (not owned by the caller, or
+# in a directory the caller cannot write) yet the file itself is caller-writable, user-level malware
+# can rewrite the very script that decides and enforces strict mode. A symlinked bootstrap is
+# additionally resolved link by link (mirroring parcelrc_check_binary): every link and the pointee
+# must be non-caller-owned and must not sit in a caller-writable directory, otherwise the executed
+# content can be swapped via rename or chmod. Abort with fix guidance rather than running in either
+# mode. The file and directory tests are builtins; the chain walk resolves with readlink and judges
+# element ownership with stat (the strict shapes it guards run with a sanitised PATH, and permissive
+# shapes are already caller-controlled). Must remain one self-contained function: tests extract it
+# verbatim.
 #
 # @since 1.0.8
 function refuse_writable_system_bootstrap() {
     local BOOTSTRAP_DIR="."
+    local OWNER MODE MSG=""
     [[ "$0" == */* ]] && BOOTSTRAP_DIR="${0%/*}"
     { [ -O "$0" ] && [ -w "$BOOTSTRAP_DIR" ]; } && return 0
+    if [ -L "$0" ] && [ ! -w "$BOOTSTRAP_DIR" ] && [ ! -w "$0" ]; then
+        local ENTRY="$0" RESOLVED NEXT DIR HOPS=0
+        RESOLVED="$ENTRY"
+        while true; do
+            if [ "$RESOLVED" != "$ENTRY" ]; then
+                DIR="${RESOLVED%/*}"
+                [ -n "$DIR" ] || DIR="/"
+                if [ -w "$DIR" ]; then
+                    MSG="bootstrap $0 resolves through $DIR, which is writable by you but looks like a system-wide install; refusing to start. Fix with: keep the whole link chain outside caller-writable directories, or reinstall the bootstrap at user level"
+                    break
+                fi
+            fi
+            # stat without -L judges the link (or file) itself; an unreadable owner is never the caller
+            OWNER="$(stat -c %u "$RESOLVED" 2>/dev/null || stat -f %u "$RESOLVED" 2>/dev/null)" || OWNER=""
+            MODE="$(stat -c %a "$RESOLVED" 2>/dev/null || stat -f %Lp "$RESOLVED" 2>/dev/null)" || MODE=""
+            if [ "$OWNER" = "$EUID" ]; then
+                MSG="bootstrap $0 resolves through $RESOLVED (owner $OWNER, mode $MODE), which is owned by you but looks like a system-wide install; refusing to start. Fix with: sudo chown -h root $RESOLVED"
+                break
+            fi
+            if [ ! -L "$RESOLVED" ]; then
+                break
+            fi
+            # mirrors the kernel's 40-link resolution limit; cyclic chains cannot survive it
+            HOPS=$((HOPS + 1))
+            if [ "$HOPS" -gt 40 ]; then
+                MSG="bootstrap $0 has a symlink chain that is too long or cyclic; refusing to start"
+                break
+            fi
+            NEXT="$(readlink "$RESOLVED" 2>/dev/null)" || NEXT=""
+            if [ -z "$NEXT" ]; then
+                MSG="bootstrap $0 cannot be resolved (link $RESOLVED cannot be read); refusing to start"
+                break
+            fi
+            case "$NEXT" in
+                /*) RESOLVED="$NEXT" ;;
+                *) RESOLVED="${RESOLVED%/*}/$NEXT" ;;
+            esac
+        done
+        if [ -n "$MSG" ]; then
+            # control characters, double quotes and backslashes are stripped: jq is not yet known available
+            MSG="${MSG//[[:cntrl:]]/}"
+            MSG="${MSG//\"/}"
+            MSG="${MSG//\\/}"
+            parcel_transmit '{"token": "broadcast", "error": "'"$MSG"'"}'
+            exit 1
+        fi
+    fi
     [ -w "$0" ] || return 0
-    local OWNER MODE
     OWNER="$(stat -c %U "$0" 2>/dev/null || stat -f %Su "$0" 2>/dev/null || echo unknown)"
     MODE="$(stat -c %a "$0" 2>/dev/null || stat -f %Lp "$0" 2>/dev/null || echo unknown)"
-    local MSG="bootstrap $0 (owner $OWNER, mode $MODE) is writable by you but looks like a system-wide install; refusing to start. Fix with: sudo chown root $0 && sudo chmod 0755 $0"
+    MSG="bootstrap $0 (owner $OWNER, mode $MODE) is writable by you but looks like a system-wide install; refusing to start. Fix with: sudo chown root $0 && sudo chmod 0755 $0"
     # control characters, double quotes and backslashes are stripped: jq is not yet known available
     MSG="${MSG//[[:cntrl:]]/}"
     MSG="${MSG//\"/}"
