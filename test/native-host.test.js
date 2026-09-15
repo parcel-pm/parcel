@@ -1668,6 +1668,126 @@ printf 'NOFATAL\\n'
             rmSync(tmp, { recursive: true, force: true });
         }
     });
+
+    test("writable bootstrap in an out-of-reach install fails closed with fix guidance", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every directory is writable
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        try {
+            // Exercise the guard in isolation with a stubbed parcel_transmit. `$0` stands in for
+            // the bootstrap path (the `bash -c <script> <arg>` arg becomes the child's $0).
+            const run = (argv0) =>
+                spawnSync(
+                    "bash",
+                    [
+                        "--noprofile",
+                        "--norc",
+                        "-c",
+                        `function parcel_transmit() { printf 'TRANSMIT:%s\\n' "$1"; }
+${extractBootstrapFn("refuse_writable_system_bootstrap")}
+refuse_writable_system_bootstrap
+printf 'CONTINUED\\n'
+`,
+                        argv0,
+                    ],
+                    { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } },
+                );
+
+            // System-wide-looking install: the directory is out of reach, but the bootstrap
+            // file itself is still caller-writable (a broken install per F61L). Must abort.
+            // The true F61L variant (root-owned writable file in root-owned dir) drives the
+            // same fail-closed branch via `! -O`, which an unprivileged test cannot fake.
+            const host = join(tmp, "parcel-host");
+            writeFileSync(host, "#!/bin/bash\nexit 0\n");
+            chmodSync(host, 0o644);
+            chmodSync(tmp, 0o555);
+            const res = run(host);
+            assert.strictEqual(res.status, 1, `expected fatal exit, got rc=${res.status} out=${res.stdout}`);
+            assert.ok(res.stdout.includes("writable by you"), `expected the complaint, got: ${res.stdout}`);
+            assert.ok(res.stdout.includes(host), `error must name the file, got: ${res.stdout}`);
+            assert.ok(res.stdout.includes("owner") && res.stdout.includes("mode"), `error must report ownership/mode: ${res.stdout}`);
+            assert.ok(res.stdout.includes("chown") && res.stdout.includes("chmod"), `error must give fix guidance: ${res.stdout}`);
+            assert.ok(!res.stdout.includes("CONTINUED"), "execution must not continue past the guard");
+
+            // Normal permissive install (user-owned file in a user-writable dir): no abort.
+            chmodSync(tmp, 0o755);
+            const ok = run(host);
+            assert.strictEqual(ok.status, 0, `expected no abort, got rc=${ok.status} out=${ok.stdout}`);
+            assert.ok(ok.stdout.includes("CONTINUED"), `expected continuation, got: ${ok.stdout}`);
+
+            // Correct system-wide install (root-owned 0755 file in a root-owned dir): no abort.
+            const strict = run("/bin/ls");
+            assert.strictEqual(strict.status, 0, `expected no abort, got rc=${strict.status} out=${strict.stdout}`);
+            assert.ok(strict.stdout.includes("CONTINUED"), `expected continuation, got: ${strict.stdout}`);
+        } finally {
+            chmodSync(tmp, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    test("bootstrap copied into a locked directory fails closed end-to-end", async () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: every directory is writable
+        const env = createTestEnv();
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
+        try {
+            const hostCopy = join(tmp, "parcel-host");
+            writeFileSync(hostCopy, readFileSync("parcel-host", "utf8"));
+            chmodSync(hostCopy, 0o644);
+            chmodSync(tmp, 0o555);
+            const proc = spawn("bash", [hostCopy], {
+                stdio: ["pipe", "pipe", "pipe"],
+                env: {
+                    ...process.env,
+                    HOME: env.home,
+                    XDG_CONFIG_HOME: join(env.home, ".config"),
+                    PATH: `${env.bin}:${process.env.PATH}`,
+                },
+            });
+            proc.stdin.on("error", () => {});
+            const read = createMessageReader(proc.stdout);
+            const msg = await read();
+            assert.ok(msg.error, `Expected an error broadcast, got: ${JSON.stringify(msg)}`);
+            assert.ok(msg.error.includes("writable by you"), `Expected the complaint, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data?.action, undefined, "bootstrap announcement must not be sent");
+            const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
+            assert.strictEqual(exitCode, 1, `Expected exit code 1, got ${exitCode}`);
+        } finally {
+            chmodSync(tmp, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+            env.cleanup();
+        }
+    });
+
+    test("bootstrap copied into a user-writable directory starts normally", async () => {
+        const env = createTestEnv();
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-boot-"));
+        try {
+            const hostCopy = join(tmp, "parcel-host");
+            writeFileSync(hostCopy, readFileSync("parcel-host", "utf8"));
+            chmodSync(hostCopy, 0o755);
+            const proc = spawn("bash", [hostCopy], {
+                stdio: ["pipe", "pipe", "pipe"],
+                env: {
+                    ...process.env,
+                    HOME: env.home,
+                    XDG_CONFIG_HOME: join(env.home, ".config"),
+                    PATH: `${env.bin}:${process.env.PATH}`,
+                },
+            });
+            proc.stdin.on("error", () => {});
+            try {
+                const read = createMessageReader(proc.stdout);
+                const msg = await read();
+                assert.strictEqual(msg.token, "broadcast");
+                assert.strictEqual(msg.data?.action, "bootstrap");
+                assert.strictEqual(msg.data?.version, "3");
+            } finally {
+                proc.kill();
+            }
+        } finally {
+            rmSync(tmp, { recursive: true, force: true });
+            env.cleanup();
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------

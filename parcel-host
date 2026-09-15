@@ -69,6 +69,30 @@ function parcel_strict_mode_enabled() {
 STRICT_BINARIES=false
 if parcel_strict_mode_enabled; then STRICT_BINARIES=true; fi
 
+# Fail closed on a broken install: if the bootstrap looks system-wide (not owned by the caller, or in
+# a directory the caller cannot write) yet the file itself is caller-writable, user-level malware can
+# rewrite the very script that decides and enforces strict mode. Abort with fix guidance rather than
+# running in either mode. Decision tests are builtins; stat feeds message text only.
+# Must remain one self-contained function: tests extract it verbatim.
+#
+# @since 1.0.8
+function refuse_writable_system_bootstrap() {
+    local BOOTSTRAP_DIR="."
+    [[ "$0" == */* ]] && BOOTSTRAP_DIR="${0%/*}"
+    { [ -O "$0" ] && [ -w "$BOOTSTRAP_DIR" ]; } && return 0
+    [ -w "$0" ] || return 0
+    local OWNER MODE
+    OWNER="$(stat -c %U "$0" 2>/dev/null || stat -f %Su "$0" 2>/dev/null || echo unknown)"
+    MODE="$(stat -c %a "$0" 2>/dev/null || stat -f %Lp "$0" 2>/dev/null || echo unknown)"
+    local MSG="bootstrap $0 (owner $OWNER, mode $MODE) is writable by you but looks like a system-wide install; refusing to start. Fix with: sudo chown root $0 && sudo chmod 0755 $0"
+    # control characters, double quotes and backslashes are stripped: jq is not yet known available
+    MSG="${MSG//[[:cntrl:]]/}"
+    MSG="${MSG//\"/}"
+    MSG="${MSG//\\/}"
+    parcel_transmit '{"token": "broadcast", "error": "'"$MSG"'"}'
+    exit 1
+}
+
 # Save the invoker's PATH before any filtering: strict mode re-sanitises this original
 # value (rather than the pass-1 result) so that root-owned symlinks can be kept,
 # while permissive mode restores it untouched.
@@ -170,6 +194,10 @@ function parcel_transmit() {
         "$(( n >> 24 & 255 ))"
     printf '%b%s' "$b" "$s"
 }
+
+# Run the broken-install guard before anything relies on the mode decision; placed here so the
+# error can be framed in the native messaging protocol (parcel_transmit is now defined).
+refuse_writable_system_bootstrap
 
 # resolve the config directory, respecting $XDG_CONFIG_HOME per the XDG Base
 # Directory Specification (falls back to $HOME/.config when unset, empty, or
