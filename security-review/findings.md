@@ -2,6 +2,66 @@
 
 This document outlines the findings from security reviews conducted on the project, and the maintainers' responses to them. Duplicate findings, and findings that do not detail a security vulnerability (e.g. simply note designed behaviour as intended / acceptable) are not listed, but are still present in the full reports.
 
+## [v1.0.7 / kimi-k3 + glm-5.3](reviews/v1.0.7/merged-glm-5.3-flash-flex.md)
+
+Two-model security review using kimi-k3 and glm-5.3, merged September 12, 2026 against Parcel v1.0.7 (commit `099857c`, exactly at tag `v1.0.7`; release review - HEAD is at the tag, 0 commits ahead). Both models independently completed both phases of the review protocol including cross-verification.
+
+No CRITICAL or HIGH vulnerabilities were identified. The merged record carries nine findings: one MEDIUM (severity disputed), six LOW, and two INFORMATIONAL. Every finding was reported by both models, with one severity dispute (F59M) and no finding-level disputes. The host-side enforcement boundary held under every attack attempted by either model: the whitelist, rate limiter (including its new atomic state lock), signer revocation, rpId binding, passkey content-marker backstop, and the new v1.0.7 parcelrc/environment hardening all survived live adversarial testing. All previously-fixed findings were verified intact by both models, and the built `chrome`/`firefox` bundles were verified to match `src/`.
+
+### F59M - `passkey` runtime port has no authorisation or consent gate (MEDIUM; severity disputed)
+
+**Description:** The only action that exercises a passkey's private key never received the two-part gate that #69 gave `decrypt`/`match`: any extension context can connect a `passkey` port and directly invoke `candidates` (enumerate passkey entry names/paths for a claimed rpId), `assert` (sign a caller-supplied `clientDataJSON`), and `create` (mint a credential), with no consent verification. Private keys never leave the host; whitelist, passkey classification, rpId binding, allowCredentials, and the rate limiter all still hold, bounding impact to silent signing within the rate limit. TM2 / TM0. Severity disputed: glm-5.3 rates MEDIUM (consistent with the F20M precedent for the structurally identical decrypt-gate gap), kimi-k3 rates LOW (host controls all hold; the residual substance is the SECURITY.md:134 documentation tension).
+
+**Response:** - Rejected; not a valid finding. The #69 `auth` token is a correlation identifier binding a clicked field to the context popup (see F40M), not a defence against compromised extension contexts. Passkey ceremonies are raised by the WebAuthn interceptor rather than a clicked field, so a `passkey` port has no correlation to carry and therefore nothing for that particular auth gate to check. Consent is a page-facing guarantee, implemented in `integration.js`: a page cannot open extension ports, cannot silently authenticate, and origin/rpId are re-derived isolated-side on every ceremony. SECURITY.md's wording is corrected in #193 to scope the guarantee accordingly.
+
+### F60L - Newline-embedded store filenames inject phantom whitelist entries; decrypting an existing phantom wedges the host (LOW)
+
+**Description:** `action_list` splits `find` output on newlines, so a store filename containing an embedded newline yields phantom (non-store) entries that pass the line-count TOCTOU check and enter `ALLOWED_FILES` and the popup list; fragments are single components only (no `/`), and no plaintext leak was constructible. Decrypting a phantom that matches an existing file in the host's CWD wedges the host permanently: `path_uses_links` collapses to the `dirname .` fixed point and loops forever, until the extension's ping watchdog recovers by respawning a fresh host. TM4 (hostile store contents).
+
+**Response:** <pending>
+
+### F61L - Strict-mode detection omits a writability check on the bootstrap file itself (LOW)
+
+**Description:** `parcel_strict_mode_enabled` tests only that the bootstrap file is not caller-owned and its directory is not writable, never `[ ! -w "$0" ]`, so a root-owned but user-writable bootstrap file (hand-installed with a broken mode) enables strict mode while remaining directly editable by user-level malware. No privilege boundary is crossed; the finding is the false assurance of the strict-mode guarantee. TM5.
+
+**Response:** <pending>
+
+### F62L - http-auth token's intent restriction is transient (LOW)
+
+**Description:** The per-challenge http-auth token restricts decryption to `intent: "http-auth"` only while its challenge is pending; once the callback resolves (credentials supplied, cancel, popup disconnect, or expiry timer), the popup port that authenticated with it stays authorised and can then decrypt with `intent: "fill"`. Under TM2 this adds nothing beyond the maintainer-accepted F40M posture; the substance is that SECURITY.md:158 states the restriction as an absolute. TM0.
+
+**Response:** <pending>
+
+### F63L - Documented from-source build cannot succeed without a release signer's secret key (LOW)
+
+**Description:** Every documented build target hard-depends on `dist/parcel-host.asc`, signed with a maintainer key (`--default-key` is hard-coded in src/Makefile); `src/dist/` is untracked, so `make all`/`make chrome`/`make firefox` aborts with a GPG "no secret key" error on a fresh clone, and the README documents no self-signing plus `VALID_SIGNERS` path even though the constitution invites forks. Fail-safe (the build aborts rather than producing an unsigned bundle), hence LOW. TM0.
+
+**Response:** <pending>
+
+### F64L - Test Dockerfile builds on unpinned, unverified third-party code (LOW)
+
+**Description:** The test container builds `FROM ubuntu:latest` (no digest pin) and installs Node.js by piping the NodeSource setup script straight into a root shell with no version pin, checksum, or signature, despite its header claiming to provide a reproducible environment. Same class as the fixed F37L. Dev/test convenience only, never shipped; CI uses `actions/setup-node` instead. TM5.
+
+**Response:** <pending>
+
+### F65L - No popup-side regression test for the F36L origin carriage (LOW)
+
+**Description:** No test asserts that the popup's fill message carries the `origin` field that makes the F34M destination-origin guard cover the primary fill path; a future refactor dropping the field would silently re-open the F34M cross-origin fill with zero test failures. Same silent-regression class as F56L, for a MEDIUM-severity control. TM5.
+
+**Response:** <pending>
+
+### F66I - Fixed gates lacking regression tests (INFORMATIONAL)
+
+**Description:** Four fixed controls would regress silently (reverting the fix passes the entire test suite): the F48I `CSS.escape(entry.path)` render, the F57L `hasOwnProperty` unknown-key gate, the F10L audit field caps, and per-container history isolation (the latter two halves already noted by F50I's residuals). Defence-regression detectors only; no live hole. TM5.
+
+**Response:** <pending>
+
+### F67I - Stale "No clipboard auto-clear" tradeoff row (INFORMATIONAL)
+
+**Description:** SECURITY.md's tradeoff table still says Parcel does not implement clipboard auto-clear, while the v1.0.7 protections section documents the host-side auto-clear after `clipboardTimeout` seconds added in #167. Documentation tension only; the implementation is stronger than documented. TM0.
+
+**Response:** <pending>
+
 ## [v1.0.6 / kimi-k3 + glm-5.2](reviews/v1.0.6/merged-glm-5.2.md)
 
 Two-model security review using kimi-k3 and glm-5.2, merged August 19, 2026 against Parcel v1.0.6 (commit `03fec5a`, tag `v1.0.6`; release review — HEAD is at the tag, 0 commits ahead). Both models independently completed both phases of the review protocol including cross-verification.
@@ -429,4 +489,3 @@ obfuscation measuer that would give a false sense of security. Users who are con
 this operation.
 
 **Response:** Resolved in 49 by moving the sha256 setup to after `parcelrc` is loaded.
-
