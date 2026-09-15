@@ -534,30 +534,30 @@ function action_list() {
     # the one-response-per-request invariant
     local RECORDS=()
     local REC=""
-    local RC_SEEN=0
+    local RETURN_SEEN=0
     local FIND_ERR=""
-    local FIND_RC=0
+    local FIND_RETURN=0
     for ROOT in "${ROOTS[@]}"; do
-        RC_SEEN=0
+        RETURN_SEEN=0
         while IFS= read -r -d '' REC; do
-            if [ "$RC_SEEN" -eq 1 ]; then
+            if [ "$RETURN_SEEN" -eq 1 ]; then
                 [ -n "$REC" ] && FIND_ERR+="$REC"$'\n'
-            elif [[ "$REC" == __PARCEL_RC__* ]]; then
+            elif [[ "$REC" == __PARCEL_RETURN__* ]]; then
                 # cannot collide with a real path: paths are absolute, starting with $ROOT/
-                RC_SEEN=1
-                [ "$FIND_RC" -eq 0 ] && FIND_RC="${REC#__PARCEL_RC__}"
+                RETURN_SEEN=1
+                [ "$FIND_RETURN" -eq 0 ] && FIND_RETURN="${REC#__PARCEL_RETURN__}"
             elif [ -n "$REC" ]; then
                 RECORDS+=("$REC")
             fi
         done < <(
             exec 3>&1
-            ERR="$( find -H -- "$ROOT"/ \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" -name '*.gpg' -print0 \) 2>&1 1>&3; printf '__PARCEL_RC__%d\0' "$?" >&3 )"
+            ERR="$( find -H -- "$ROOT"/ \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" -name '*.gpg' -print0 \) 2>&1 1>&3; printf '__PARCEL_RETURN__%d\0' "$?" >&3 )"
             while IFS= read -r ELINE; do [ -n "$ELINE" ] && printf '%s\0' "$ELINE"; done <<< "$ERR"
         )
         # a missing sentinel means the substitution died (e.g. killed by signal) before find's status could be relayed
-        [ "$RC_SEEN" -eq 0 ] && [ "$FIND_RC" -eq 0 ] && FIND_RC=1
+        [ "$RETURN_SEEN" -eq 0 ] && [ "$FIND_RETURN" -eq 0 ] && FIND_RETURN=1
     done
-    if [ "$FIND_RC" -ne 0 ] || [ -n "$FIND_ERR" ]; then
+    if [ "$FIND_RETURN" -ne 0 ] || [ -n "$FIND_ERR" ]; then
         parcel_error "Unable to scan files: $FIND_ERR"
         return 0
     fi
