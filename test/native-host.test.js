@@ -2176,6 +2176,22 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("action_list aborts when an entry path contains a newline", async () => {
+        const env = createTestEnv();
+        writeFileSync(join(env.passdir, "entry\nwith\nnewline.gpg"), "encrypted-nl");
+
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "list" });
+            const msg = await read();
+            assert.ok(msg.error?.toLowerCase().includes("newline"), `Expected newline-in-path error, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data, undefined, `Expected no entry data alongside the error, got: ${JSON.stringify(msg.data)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_list populates ALLOWED_FILES for decrypt", async () => {
         const env = createTestEnv();
         const { proc, read, send } = await installMainScript(env);

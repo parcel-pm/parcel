@@ -527,6 +527,18 @@ function action_list() {
         ROOTS+=("$ROOT")
     done < <(collect_roots "$PASSWORD_STORE_DIR" "$ALLOW_LINKS" "$ALLOW_EXTERNAL_LINKS")
 
+    # refuse newlines in entry paths: the line-delimited stream below would split them into bogus entries,
+    # so scan null-delimited and abort if any single path itself contains a newline
+    local ENTRY_PATH
+    for ROOT in "${ROOTS[@]}"; do
+        while IFS= read -r -d '' ENTRY_PATH; do
+            if [[ "$ENTRY_PATH" == *$'\n'* ]]; then
+                parcel_error "Entry path contains a newline: ${ENTRY_PATH//$'\n'/\\n}"
+                return 0
+            fi
+        done < <(find -H -- "$ROOT"/ \( -type d -name '.git' -prune \) -o \( \( -type f -o -type l \) -not -path "${ROOT}/.*" -not -path "${ROOT}/**/.*" -name '*.gpg' -print0 \))
+    done
+
     local MIXED=""
     for ROOT in "${ROOTS[@]}"; do
         MIXED+="$(
