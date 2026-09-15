@@ -523,7 +523,7 @@ describe("Bootstrap script", () => {
             const msg = await read();
             assert.strictEqual(msg.token, "broadcast");
             assert.strictEqual(msg.data?.action, "bootstrap");
-            assert.strictEqual(msg.data?.version, "3");
+            assert.strictEqual(msg.data?.version, "4");
         } finally {
             proc.kill();
             env.cleanup();
@@ -1779,7 +1779,7 @@ printf 'CONTINUED\\n'
                 const msg = await read();
                 assert.strictEqual(msg.token, "broadcast");
                 assert.strictEqual(msg.data?.action, "bootstrap");
-                assert.strictEqual(msg.data?.version, "3");
+                assert.strictEqual(msg.data?.version, "4");
             } finally {
                 proc.kill();
             }
