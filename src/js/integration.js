@@ -102,9 +102,9 @@
      */
     function broadcastFrameId(id) {
         if (window === window.top) return;
-        // Restrict delivery to the top-level origin so a cross-origin embedding page can't observe
-        // the ID if the top frame navigates before delivery; fall back to "*" where ancestorOrigins
-        // isn't implemented.
+        // Restrict the broadcast to the top-level origin so a cross-origin embedding page can't
+        // observe it. ancestorOrigins exposes ancestor origins even cross-origin; fall back to "*"
+        // in browsers that don't implement it.
         const ancestors = location.ancestorOrigins;
         const topOrigin = ancestors?.length ? ancestors.item(ancestors.length - 1) : "*";
         window.top.postMessage({ action: "parcel-frame-id", frameId: id }, topOrigin);
@@ -1345,7 +1345,7 @@
                 // fallback for browsers without crypto.randomUUID()
                 token = Math.random().toString(36).substring(2) + Date.now().toString(36);
             }
-            passkeyBindings[token] = {
+            const binding = {
                 requestId: req.requestId,
                 op: req.op,
                 origin,
@@ -1358,7 +1358,9 @@
                 hintWarning: violatedPasskeyHints(req.options.hints),
                 minted: null,
             };
+            passkeyBindings[token] = binding;
             await resolveFrameId(); // refresh: prerender activation can swap frame IDs (issue #163)
+            if (passkeyBindings[token] !== binding) return; // aborted or superseded while refreshing
             authPort.postMessage(token);
             triggerPort.postMessage({ action: "trigger-popup", frameId, token, position: { centered: true }, mode: "passkey" });
         } catch (err) {
@@ -1446,10 +1448,12 @@
         } catch (_err) {
             token = Math.random().toString(36).substring(2) + Date.now().toString(36);
         }
-        passkeyBindings[token] = { conflict: true, reason: msg.reason, origin };
+        const binding = { conflict: true, reason: msg.reason, origin };
+        passkeyBindings[token] = binding;
         passkeyConflictShown = true;
         // announce the popup token before the iframe connects, like a ceremony binding does
         await resolveFrameId(); // refresh: prerender activation can swap frame IDs (issue #163)
+        if (passkeyBindings[token] !== binding) return; // superseded while refreshing
         authPort.postMessage(token);
         triggerPort.postMessage({ action: "trigger-popup", frameId, token, position: { centered: true }, mode: "passkey-conflict" });
     }
