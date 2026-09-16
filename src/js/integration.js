@@ -129,6 +129,11 @@
                 port.disconnect();
                 resolve(frameId);
             });
+            port.onDisconnect.addListener(() => {
+                chrome.runtime.lastError; // consume the disconnect error
+                clearTimeout(timer);
+                resolve(frameId);
+            });
             port.postMessage({ action: "frame-id" });
         });
     }
