@@ -335,25 +335,22 @@ describe("Integration script", { concurrency: false }, () => {
         liveFrameId = 42; // config-time frameId was 0; simulate a post-activation swap
         try {
             const input = makeInput({ type: "text", name: "username" });
-            const triggerReceiver = portReceivers["trigger"];
-            const observed = [];
-            triggerReceiver.onMessage.addListener((msg) => observed.push(msg));
+            const popupPromise = nextMessage(portReceivers["trigger"], "trigger-popup", 3000);
             await click(input);
-            await settleAsync();
-            const trigger = observed.find((m) => m.action === "trigger-popup");
-            assert.ok(trigger, "trigger-popup dispatched");
+            const trigger = await popupPromise;
             assert.strictEqual(trigger.frameId, 42, "must dispatch the live frame ID, not the stale config-time value");
 
             // untargeted clicks use the same refreshed ID
-            observed.length = 0;
+            const clickPromise = nextMessage(portReceivers["trigger"], "untargeted-click", 3000);
             const div = document.createElement("div");
             document.body.appendChild(div);
             await click(div);
-            await settleAsync();
-            const untargeted = observed.find((m) => m.action === "untargeted-click");
-            assert.strictEqual(untargeted?.frameId, 42, "untargeted-click must also carry the live frame ID");
+            const untargeted = await clickPromise;
+            assert.strictEqual(untargeted.frameId, 42, "untargeted-click must also carry the live frame ID");
         } finally {
-            liveFrameId = 0; // restore so subsequent clicks re-resolve to the default
+            // The content script's stale frameId self-heals on next use; a cleanup click
+            // would be buffered by the mock and replayed to the next test.
+            liveFrameId = 0;
         }
     });
 
