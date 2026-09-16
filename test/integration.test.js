@@ -99,6 +99,9 @@ let dom, document, window, mock, portReceivers, portCallers;
 
 // Stash reports sent from the content script to the worker ({type: "parcel-error-stash", ...}).
 const stashReports = [];
+
+// Frame ID the mock worker reports for live frame-id queries (issue #163 emulation).
+let liveFrameId = 0;
 // Snapshot of the reports produced during module init (before any test truncates them).
 let initStashReports = [];
 
@@ -183,6 +186,8 @@ before(async () => {
         receiver.onMessage.addListener((msg) => {
             if (msg?.action === "config") {
                 receiver.postMessage({ action: "config", config: makeValidConfig(), frameId: 0 });
+            } else if (msg?.action === "frame-id") {
+                receiver.postMessage({ action: "frame-id", frameId: liveFrameId });
             }
         });
     });
@@ -323,6 +328,33 @@ describe("Integration script", { concurrency: false }, () => {
         await click(input);
         await promise;
         assert.ok(input._parcelToken);
+    });
+
+    test("trigger-popup re-resolves the frame ID from the worker (prerender activation, issue #163)", async () => {
+        clearBody();
+        liveFrameId = 42; // config-time frameId was 0; simulate a post-activation swap
+        try {
+            const input = makeInput({ type: "text", name: "username" });
+            const triggerReceiver = portReceivers["trigger"];
+            const observed = [];
+            triggerReceiver.onMessage.addListener((msg) => observed.push(msg));
+            await click(input);
+            await settleAsync();
+            const trigger = observed.find((m) => m.action === "trigger-popup");
+            assert.ok(trigger, "trigger-popup dispatched");
+            assert.strictEqual(trigger.frameId, 42, "must dispatch the live frame ID, not the stale config-time value");
+
+            // untargeted clicks use the same refreshed ID
+            observed.length = 0;
+            const div = document.createElement("div");
+            document.body.appendChild(div);
+            await click(div);
+            await settleAsync();
+            const untargeted = observed.find((m) => m.action === "untargeted-click");
+            assert.strictEqual(untargeted?.frameId, 42, "untargeted-click must also carry the live frame ID");
+        } finally {
+            liveFrameId = 0; // restore so subsequent clicks re-resolve to the default
+        }
     });
 
     test("click on untargeted div sends untargeted-click", async () => {

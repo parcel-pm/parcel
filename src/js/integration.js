@@ -94,6 +94,45 @@
     });
     let frameId = 0;
 
+    /**
+     * Re-resolve `frameId` from the background worker; Chrome prerender
+     * activation changes the ID after document_start (issue #163).
+     * @since 1.0.8
+     * @returns {Promise<number>} The (possibly unchanged) current frame ID.
+     */
+    async function resolveFrameId() {
+        let port;
+        try {
+            port = chrome.runtime.connect({ name: "integration" });
+        } catch (_err) {
+            // Extension context invalidated - the stale content script cannot recover anyway.
+            return frameId;
+        }
+        return new Promise((resolve) => {
+            // keep the cached ID if the worker never answers this click-time query
+            const timer = setTimeout(() => {
+                port.disconnect();
+                resolve(frameId);
+            }, 1_000);
+            port.onMessage.addListener((msg) => {
+                if (msg?.action !== "frame-id") return;
+                clearTimeout(timer);
+                if (typeof msg.frameId === "number" && msg.frameId !== frameId) {
+                    frameId = msg.frameId;
+                    // refresh the root frame's iframe mapping for popup placement
+                    if (window !== window.top) {
+                        const ancestors = location.ancestorOrigins;
+                        const topOrigin = ancestors?.length ? ancestors.item(ancestors.length - 1) : "*";
+                        window.top.postMessage({ action: "parcel-frame-id", frameId }, topOrigin);
+                    }
+                }
+                port.disconnect();
+                resolve(frameId);
+            });
+            port.postMessage({ action: "frame-id" });
+        });
+    }
+
     // Send a periodic keepalive message to the service worker so that MV3
     // doesn't suspend it during idle periods. Content scripts run in the tab's
     // process and are not subject to service worker suspension, so this timer
@@ -810,6 +849,7 @@
         if (target?.control) return; // ignore clicks on labels, we'll handle them via the cascaded click on its associated element
         if (target._lastClicked && target._lastClicked > Date.now() - 350) return; // debounce multiple quick clicks
         target._lastClicked = Date.now();
+        await resolveFrameId(); // refresh: prerender activation can swap frame IDs (issue #163)
 
         try {
             const targetInfo = await getTargetInfo(target);

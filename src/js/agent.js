@@ -764,11 +764,11 @@ export class Agent extends EventTarget {
 
         // Allow-list: map port names to the actions they are permitted to invoke.
         // `decrypt`/`match` are privileged and only available to authorised popup ports;
-        // content-script (`integration`) ports may only request `config`.
+        // content-script (`integration`) ports may only request `config` and resolve their frame ID.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
             popup: ["auth", "clipboard", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
-            integration: ["config"],
+            integration: ["config", "frame-id"],
             passkey: ["passkey"], // not correlated against a clicked field, so no 'auth' correlation token is required
         };
         const allowedActions = PORT_ACTIONS[port.name] || [];
@@ -814,6 +814,12 @@ export class Agent extends EventTarget {
                 // Validate the action against the port-name allow-list.
                 if (!message?.action || !allowedActions.includes(message.action)) {
                     throw new Error(`Action "${message?.action}" is not permitted for port "${port.name}"`);
+                }
+
+                // frame-id queries never touch the native host; answer before the readiness gates below
+                if (message.action === "frame-id") {
+                    post({ action: "frame-id", frameId: port.sender?.frameId ?? 0 });
+                    return;
                 }
 
                 // Surface a stored init error (e.g. a parcelrc permission failure that

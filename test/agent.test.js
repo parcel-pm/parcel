@@ -197,6 +197,28 @@ describe("Agent", () => {
         assert.strictEqual(cfg.frameId, 2, "config frameId");
     });
 
+    test("integration frame-id answers immediately with the live sender frame ID", async () => {
+        const integration = mock.chrome.runtime.connect({ name: "integration", sender: { frameId: 7 } });
+        await settleAsync();
+        const idPromise = nextMessage(integration, "frame-id");
+        integration.postMessage({ action: "frame-id" });
+        const msg = await idPromise;
+        assert.strictEqual(msg.frameId, 7, "frame-id must reflect the live port sender, not any cached state");
+        integration.disconnect();
+
+        // frame-id must answer while the native host is down (issue #163)
+        const nativePort = mock.getNativePort("com.github.erayd.parcel");
+        nativePort.caller.disconnect();
+        await settleAsync();
+        const integration2 = mock.chrome.runtime.connect({ name: "integration", sender: { frameId: 9 } });
+        await settleAsync();
+        const idPromise2 = nextMessage(integration2, "frame-id");
+        integration2.postMessage({ action: "frame-id" });
+        const msg2 = await idPromise2;
+        assert.strictEqual(msg2.frameId, 9, "frame-id must answer while the native host is down");
+        integration2.disconnect();
+    });
+
     test("sha256", async () => {
         const popup = mock.chrome.runtime.connect({ name: "popup" });
         await settleAsync();
