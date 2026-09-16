@@ -133,6 +133,11 @@
         });
     }
 
+    // Re-resolve immediately on prerender activation (issue #163); self-gating where prerendering is unsupported.
+    if (document.prerendering) {
+        document.addEventListener("prerenderingchange", () => resolveFrameId(), { once: true });
+    }
+
     // Send a periodic keepalive message to the service worker so that MV3
     // doesn't suspend it during idle periods. Content scripts run in the tab's
     // process and are not subject to service worker suspension, so this timer
@@ -221,6 +226,8 @@
     window.addEventListener("pageshow", (ev) => {
         // re-establish connection to the trigger port on bfcache restore
         if (ev.persisted) triggerPort.reconnect();
+        // re-resolve the frame ID in case the restored frame was assigned a different ID
+        if (ev.persisted) resolveFrameId();
         // re-assert the stashed-error badge for the restored document (top frame owns the stash)
         if (ev.persisted && window === window.top) reportStashPresence(Boolean(document._parcelError));
     });
