@@ -818,7 +818,7 @@ export class Agent extends EventTarget {
 
                 // frame-id queries never touch the native host; answer before the readiness gates below
                 if (message.action === "frame-id") {
-                    post({ action: "frame-id", frameId: port.sender?.frameId ?? 0 });
+                    post({ action: "frame-id", frameId: port.sender?.frameId || 0 });
                     return;
                 }
 
