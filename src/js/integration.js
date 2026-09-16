@@ -1342,6 +1342,7 @@
                 hintWarning: violatedPasskeyHints(req.options.hints),
                 minted: null,
             };
+            await resolveFrameId(); // refresh: prerender activation can swap frame IDs (issue #163)
             authPort.postMessage(token);
             triggerPort.postMessage({ action: "trigger-popup", frameId, token, position: { centered: true }, mode: "passkey" });
         } catch (err) {
@@ -1432,6 +1433,7 @@
         passkeyBindings[token] = { conflict: true, reason: msg.reason, origin };
         passkeyConflictShown = true;
         // announce the popup token before the iframe connects, like a ceremony binding does
+        await resolveFrameId(); // refresh: prerender activation can swap frame IDs (issue #163)
         authPort.postMessage(token);
         triggerPort.postMessage({ action: "trigger-popup", frameId, token, position: { centered: true }, mode: "passkey-conflict" });
     }
