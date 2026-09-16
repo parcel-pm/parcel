@@ -95,6 +95,22 @@
     let frameId = 0;
 
     /**
+     * Tell the root frame this frame's ID so its iframe mapping stays fresh for popup placement.
+     * @since 1.0.8
+     * @param {number} id - The frame ID to broadcast.
+     * @returns {void}
+     */
+    function broadcastFrameId(id) {
+        if (window === window.top) return;
+        // Restrict delivery to the top-level origin so a cross-origin embedding page can't observe
+        // the ID if the top frame navigates before delivery; fall back to "*" where ancestorOrigins
+        // isn't implemented.
+        const ancestors = location.ancestorOrigins;
+        const topOrigin = ancestors?.length ? ancestors.item(ancestors.length - 1) : "*";
+        window.top.postMessage({ action: "parcel-frame-id", frameId: id }, topOrigin);
+    }
+
+    /**
      * Re-resolve `frameId` from the background worker; Chrome prerender
      * activation changes the ID after document_start (issue #163).
      * @since 1.0.8
@@ -120,11 +136,7 @@
                 if (typeof msg.frameId === "number" && msg.frameId !== frameId) {
                     frameId = msg.frameId;
                     // refresh the root frame's iframe mapping for popup placement
-                    if (window !== window.top) {
-                        const ancestors = location.ancestorOrigins;
-                        const topOrigin = ancestors?.length ? ancestors.item(ancestors.length - 1) : "*";
-                        window.top.postMessage({ action: "parcel-frame-id", frameId }, topOrigin);
-                    }
+                    broadcastFrameId(frameId);
                 }
                 port.disconnect();
                 resolve(frameId);
@@ -300,15 +312,7 @@
                     // already disconnected; nothing to clean up
                 }
                 frameId = msg?.frameId || 0;
-                if (window !== window.top) {
-                    // Restrict the broadcast to the top-level origin so a
-                    // cross-origin embedding page can't observe it. ancestorOrigins
-                    // exposes ancestor origins even cross-origin; fall back to "*"
-                    // in browsers that don't implement it.
-                    const ancestors = location.ancestorOrigins;
-                    const topOrigin = ancestors?.length ? ancestors.item(ancestors.length - 1) : "*";
-                    window.top.postMessage({ action: "parcel-frame-id", frameId }, topOrigin);
-                }
+                broadcastFrameId(frameId);
                 resolve(msg.config);
             });
             port.onDisconnect.addListener(() => {
