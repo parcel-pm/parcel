@@ -103,6 +103,25 @@ export class Helpers {
     }
 
     /**
+     * Validate a value against the Luhn checksum, ignoring non-digit characters.
+     * @since 1.0.8
+     * @param {string} value - The value to validate.
+     * @returns {boolean} True if the value contains digits and passes the checksum.
+     */
+    static luhnValid(value) {
+        const digits = String(value).replace(/\D/gu, "");
+        if (!digits.length) return false;
+        let sum = 0;
+        let doubleDigit = false;
+        for (let i = digits.length - 1; i >= 0; i--) {
+            const digit = digits.charCodeAt(i) - "0".charCodeAt(0);
+            sum += doubleDigit && digit > 4 ? digit * 2 - 9 : doubleDigit ? digit * 2 : digit;
+            doubleDigit = !doubleDigit;
+        }
+        return sum % 10 === 0;
+    }
+
+    /**
      * Normalise a field name to the canonical target name defined in the config
      * @since 1.0.0
      * @param {object} config - The current parcel config
@@ -126,7 +145,7 @@ export class Helpers {
      * @param {object} config - The current parcel config.
      * @param {string} type - The target type to use.
      * @returns {Promise<string|object|null>} The resolved value, or a TOTP metadata object if a TOTP transform was applied.
-     * @throws {Error} If the target type is invalid, no value is found, the target pattern is malformed, a fallback is misconfigured, or a TOTP transform fails.
+     * @throws {Error} If the target type is invalid, no value is found, the target pattern is malformed, a fallback is misconfigured, or a transform fails.
      */
     static async getValue(plaintext, config, type) {
         config = await config;
@@ -163,10 +182,10 @@ export class Helpers {
                     if (!targetRule.fallbackMatch) return value;
                     const matches = value.match(new RegExp(targetRule.fallbackMatch, "ui"));
                     if (!matches) throw new Error(`Unable to extract fallback match for field type: ${type}`);
-                    return matches[1];
+                    return await Helpers.transformValue(targetRule, matches[1], type);
                 } catch (err) {
                     // If the fallback fails, we should throw a new error from here rather than exposing the fallback error
-                    console.info(err);
+                    if (targetRule.fallbackFailureInfo) console.info(err);
                     throw new Error(`No value found for field type: ${type}`);
                 }
             } else if (targetRule.onMissing === "null") {
@@ -181,6 +200,19 @@ export class Helpers {
         if (targetRule.trim) fillValue = fillValue.trim();
 
         // transform the value if configured
+        return await Helpers.transformValue(targetRule, fillValue, type);
+    }
+
+    /**
+     * Apply the transforms configured for a target rule to a fill value.
+     * @since 1.0.8
+     * @param {object} targetRule - The target rule whose transforms should be applied.
+     * @param {string} fillValue - The value to transform.
+     * @param {string} type - The field type, used in error messages.
+     * @returns {Promise<string|object>} The transformed value, or a TOTP metadata object if a TOTP transform was applied.
+     * @throws {Error} If a transform fails.
+     */
+    static async transformValue(targetRule, fillValue, type) {
         for (const transform of targetRule?.transform ?? []) {
             if (transform === "totp-url") {
                 const url = new URL(fillValue);
@@ -194,9 +226,10 @@ export class Helpers {
                 );
             } else if (transform === "totp") {
                 fillValue = await Helpers.generateTOTP(fillValue);
+            } else if (transform === "luhn" && !Helpers.luhnValid(fillValue)) {
+                throw new Error(`Luhn checksum failed for field type: ${type}`);
             }
         }
-
         return fillValue;
     }
 

@@ -432,6 +432,21 @@ describe("Helpers", () => {
         }
     });
 
+    test("getValue applies luhn transform", async () => {
+        const config = {
+            targets: [{ name: "card", pattern: "^card:", strip: true, trim: true, onMissing: "null", transform: ["luhn"] }],
+        };
+        assert.strictEqual(await Helpers.getValue("card: 4111-1111-1111-1111", config, "card"), "4111-1111-1111-1111");
+        await assert.rejects(() => Helpers.getValue("card: 4111-1111-1111-1112", config, "card"), /Luhn checksum failed/u);
+    });
+
+    test("Helpers.luhnValid validates the checksum independent of separators", () => {
+        assert.strictEqual(Helpers.luhnValid("4111111111111111"), true);
+        assert.strictEqual(Helpers.luhnValid("4111-1111-1111-1111"), true);
+        assert.strictEqual(Helpers.luhnValid("4111111111111112"), false);
+        assert.strictEqual(Helpers.luhnValid("not-a-number"), false);
+    });
+
     test("getValue applies totp-url transform with non-default algorithm", async () => {
         const realNow = Date.now;
         Date.now = () => 30_000;
