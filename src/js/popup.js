@@ -598,14 +598,24 @@
         async setPlaintext(plaintext) {
             this.#plaintext = plaintext;
             const config = await this.#plaintext.getConfig();
+            const targets = config.targets.concat(config.additionalTargets || []);
 
-            for (const target of config.targets.concat(config.additionalTargets || [])) {
+            const hoisted = [];
+            for (const target of targets) {
                 if (!target.hoist) continue;
                 const value = await this.#plaintext.getValue(target.name);
                 if (value === null) continue;
+                hoisted.push({ target, value, chain: Helpers.fallbackChain(targets, target.name) });
+            }
+
+            for (const item of hoisted) {
+                // suppress a hoisted value that another hoisted target also derives via its
+                // fallback chain, so it renders once under the more specific target
+                if (hoisted.some((h) => h !== item && h.chain.has(item.target.name) && h.value === item.value)) continue;
+                const target = item.target;
                 const el = document.createElement("parcel-value");
                 el.setAttribute("data-label", target.label || target.name);
-                el.setValue(target.dynamic ? () => this.#plaintext.getValue(target.name) : value, target.highlightSpecial);
+                el.setValue(target.dynamic ? () => this.#plaintext.getValue(target.name) : item.value, target.highlightSpecial);
                 this.#root.appendChild(el);
             }
 

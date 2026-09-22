@@ -10,6 +10,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert";
 import { defaultTargets } from "../src/js/targets.js";
 import { TargetSchema, Schema } from "../src/js/schema.js";
+import { Plaintext } from "../src/js/plaintext.js";
 
 describe("Default targets", () => {
     test("every entry validates against TargetSchema", () => {
@@ -40,6 +41,22 @@ describe("Default targets", () => {
             assert.ok(target, `Card target "${name}" not found in default targets`);
             assert.strictEqual(target.class, "card", `Target "${name}" should have class "card"`);
         }
+    });
+
+    test("card only resolves when the entry actually contains a card number", async () => {
+        const config = { targets: defaultTargets };
+        // a regular password entry must not hoist the secret as a card
+        assert.strictEqual(await new Plaintext("supersecretpassword\nlogin: user@example.com", config).getValue("card"), null);
+        // a numeric password of plausible card length must not hoist without a valid Luhn checksum
+        assert.strictEqual(await new Plaintext("1234567812345671\nlogin: user@example.com", config).getValue("card"), null);
+        // a naked card-number top line still resolves
+        assert.strictEqual(await new Plaintext("4111111111111111\nholder: alice", config).getValue("card"), "4111111111111111");
+        // grouped formats still resolve
+        assert.strictEqual(await new Plaintext("4111-1111-1111-1111\nholder: alice", config).getValue("card"), "4111-1111-1111-1111");
+        // an explicit card field that fails the checksum must not resolve either
+        assert.strictEqual(await new Plaintext("card: 4111111111111112\nlogin: user@example.com", config).getValue("card"), null);
+        // separator characters must not count towards the card digit total
+        assert.strictEqual(await new Plaintext("0-----------0\nlogin: user@example.com", config).getValue("card"), null);
     });
 
     test("non-card targets default to class 'login'", () => {

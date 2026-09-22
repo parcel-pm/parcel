@@ -316,6 +316,43 @@ describe("Helpers", () => {
         assert.strictEqual(result, "alice");
     });
 
+    test("getValue fallbackMatch applies trim and validation before returning, and honours trim false", async () => {
+        const config = {
+            targets: [
+                {
+                    name: "alias",
+                    pattern: "^alias:",
+                    onMissing: "fallback",
+                    fallback: "login",
+                    fallbackMatch: "^login:( .+)",
+                    validate: ["luhn"],
+                    trim: true,
+                },
+                {
+                    name: "raw",
+                    pattern: "^raw:",
+                    onMissing: "fallback",
+                    fallback: "login",
+                    fallbackMatch: "^login:( .+)",
+                    transform: [],
+                    trim: false,
+                },
+                {
+                    name: "login",
+                    pattern: "^login:",
+                    onMissing: "null",
+                    transform: [],
+                },
+            ],
+        };
+        const result = await Helpers.getValue("login: 4111111111111111\n", config, "alias");
+        assert.strictEqual(result, "4111111111111111");
+        // a fallback value that fails validation resolves to null rather than throwing
+        assert.strictEqual(await Helpers.getValue("login: 4111111111111112\n", config, "alias"), null);
+        const untrimmed = await Helpers.getValue("login: 4111111111111111\n", config, "raw");
+        assert.strictEqual(untrimmed, " 4111111111111111");
+    });
+
     test("getValue fallback throws when fallback has no match", async () => {
         const config = {
             targets: [
@@ -430,6 +467,35 @@ describe("Helpers", () => {
         } finally {
             Date.now = realNow;
         }
+    });
+
+    test("getValue applies luhn validation", async () => {
+        const config = {
+            targets: [{ name: "card", pattern: "^card:", strip: true, trim: true, onMissing: "null", validate: ["luhn"] }],
+        };
+        assert.strictEqual(await Helpers.getValue("card: 4111-1111-1111-1111", config, "card"), "4111-1111-1111-1111");
+        assert.strictEqual(await Helpers.getValue("card: 4111-1111-1111-1112", config, "card"), null);
+    });
+
+    test("Helpers.luhnValid validates the checksum independent of separators", () => {
+        assert.strictEqual(Helpers.luhnValid("4111111111111111"), true);
+        assert.strictEqual(Helpers.luhnValid("4111-1111-1111-1111"), true);
+        assert.strictEqual(Helpers.luhnValid("4111111111111112"), false);
+        assert.strictEqual(Helpers.luhnValid("not-a-number"), false);
+    });
+
+    test("fallbackChain collects transitive fallbacks and tolerates cycles", () => {
+        const targets = [
+            { name: "a", fallback: "b" },
+            { name: "b", fallback: "c" },
+            { name: "c" },
+            { name: "loop", fallback: "self" },
+            { name: "self", fallback: "loop" },
+        ];
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "a")], ["b", "c"]);
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "c")], []);
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "loop")], ["self", "loop"]);
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "missing")], []);
     });
 
     test("getValue applies totp-url transform with non-default algorithm", async () => {

@@ -204,6 +204,7 @@ export const TargetSchema = {
         class: { type: "string", required: true, enum: ["login", "passkey", "card"], default: "login" },
         dynamic: { type: "boolean", required: true, default: false },
         fallback: { type: "string", minLength: 1 },
+        fallbackFailureInfo: { type: "boolean", required: true, default: true },
         fallbackMatch: { type: "string", format: "regex", minLength: 1 },
         hoist: { type: "boolean", required: true, default: false },
         highlightSpecial: { type: "boolean", required: true, default: false },
@@ -220,6 +221,7 @@ export const TargetSchema = {
         strip: { type: "boolean", required: true, default: true },
         transform: { type: "array", items: { type: "string", enum: ["totp", "totp-url"] }, required: true, default: [] },
         trim: { type: "boolean", required: true, default: true },
+        validate: { type: "array", items: { type: "string", enum: ["luhn"] }, required: true, default: [] },
     },
 };
 
