@@ -122,6 +122,23 @@ export class Helpers {
     }
 
     /**
+     * Collect the names of all targets reachable from a target via its transitive fallback chain.
+     * @since 1.0.8
+     * @param {object[]} targets - The target rules to search.
+     * @param {string} name - The name of the target whose fallback chain to collect.
+     * @returns {Set<string>} The names of all transitive fallback targets.
+     */
+    static fallbackChain(targets, name) {
+        const chain = new Set();
+        let next = targets.find((t) => t.name === name)?.fallback;
+        while (next && !chain.has(next)) {
+            chain.add(next);
+            next = targets.find((t) => t.name === next)?.fallback;
+        }
+        return chain;
+    }
+
+    /**
      * Normalise a field name to the canonical target name defined in the config
      * @since 1.0.0
      * @param {object} config - The current parcel config

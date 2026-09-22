@@ -71,14 +71,26 @@ function makeValidConfig(overrides = {}) {
                 name: "secret",
                 pattern: "^(secret|password):",
                 related: [],
-                onMissing: "null",
+                onMissing: "naked-top",
                 strip: true,
                 transform: [],
                 trim: true,
                 hoist: true,
                 label: "Pass",
             },
-            { name: "card", class: "card", pattern: "^card:", related: [] },
+            {
+                name: "card",
+                class: "card",
+                pattern: "^card:",
+                related: [],
+                onMissing: "fallback",
+                fallback: "secret",
+                fallbackMatch: "^(\\d[\\d -]{11,18}\\d)$",
+                transform: ["luhn"],
+                trim: true,
+                hoist: true,
+                label: "Card",
+            },
         ],
         additionalSelectors: [],
         showDelegateTooltips: false,
@@ -459,6 +471,36 @@ describe("Popup script", { concurrency: false }, () => {
         const detail = document.querySelector("parcel-detail");
         const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
         assert.ok(lines.length >= 2, "at least two plaintext lines rendered");
+    });
+
+    test("detail view hoists a naked card number once as Card, not Secret", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "detail",
+            plaintext: "4111111111111111\nholder: alice\n",
+        });
+        await settleAsync();
+
+        const detail = document.querySelector("parcel-detail");
+        const labels = [...detail.shadowRoot.querySelectorAll("parcel-value")].map((el) => el.getAttribute("data-label"));
+        assert.ok(labels.includes("Card"), "card row rendered");
+        assert.ok(!labels.includes("Pass"), "duplicate secret-derived row suppressed");
+    });
+
+    test("detail view keeps Secret when its value differs from the card value", async () => {
+        const popupReceiver = portReceivers["popup"];
+        popupReceiver.postMessage({
+            action: "plaintext",
+            intent: "detail",
+            plaintext: "card: 4111111111111111\npassword: hunter2\n",
+        });
+        await settleAsync();
+
+        const detail = document.querySelector("parcel-detail");
+        const labels = [...detail.shadowRoot.querySelectorAll("parcel-value")].map((el) => el.getAttribute("data-label"));
+        assert.ok(labels.includes("Card"), "card row rendered");
+        assert.ok(labels.includes("Pass"), "distinct password row kept");
     });
 
     // -----------------------------------------------------------------------

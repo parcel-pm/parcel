@@ -447,6 +447,20 @@ describe("Helpers", () => {
         assert.strictEqual(Helpers.luhnValid("not-a-number"), false);
     });
 
+    test("fallbackChain collects transitive fallbacks and tolerates cycles", () => {
+        const targets = [
+            { name: "a", fallback: "b" },
+            { name: "b", fallback: "c" },
+            { name: "c" },
+            { name: "loop", fallback: "self" },
+            { name: "self", fallback: "loop" },
+        ];
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "a")], ["b", "c"]);
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "c")], []);
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "loop")], ["self", "loop"]);
+        assert.deepStrictEqual([...Helpers.fallbackChain(targets, "missing")], []);
+    });
+
     test("getValue applies totp-url transform with non-default algorithm", async () => {
         const realNow = Date.now;
         Date.now = () => 30_000;
