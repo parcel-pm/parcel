@@ -1732,10 +1732,10 @@
 
     // show the bootstrap version warning
     bootstrapVersion.then((version) => {
-        if (Number(version) >= 2) return; // required for PR #144 vuln fix
+        if (Number(version) >= 4) return; // required for key revocation & environment hardening
         const p = document.createElement("p");
         p.classList.add("warning");
-        p.textContent = "Please upgrade your bootstrap `parcel-host` script to v1.0.6 or newer.";
+        p.textContent = "Please upgrade your bootstrap `parcel-host` script to v1.0.8 or newer.";
         document.body.insertAdjacentElement("afterbegin", p);
     });
 
