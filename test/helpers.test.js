@@ -316,6 +316,41 @@ describe("Helpers", () => {
         assert.strictEqual(result, "alice");
     });
 
+    test("getValue fallbackMatch applies trim before transforms and honours trim false", async () => {
+        const config = {
+            targets: [
+                {
+                    name: "alias",
+                    pattern: "^alias:",
+                    onMissing: "fallback",
+                    fallback: "login",
+                    fallbackMatch: "^login:( .+)",
+                    transform: ["luhn"],
+                    trim: true,
+                },
+                {
+                    name: "raw",
+                    pattern: "^raw:",
+                    onMissing: "fallback",
+                    fallback: "login",
+                    fallbackMatch: "^login:( .+)",
+                    transform: [],
+                    trim: false,
+                },
+                {
+                    name: "login",
+                    pattern: "^login:",
+                    onMissing: "null",
+                    transform: [],
+                },
+            ],
+        };
+        const result = await Helpers.getValue("login: 4111111111111111\n", config, "alias");
+        assert.strictEqual(result, "4111111111111111");
+        const untrimmed = await Helpers.getValue("login: 4111111111111111\n", config, "raw");
+        assert.strictEqual(untrimmed, " 4111111111111111");
+    });
+
     test("getValue fallback throws when fallback has no match", async () => {
         const config = {
             targets: [

@@ -199,7 +199,7 @@ export class Helpers {
                     if (!targetRule.fallbackMatch) return value;
                     const matches = value.match(new RegExp(targetRule.fallbackMatch, "ui"));
                     if (!matches) throw new Error(`Unable to extract fallback match for field type: ${type}`);
-                    return await Helpers.transformValue(targetRule, matches[1], type);
+                    return await Helpers.transformValue(targetRule, targetRule.trim ? matches[1].trim() : matches[1], type);
                 } catch (err) {
                     // If the fallback fails, we should throw a new error from here rather than exposing the fallback error
                     if (targetRule.fallbackFailureInfo) console.info(err);
