@@ -85,7 +85,7 @@ function makeValidConfig(overrides = {}) {
                 related: [],
                 onMissing: "fallback",
                 fallback: "secret",
-                fallbackMatch: "^(\\d[\\d -]{11,18}\\d)$",
+                fallbackMatch: "^(?=(?:\\D*\\d){13,19}\\D*$)(\\d[\\d -]{11,18}\\d)$",
                 validate: ["luhn"],
                 trim: true,
                 hoist: true,

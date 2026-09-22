@@ -316,7 +316,7 @@ describe("Helpers", () => {
         assert.strictEqual(result, "alice");
     });
 
-    test("getValue fallbackMatch applies trim before validation and honours trim false", async () => {
+    test("getValue fallbackMatch applies trim and validation before returning, and honours trim false", async () => {
         const config = {
             targets: [
                 {
@@ -347,6 +347,8 @@ describe("Helpers", () => {
         };
         const result = await Helpers.getValue("login: 4111111111111111\n", config, "alias");
         assert.strictEqual(result, "4111111111111111");
+        // a fallback value that fails validation resolves to null rather than throwing
+        assert.strictEqual(await Helpers.getValue("login: 4111111111111112\n", config, "alias"), null);
         const untrimmed = await Helpers.getValue("login: 4111111111111111\n", config, "raw");
         assert.strictEqual(untrimmed, " 4111111111111111");
     });
@@ -472,7 +474,7 @@ describe("Helpers", () => {
             targets: [{ name: "card", pattern: "^card:", strip: true, trim: true, onMissing: "null", validate: ["luhn"] }],
         };
         assert.strictEqual(await Helpers.getValue("card: 4111-1111-1111-1111", config, "card"), "4111-1111-1111-1111");
-        await assert.rejects(() => Helpers.getValue("card: 4111-1111-1111-1112", config, "card"), /Luhn checksum failed/u);
+        assert.strictEqual(await Helpers.getValue("card: 4111-1111-1111-1112", config, "card"), null);
     });
 
     test("Helpers.luhnValid validates the checksum independent of separators", () => {

@@ -53,6 +53,10 @@ describe("Default targets", () => {
         assert.strictEqual(await new Plaintext("4111111111111111\nholder: alice", config).getValue("card"), "4111111111111111");
         // grouped formats still resolve
         assert.strictEqual(await new Plaintext("4111-1111-1111-1111\nholder: alice", config).getValue("card"), "4111-1111-1111-1111");
+        // an explicit card field that fails the checksum must not resolve either
+        assert.strictEqual(await new Plaintext("card: 4111111111111112\nlogin: user@example.com", config).getValue("card"), null);
+        // separator characters must not count towards the card digit total
+        assert.strictEqual(await new Plaintext("0-----------0\nlogin: user@example.com", config).getValue("card"), null);
     });
 
     test("non-card targets default to class 'login'", () => {

@@ -161,8 +161,8 @@ export class Helpers {
      * @param {string} plaintext - The plaintext to fill from.
      * @param {object} config - The current parcel config.
      * @param {string} type - The target type to use.
-     * @returns {Promise<string|object|null>} The resolved value, or a TOTP metadata object if a TOTP transform was applied.
-     * @throws {Error} If the target type is invalid, no value is found, the target pattern is malformed, a fallback is misconfigured, or a validation or transform fails.
+     * @returns {Promise<string|object|null>} The resolved value, a TOTP metadata object if a TOTP transform was applied, or null if no value is found or a validator rejects it.
+     * @throws {Error} If the target type is invalid, no value is found, the target pattern is malformed, a fallback is misconfigured, or a transform fails.
      */
     static async getValue(plaintext, config, type) {
         config = await config;
@@ -200,7 +200,7 @@ export class Helpers {
                     const matches = value.match(new RegExp(targetRule.fallbackMatch, "ui"));
                     if (!matches) throw new Error(`Unable to extract fallback match for field type: ${type}`);
                     const matched = targetRule.trim ? matches[1].trim() : matches[1];
-                    Helpers.validateValue(targetRule, matched, type);
+                    if (!Helpers.validateValue(targetRule, matched)) return null;
                     return await Helpers.transformValue(targetRule, matched);
                 } catch (err) {
                     // If the fallback fails, we should throw a new error from here rather than exposing the fallback error
@@ -218,8 +218,8 @@ export class Helpers {
         // trim the value if configured
         if (targetRule.trim) fillValue = fillValue.trim();
 
-        // validate and transform the value if configured
-        Helpers.validateValue(targetRule, fillValue, type);
+        // validate and transform the value if configured; a rejected value resolves to null so callers treat it as absent
+        if (!Helpers.validateValue(targetRule, fillValue)) return null;
         return await Helpers.transformValue(targetRule, fillValue);
     }
 
@@ -255,16 +255,13 @@ export class Helpers {
      * @since 1.0.8
      * @param {object} targetRule - The target rule whose validators should be applied.
      * @param {string} fillValue - The value to validate.
-     * @param {string} type - The field type, used in error messages.
-     * @returns {void}
-     * @throws {Error} If a validator rejects the value.
+     * @returns {boolean} True if every configured validator accepts the value.
      */
-    static validateValue(targetRule, fillValue, type) {
+    static validateValue(targetRule, fillValue) {
         for (const validator of targetRule?.validate ?? []) {
-            if (validator === "luhn" && !Helpers.luhnValid(fillValue)) {
-                throw new Error(`Luhn checksum failed for field type: ${type}`);
-            }
+            if (validator === "luhn" && !Helpers.luhnValid(fillValue)) return false;
         }
+        return true;
     }
 
     /**

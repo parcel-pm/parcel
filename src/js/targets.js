@@ -42,7 +42,7 @@ export const defaultTargets = [
         class: "card",
         onMissing: "fallback",
         fallback: "secret",
-        fallbackMatch: "^(\\d[\\d -]{11,18}\\d)$", // only consider secrets that look like a card number
+        fallbackMatch: "^(?=(?:\\D*\\d){13,19}\\D*$)(\\d[\\d -]{11,18}\\d)$", // only consider secrets of 13-19 digits (plus separators) that look like a card number
         fallbackFailureInfo: false,
         validate: ["luhn"], // only hoist/fill when the value passes the card-number checksum
         pattern: "^(card|card-number|ccn|credit-?card|debit-?card|card-?num):",
