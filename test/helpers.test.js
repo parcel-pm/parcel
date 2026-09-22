@@ -316,7 +316,7 @@ describe("Helpers", () => {
         assert.strictEqual(result, "alice");
     });
 
-    test("getValue fallbackMatch applies trim before transforms and honours trim false", async () => {
+    test("getValue fallbackMatch applies trim before validation and honours trim false", async () => {
         const config = {
             targets: [
                 {
@@ -325,7 +325,7 @@ describe("Helpers", () => {
                     onMissing: "fallback",
                     fallback: "login",
                     fallbackMatch: "^login:( .+)",
-                    transform: ["luhn"],
+                    validate: ["luhn"],
                     trim: true,
                 },
                 {
@@ -467,9 +467,9 @@ describe("Helpers", () => {
         }
     });
 
-    test("getValue applies luhn transform", async () => {
+    test("getValue applies luhn validation", async () => {
         const config = {
-            targets: [{ name: "card", pattern: "^card:", strip: true, trim: true, onMissing: "null", transform: ["luhn"] }],
+            targets: [{ name: "card", pattern: "^card:", strip: true, trim: true, onMissing: "null", validate: ["luhn"] }],
         };
         assert.strictEqual(await Helpers.getValue("card: 4111-1111-1111-1111", config, "card"), "4111-1111-1111-1111");
         await assert.rejects(() => Helpers.getValue("card: 4111-1111-1111-1112", config, "card"), /Luhn checksum failed/u);

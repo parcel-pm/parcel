@@ -86,7 +86,7 @@ function makeValidConfig(overrides = {}) {
                 onMissing: "fallback",
                 fallback: "secret",
                 fallbackMatch: "^(\\d[\\d -]{11,18}\\d)$",
-                transform: ["luhn"],
+                validate: ["luhn"],
                 trim: true,
                 hoist: true,
                 label: "Card",
