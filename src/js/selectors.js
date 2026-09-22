@@ -198,15 +198,27 @@ for (const s of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
     targetSelectors.push({ selector: `input[${s}^=card i][${s}*=security i][${s}*=code i]`, type: "cardcsc" });
 }
 
-// exclude password change fields
+// exclude password change fields; fields marked autocomplete=current-password are always safe to fill
 for (const s of ["new", "confirm", "change", "edit"]) {
     for (const t of ["password", "pass", "secret"]) {
-        targetSelectors.push({ selector: `input[name*=${s} i][name*=${t} i]`, type: "blacklist" });
-        targetSelectors.push({ selector: `input[id*=${s} i][id*=${t} i]`, type: "blacklist" });
-        targetSelectors.push({ selector: `input[class*=${s} i][class*=${t} i]`, type: "blacklist" });
-        targetSelectors.push({ selector: `input[placeholder*=${s} i][placeholder*=${t} i]`, type: "blacklist" });
-        targetSelectors.push({ selector: `input[title*=${s} i][title*=${t} i]`, type: "blacklist" });
-        targetSelectors.push({ selector: `input[aria-label*=${s} i][aria-label*=${t} i]`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[name*=${s} i][name*=${t} i]:not([autocomplete~=current-password i])`, type: "blacklist" });
+        targetSelectors.push({ selector: `input[id*=${s} i][id*=${t} i]:not([autocomplete~=current-password i])`, type: "blacklist" });
+        targetSelectors.push({
+            selector: `input[class*=${s} i][class*=${t} i]:not([autocomplete~=current-password i])`,
+            type: "blacklist",
+        });
+        targetSelectors.push({
+            selector: `input[placeholder*=${s} i][placeholder*=${t} i]:not([autocomplete~=current-password i])`,
+            type: "blacklist",
+        });
+        targetSelectors.push({
+            selector: `input[title*=${s} i][title*=${t} i]:not([autocomplete~=current-password i])`,
+            type: "blacklist",
+        });
+        targetSelectors.push({
+            selector: `input[aria-label*=${s} i][aria-label*=${t} i]:not([autocomplete~=current-password i])`,
+            type: "blacklist",
+        });
     }
 }
 
