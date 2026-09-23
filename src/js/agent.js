@@ -479,8 +479,10 @@ export class Agent extends EventTarget {
      * @throws {Error} If the configuration fails schema validation.
      */
     #setConfig(config) {
-        // concatenate the built-in default scope after any user-supplied rules, before validation
-        config.scope = [...(Array.isArray(config.scope) ? config.scope : []), ...defaultScope];
+        // concatenate user rules with the built-in defaults before validation; a non-array
+        // scope (e.g. "foo") passes through so schema validation can reject it with a clear error
+        if (config.scope === undefined || config.scope === null) config.scope = [];
+        if (Array.isArray(config.scope)) config.scope = [...config.scope, ...defaultScope];
 
         // validate the provided configuration
         try {
