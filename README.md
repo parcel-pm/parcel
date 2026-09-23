@@ -367,6 +367,26 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
 | `targets` | array | Built-in set | Complete replacement for the built-in target extraction rules. |
+| `scope` | array | `[]` | Per-URL feature rules; see [URL scopes](#url-scopes). |
+
+#### URL scopes
+
+The `scope` array gates Parcel's features by URL. Each rule is `{ "match": "<regex>", "features": [...] }` and is matched against the frame URL in the content script, and the tab's top-level URL in the toolbar popup. Regexes are applied case-insensitively and must use JavaScript syntax. Rules are tried in order: the first rule whose `features` contain `blacklist` wins outright; otherwise the first match wins; if nothing matches, Parcel fails safe to `["blacklist"]`. A `blacklist` disables every feature on the page - including fills, popups, http-auth interception and passkeys - but if the same rule also carries `global`, the toolbar popup still opens in global search mode (no matches tied to the page origin).
+
+Available features: `blacklist` (priority; disables all functionality), `context` (inline/context popup), `fill` (autofill), `global` (toolbar popup opens in global mode), `http` (HTTP auth interception), `passkey` (WebAuthn).
+
+Your rules are prepended to the built-in `defaultScope`, which enables `context`/`fill`/`http`/`passkey` on `https://`, `context`/`fill`/`http` (no passkeys) on `http://`, and blacklists `file:`/`blob:`/`ftp:`/`chrome:`/browser-extension schemes. Because blacklist matching always wins, those built-in blacklist rules form a security floor user rules cannot override.
+
+Example:
+
+```json
+{
+  "scope": [
+    { "match": "^https://internal\\.corp/", "features": ["http", "global"] },
+    { "match": "^https://[^/]*\\.example\\.com/", "features": ["context", "fill", "passkey"] }
+  ]
+}
+```
 
 #### Security warnings
 
