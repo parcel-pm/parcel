@@ -377,7 +377,7 @@ Available features: `blacklist` (priority; disables all functionality), `context
 
 Your rules are prepended to the built-in `defaultScope`, which enables `context`/`fill`/`http`/`passkey` on `https://`, `context`/`fill`/`http` (no passkeys) on `http://`, and blacklists `file:`/`blob:`/`ftp:`/`chrome:`/browser-extension schemes. Because blacklist matching always wins, those built-in blacklist rules form a security floor user rules cannot override.
 
-Scopes cascade into child frames: a frame's effective features are the intersection of its own match with every ancestor frame's match, and a `blacklist` anywhere in the ancestor chain wins outright. Ancestors are matched by full URL (tracked passively via `webRequest`), so a blacklisted parent page - whether by scheme or path-specific rule - disables Parcel in all of its embedded frames.
+Scopes cascade into child frames: a frame's effective features are the intersection of its own match with every ancestor frame's match, and a `blacklist` anywhere in the ancestor chain wins outright. Ancestors are matched by full URL (tracked passively via `webRequest`), so a blacklisted parent page - whether by scheme or path-specific rule - disables Parcel in all of its embedded frames. The cascade is best-effort: frames not yet observed by the background worker (for example, tabs that were already open when its service worker restarted) are scoped by their own URL only until the next navigation.
 
 In-page scope is evaluated at document load: `history.pushState`-style SPA navigation does not re-evaluate a frame's gates or its ancestors' cascaded rules, although the toolbar popup always reflects the live tab URL. See the [security tradeoffs](SECURITY.md#deliberate-tradeoffs) for the rationale.
 
