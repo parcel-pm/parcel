@@ -2018,35 +2018,62 @@ describe("Agent", () => {
 
         test("a blacklisted ancestor cascades to the child frame", async () => {
             await configureScope([]);
+            mock.fireBeforeRequest({ tabId: 7, frameId: 0, parentFrameId: -1, type: "main_frame", url: "file:///tmp/evil.html" });
+            mock.fireBeforeRequest({ tabId: 7, frameId: 1, parentFrameId: 0, type: "sub_frame", url: "https://child.example/" });
             const integration = mock.chrome.runtime.connect({
                 name: "integration",
-                sender: { frameId: 1, url: "https://child.example/" },
+                sender: { frameId: 1, url: "https://child.example/", tab: { id: 7 } },
             });
             await settleAsync();
             const configPromise = nextMessage(integration, "config");
-            integration.postMessage({ action: "config", ancestors: ["file://"] });
+            integration.postMessage({ action: "config" });
             const msg = await configPromise;
             assert.deepStrictEqual(msg.features, ["blacklist", "global"]);
+
+            // closing the tab drops its frame tree, so later frames fall back to their own scope
+            mock.fireTabRemoved(7);
+            const integration2 = mock.chrome.runtime.connect({
+                name: "integration",
+                sender: { frameId: 1, url: "https://child.example/", tab: { id: 7 } },
+            });
+            await settleAsync();
+            const configPromise2 = nextMessage(integration2, "config");
+            integration2.postMessage({ action: "config" });
+            const msg2 = await configPromise2;
+            assert.ok(msg2.features.includes("fill"), `expected the frame's own features, got: ${JSON.stringify(msg2.features)}`);
         });
 
         test("ancestor features intersect with the child frame's features", async () => {
-            await configureScope([{ match: "^https://parent\\.example", features: ["fill"] }]);
+            await configureScope([{ match: "^https://parent\\.example/sensitive", features: ["fill"] }]);
+            mock.fireBeforeRequest({
+                tabId: 7,
+                frameId: 0,
+                parentFrameId: -1,
+                type: "main_frame",
+                url: "https://parent.example/sensitive/page",
+            });
+            mock.fireBeforeRequest({ tabId: 7, frameId: 1, parentFrameId: 0, type: "sub_frame", url: "https://child.example/" });
             const integration = mock.chrome.runtime.connect({
                 name: "integration",
-                sender: { frameId: 1, url: "https://child.example/" },
+                sender: { frameId: 1, url: "https://child.example/", tab: { id: 7 } },
             });
             await settleAsync();
             const configPromise = nextMessage(integration, "config");
-            // a malformed ancestor entry is ignored rather than failing the request
-            integration.postMessage({ action: "config", ancestors: ["https://parent.example", 42] });
+            integration.postMessage({ action: "config" });
             const msg = await configPromise;
+            // the parent's full URL is matched, so path-specific rules cascade too
             assert.deepStrictEqual(msg.features, ["fill"]);
         });
 
         test("passkey action is cascaded across ancestors", async () => {
             await configureScope([]);
             // the child's own https scope permits passkeys; the http ancestor does not
-            const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
+            mock.fireBeforeRequest({ tabId: 7, frameId: 0, parentFrameId: -1, type: "main_frame", url: "http://legacy.example/" });
+            mock.fireBeforeRequest({ tabId: 7, frameId: 9, parentFrameId: 0, type: "sub_frame", url: "https://login.example.com/" });
+            const passkey = mock.chrome.runtime.connect({
+                name: "passkey",
+                sender: { frameId: 9, url: "https://login.example.com/", tab: { id: 7 } },
+            });
             await settleAsync();
             const errorPromise = nextMessage(passkey, "error");
             passkey.postMessage({
@@ -2054,7 +2081,6 @@ describe("Agent", () => {
                 phase: "candidates",
                 origin: "https://login.example.com",
                 rpId: "login.example.com",
-                ancestors: ["http://legacy.example"],
             });
             const msg = await errorPromise;
             assert.ok(msg.error?.includes("disabled for this URL"), `expected cascade rejection, got: ${JSON.stringify(msg)}`);

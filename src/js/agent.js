@@ -43,6 +43,8 @@ export class Agent extends EventTarget {
     #pendingAuthCallbacks = new Map();
     /** @type {{re: RegExp, features: string[]}[]} Compiled scope rules from the validated effective scope list. */
     #compiledScope = [];
+    /** @type {Map<number, Map<number, {url: string, parentFrameId: number}>>} Per-tab frame trees for scope cascading. */
+    #frameTree = new Map();
     #bootstrapVersion = null;
     /** @type {Set<chrome.runtime.Port>} Popup ports connected before the bootstrap version arrived. */
     #pendingBootstrapPorts = new Set();
@@ -104,6 +106,18 @@ export class Agent extends EventTarget {
                 { urls: ["<all_urls>"] },
                 ["asyncBlocking"],
             );
+        }
+
+        // Track the frame tree with a passive listener so scope matching can cascade across
+        // ancestors with full URLs: content scripts cannot enumerate their ancestors
+        // cross-browser (location.ancestorOrigins is Chromium-only), and webNavigation would
+        // require an extra permission.
+        if (chrome.webRequest?.onBeforeRequest) {
+            chrome.webRequest.onBeforeRequest.addListener((details) => this.#trackFrame(details), {
+                urls: ["<all_urls>"],
+                types: ["main_frame", "sub_frame"],
+            });
+            chrome.tabs?.onRemoved?.addListener((tabId) => this.#frameTree.delete(tabId));
         }
 
         // open port to native host
@@ -516,38 +530,44 @@ export class Agent extends EventTarget {
     }
 
     /**
-     * Cascade a frame's scope match across its ancestor chain: `blacklist` on any ancestor
-     * wins outright, otherwise the effective features are the intersection of the frame's
-     * own match with every ancestor's match. Ancestors are matched by origin only - the
-     * child frame reports `location.ancestorOrigins`, so path-specific ancestor rules do
-     * not cascade.
+     * Record a main_frame/sub_frame request in the per-tab frame tree.
+     * A fresh main_frame navigation invalidates the tab's existing subtree.
+     * @since 1.0.8
+     * @param {object} details - The webRequest event details.
+     * @returns {void}
+     */
+    #trackFrame(details) {
+        let frames = this.#frameTree.get(details.tabId);
+        if (!frames) this.#frameTree.set(details.tabId, (frames = new Map()));
+        if (details.type === "main_frame") frames.clear();
+        frames.set(details.frameId, { url: details.url, parentFrameId: details.type === "main_frame" ? -1 : details.parentFrameId });
+    }
+
+    /**
+     * Cascade a frame's scope match across its tracked ancestor chain: `blacklist` on any
+     * ancestor wins outright, otherwise the effective features are the intersection of the
+     * frame's own match with every ancestor's match. Ancestors beyond the tracked portion
+     * of the chain are not consulted.
      * @since 1.0.8
      * @param {string} url - The frame's own URL (port.sender.url).
-     * @param {string[]} ancestors - The frame's ancestor origins, innermost first.
+     * @param {number|undefined} tabId - The frame's tab ID (port.sender.tab.id).
+     * @param {number} frameId - The frame's ID (port.sender.frameId).
      * @returns {string[]} The effective feature list for the frame.
      */
-    #cascadeScope(url, ancestors) {
+    #cascadeScope(url, tabId, frameId) {
         const own = this.#matchScope(url);
         if (own.includes("blacklist")) return own;
+        const frames = this.#frameTree.get(tabId);
         let effective = own;
-        // origins only, not full URLs: ancestor URLs would require the webNavigation permission
-        for (const origin of ancestors) {
-            const parentFeatures = this.#matchScope(origin);
+        let current = frames?.get(frameId);
+        while (current && current.parentFrameId >= 0) {
+            current = frames.get(current.parentFrameId);
+            if (!current) break;
+            const parentFeatures = this.#matchScope(current.url || "");
             if (parentFeatures.includes("blacklist")) return parentFeatures;
             effective = effective.filter((f) => parentFeatures.includes(f));
         }
         return effective;
-    }
-
-    /**
-     * Reduce an untrusted `ancestors` message field to a list of origin strings.
-     * @since 1.0.8
-     * @param {unknown} ancestors - The message-supplied ancestor list.
-     * @returns {string[]} The string origins; empty when the field is absent or invalid.
-     */
-    static #sanitizeAncestors(ancestors) {
-        if (!Array.isArray(ancestors)) return [];
-        return ancestors.filter((a) => typeof a === "string");
     }
 
     /**
@@ -1020,7 +1040,7 @@ export class Agent extends EventTarget {
                     const response = { action: "config", config: this.#config };
                     if (port.name === "integration") {
                         response.frameId = port.sender?.frameId || 0;
-                        response.features = this.#cascadeScope(port.sender?.url || "", Agent.#sanitizeAncestors(message.ancestors));
+                        response.features = this.#cascadeScope(port.sender?.url || "", port.sender?.tab?.id, port.sender?.frameId || 0);
                     }
                     post(response);
                 } else if (message?.action === "passkey") {
@@ -1028,7 +1048,7 @@ export class Agent extends EventTarget {
                     if (!this.#config.handlePasskeys) throw new Error("Passkey support is disabled.");
                     // The passkey port connects directly from the content script, so the
                     // sender URL is authoritative; the scope must permit passkeys.
-                    const passkeyFeatures = this.#cascadeScope(port.sender?.url || "", Agent.#sanitizeAncestors(message.ancestors));
+                    const passkeyFeatures = this.#cascadeScope(port.sender?.url || "", port.sender?.tab?.id, port.sender?.frameId || 0);
                     if (passkeyFeatures.includes("blacklist") || !passkeyFeatures.includes("passkey"))
                         throw new Error("Passkey support is disabled for this URL.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);

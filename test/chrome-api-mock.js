@@ -156,6 +156,8 @@ export function createChromeMock(opts = {}) {
     const runtimeOnInstalled = _makeEvent();
     const contextualIdentitiesOnRemoved = _makeEvent();
     const webRequestOnAuthRequired = _makeEvent();
+    const webRequestOnBeforeRequest = _makeEvent();
+    const tabsOnRemoved = _makeEvent();
 
     let lastError = null;
 
@@ -255,6 +257,9 @@ export function createChromeMock(opts = {}) {
                 if (sendMessageFailure) throw new Error(sendMessageFailure);
                 return { ok: true };
             },
+            get onRemoved() {
+                return tabsOnRemoved;
+            },
         },
         contextualIdentities: {
             onRemoved: contextualIdentitiesOnRemoved,
@@ -274,6 +279,9 @@ export function createChromeMock(opts = {}) {
         webRequest: {
             get onAuthRequired() {
                 return webRequestOnAuthRequired;
+            },
+            get onBeforeRequest() {
+                return webRequestOnBeforeRequest;
             },
         },
         windows: {
@@ -390,6 +398,16 @@ export function createChromeMock(opts = {}) {
                     resolve({});
                 }
             });
+        },
+
+        /** Fire the webRequest.onBeforeRequest event. */
+        fireBeforeRequest(details) {
+            webRequestOnBeforeRequest._fire(details);
+        },
+
+        /** Fire the tabs.onRemoved event. */
+        fireTabRemoved(tabId) {
+            tabsOnRemoved._fire(tabId);
         },
 
         /** Install fetch into `globalThis` so imported modules see it. */
