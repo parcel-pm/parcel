@@ -379,6 +379,8 @@ Your rules are prepended to the built-in `defaultScope`, which enables `context`
 
 Scopes cascade into child frames: a frame's effective features are the intersection of its own match with every ancestor frame's match, and a `blacklist` anywhere in the ancestor chain wins outright. Ancestors are matched by full URL (tracked passively via `webRequest`), so a blacklisted parent page - whether by scheme or path-specific rule - disables Parcel in all of its embedded frames.
 
+In-page scope is evaluated at document load: `history.pushState`-style SPA navigation does not re-evaluate a frame's gates or its ancestors' cascaded rules, although the toolbar popup always reflects the live tab URL. See the [security tradeoffs](SECURITY.md#deliberate-tradeoffs) for the rationale.
+
 Example:
 
 ```json
