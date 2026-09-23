@@ -516,6 +516,41 @@ export class Agent extends EventTarget {
     }
 
     /**
+     * Cascade a frame's scope match across its ancestor chain: `blacklist` on any ancestor
+     * wins outright, otherwise the effective features are the intersection of the frame's
+     * own match with every ancestor's match. Ancestors are matched by origin only - the
+     * child frame reports `location.ancestorOrigins`, so path-specific ancestor rules do
+     * not cascade.
+     * @since 1.0.8
+     * @param {string} url - The frame's own URL (port.sender.url).
+     * @param {string[]} ancestors - The frame's ancestor origins, innermost first.
+     * @returns {string[]} The effective feature list for the frame.
+     */
+    #cascadeScope(url, ancestors) {
+        const own = this.#matchScope(url);
+        if (own.includes("blacklist")) return own;
+        let effective = own;
+        // origins only, not full URLs: ancestor URLs would require the webNavigation permission
+        for (const origin of ancestors) {
+            const parentFeatures = this.#matchScope(origin);
+            if (parentFeatures.includes("blacklist")) return parentFeatures;
+            effective = effective.filter((f) => parentFeatures.includes(f));
+        }
+        return effective;
+    }
+
+    /**
+     * Reduce an untrusted `ancestors` message field to a list of origin strings.
+     * @since 1.0.8
+     * @param {unknown} ancestors - The message-supplied ancestor list.
+     * @returns {string[]} The string origins; empty when the field is absent or invalid.
+     */
+    static #sanitizeAncestors(ancestors) {
+        if (!Array.isArray(ancestors)) return [];
+        return ancestors.filter((a) => typeof a === "string");
+    }
+
+    /**
      * Set the list of available pass entries.
      * @since 1.0.0
      * @param {object[]} entries - The list of available pass entries from the native host.
@@ -985,7 +1020,7 @@ export class Agent extends EventTarget {
                     const response = { action: "config", config: this.#config };
                     if (port.name === "integration") {
                         response.frameId = port.sender?.frameId || 0;
-                        response.features = this.#matchScope(port.sender?.url || "");
+                        response.features = this.#cascadeScope(port.sender?.url || "", Agent.#sanitizeAncestors(message.ancestors));
                     }
                     post(response);
                 } else if (message?.action === "passkey") {
@@ -993,7 +1028,7 @@ export class Agent extends EventTarget {
                     if (!this.#config.handlePasskeys) throw new Error("Passkey support is disabled.");
                     // The passkey port connects directly from the content script, so the
                     // sender URL is authoritative; the scope must permit passkeys.
-                    const passkeyFeatures = this.#matchScope(port.sender?.url || "");
+                    const passkeyFeatures = this.#cascadeScope(port.sender?.url || "", Agent.#sanitizeAncestors(message.ancestors));
                     if (passkeyFeatures.includes("blacklist") || !passkeyFeatures.includes("passkey"))
                         throw new Error("Passkey support is disabled for this URL.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);

@@ -2015,6 +2015,50 @@ describe("Agent", () => {
             const msg = await errorPromise;
             assert.ok(msg.error?.includes("disabled for this URL"), `expected scope rejection, got: ${JSON.stringify(msg)}`);
         });
+
+        test("a blacklisted ancestor cascades to the child frame", async () => {
+            await configureScope([]);
+            const integration = mock.chrome.runtime.connect({
+                name: "integration",
+                sender: { frameId: 1, url: "https://child.example/" },
+            });
+            await settleAsync();
+            const configPromise = nextMessage(integration, "config");
+            integration.postMessage({ action: "config", ancestors: ["file://"] });
+            const msg = await configPromise;
+            assert.deepStrictEqual(msg.features, ["blacklist", "global"]);
+        });
+
+        test("ancestor features intersect with the child frame's features", async () => {
+            await configureScope([{ match: "^https://parent\\.example", features: ["fill"] }]);
+            const integration = mock.chrome.runtime.connect({
+                name: "integration",
+                sender: { frameId: 1, url: "https://child.example/" },
+            });
+            await settleAsync();
+            const configPromise = nextMessage(integration, "config");
+            // a malformed ancestor entry is ignored rather than failing the request
+            integration.postMessage({ action: "config", ancestors: ["https://parent.example", 42] });
+            const msg = await configPromise;
+            assert.deepStrictEqual(msg.features, ["fill"]);
+        });
+
+        test("passkey action is cascaded across ancestors", async () => {
+            await configureScope([]);
+            // the child's own https scope permits passkeys; the http ancestor does not
+            const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
+            await settleAsync();
+            const errorPromise = nextMessage(passkey, "error");
+            passkey.postMessage({
+                action: "passkey",
+                phase: "candidates",
+                origin: "https://login.example.com",
+                rpId: "login.example.com",
+                ancestors: ["http://legacy.example"],
+            });
+            const msg = await errorPromise;
+            assert.ok(msg.error?.includes("disabled for this URL"), `expected cascade rejection, got: ${JSON.stringify(msg)}`);
+        });
     });
 });
 

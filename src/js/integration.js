@@ -187,7 +187,7 @@
                 chrome.runtime.lastError; // consume the disconnect error
                 fail("disconnected");
             });
-            port.postMessage({ action: "config" });
+            port.postMessage({ action: "config", ancestors: ancestorOriginList() });
         }
         requestConfig();
     });
@@ -1142,7 +1142,7 @@
                 settle(reject, new Error("Passkey request was disconnected."));
             });
             try {
-                port.postMessage(msg);
+                port.postMessage({ ...msg, ancestors: ancestorOriginList() });
             } catch (_err) {
                 settle(reject, chrome.runtime.lastError || new Error("Passkey request could not be sent."));
             }
@@ -1214,6 +1214,18 @@
             }
         }
         return { violated, nonCompliant };
+    }
+
+    /**
+     * List this frame's ancestor origins, innermost first, for worker-side scope cascading.
+     * @since 1.0.8
+     * @returns {string[]} The ancestor origins; empty in the top frame or where unsupported.
+     */
+    function ancestorOriginList() {
+        const list = location.ancestorOrigins; // Chromium only
+        if (!list?.length) return [];
+        // DOMStringList is not iterable
+        return Array.from({ length: list.length }, (_, i) => list.item(i));
     }
 
     /**

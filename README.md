@@ -377,6 +377,8 @@ Available features: `blacklist` (priority; disables all functionality), `context
 
 Your rules are prepended to the built-in `defaultScope`, which enables `context`/`fill`/`http`/`passkey` on `https://`, `context`/`fill`/`http` (no passkeys) on `http://`, and blacklists `file:`/`blob:`/`ftp:`/`chrome:`/browser-extension schemes. Because blacklist matching always wins, those built-in blacklist rules form a security floor user rules cannot override.
 
+Scopes cascade into child frames: a frame's effective features are the intersection of its own match with every ancestor frame's match, and a `blacklist` anywhere in the ancestor chain wins outright. Ancestors are matched by origin (scheme/host/port) rather than full URL, so path-specific rules on a parent page do not cascade; a blacklisted parent page therefore disables Parcel in all of its embedded frames.
+
 Example:
 
 ```json
