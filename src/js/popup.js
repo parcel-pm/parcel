@@ -305,9 +305,11 @@
         !isInlinePopup && tab.url
             ? new Promise((resolve) => {
                   const listener = (msg) => {
-                      if (msg?.action === "scope") {
+                      // settle as null if the agent cannot answer (e.g. init failure): scope
+                      // stays unresolved and the usual match/decrypt error path surfaces it
+                      if (msg?.action === "scope" || msg?.action === "error") {
                           port.onMessage.removeListener(listener);
-                          resolve(Array.isArray(msg.features) ? msg.features : ["blacklist"]);
+                          resolve(msg.action === "scope" && Array.isArray(msg.features) ? msg.features : null);
                       }
                   };
                   port.onMessage.addListener(listener);
@@ -917,7 +919,7 @@
 
     // toolbar/window popups get their scope features from the agent up-front;
     // inline/context popups get them later from the "origin" message
-    if (scopeFromAgent) scopeFeatures = await scopeFromAgent.catch(() => ["blacklist"]);
+    if (scopeFromAgent) scopeFeatures = await scopeFromAgent;
     applyScopeFeatures();
 
     document.getElementById("modal-shade").addEventListener("click", () => {
