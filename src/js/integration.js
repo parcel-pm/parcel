@@ -96,7 +96,7 @@
     // keeps firing as long as the tab is open. Each message resets the worker's
     // inactivity timer, which in turn keeps the native host ping interval alive.
     //
-    // Only the top frame needs to send keepalives — integration.js runs with
+    // Only the top frame needs to send keepalives - integration.js runs with
     // all_frames: true, but a single timer per tab is sufficient since any
     // keepalive resets the shared service worker inactivity timer.
     //
@@ -111,7 +111,7 @@
     // sendMessage throws; catch it once and stop the timer (a fresh content
     // script only arrives on page reload).
     if (window === window.top) {
-        // clear any stale tab badge — a fresh document cannot hold the previous document's stash
+        // clear any stale tab badge - a fresh document cannot hold the previous document's stash
         reportStashPresence(false);
         const keepalive = setInterval(() => {
             try {
@@ -152,9 +152,9 @@
             try {
                 port = chrome.runtime.connect({ name: "integration" });
             } catch (_err) {
-                // Extension context invalidated — the content script is stale and
+                // Extension context invalidated - the content script is stale and
                 // the page must be reloaded to get a fresh injection.
-                rejectConfig(new Error("Extension context invalidated — please reload the page."));
+                rejectConfig(new Error("Extension context invalidated - please reload the page."));
                 return;
             }
             const timer = setTimeout(() => fail("timed out"), 10_000);
