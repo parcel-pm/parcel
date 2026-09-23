@@ -173,6 +173,24 @@ MetaSchema.properties.properties.items = MetaSchema;
 MetaSchema.properties.items = MetaSchema;
 
 /**
+ * The schema for URL scopes
+ * @type {object}
+ * @since 1.0.8
+ */
+export const ScopeSchema = {
+    type: "object",
+    properties: {
+        match: { type: "string", required: true, format: "regex", minLength: 1 },
+        features: {
+            type: "array",
+            items: { type: "string", enum: ["blacklist", "context", "fill", "global", "http", "passkey"] },
+            required: true,
+            default: ["blacklist"],
+        },
+    },
+};
+
+/**
  * The schema for selectors.
  * @type {object}
  * @since 1.0.0
@@ -264,6 +282,12 @@ export const ConfigSchema = {
         handlePasskeys: { type: "boolean", required: true, default: true },
         realPassdir: { type: "string" },
         saveHistory: { type: "boolean", required: true, default: true },
+        scope: {
+            type: "array",
+            items: ScopeSchema,
+            required: true,
+            default: [],
+        },
         suppressWarnings: {
             type: "array",
             items: { type: "string", enum: ["rate-limit-high", "rate-limit-disabled", "audit-disabled", "host-unpinned"] },

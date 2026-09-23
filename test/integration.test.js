@@ -185,7 +185,12 @@ before(async () => {
         if (receiver.name !== "integration") return;
         receiver.onMessage.addListener((msg) => {
             if (msg?.action === "config") {
-                receiver.postMessage({ action: "config", config: makeValidConfig(), frameId: 0 });
+                receiver.postMessage({
+                    action: "config",
+                    config: makeValidConfig(),
+                    frameId: 0,
+                    features: ["context", "fill", "http", "passkey"],
+                });
             } else if (msg?.action === "frame-id") {
                 receiver.postMessage({ action: "frame-id", frameId: liveFrameId });
             }
@@ -208,7 +213,12 @@ before(async () => {
     // The integration port may already be disconnected by the content script
     // after it received its first config reply; only re-send if still live.
     if (portReceivers["integration"] && !portReceivers["integration"].disconnected) {
-        portReceivers["integration"].postMessage({ action: "config", config: makeValidConfig(), frameId: 0 });
+        portReceivers["integration"].postMessage({
+            action: "config",
+            config: makeValidConfig(),
+            frameId: 0,
+            features: ["context", "fill", "http", "passkey"],
+        });
     }
     await settleAsync();
 

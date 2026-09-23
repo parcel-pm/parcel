@@ -1044,7 +1044,7 @@ describe("Agent", () => {
                 isProxy: false,
                 type: "main_frame",
                 tabId: 99,
-                url: "https://authenticationtest.com/HTTPAuth/",
+                url: "https://example.com/HTTPAuth/",
             });
             await settleAsync();
             await settleAsync();
@@ -1301,7 +1301,7 @@ describe("Agent", () => {
                 isProxy: false,
                 type: "main_frame",
                 tabId: 77,
-                url: "https://authenticationtest.com/HTTPAuth/",
+                url: "https://example.com/HTTPAuth/",
             });
             await settleAsync();
             await settleAsync();
@@ -1319,7 +1319,7 @@ describe("Agent", () => {
             // Simulate the popup connecting with the extracted token
             const popup = mock.chrome.runtime.connect({ name: "popup" });
             await settleAsync();
-            popup.postMessage({ action: "auth", token, tab: { url: "https://authenticationtest.com/HTTPAuth/" } });
+            popup.postMessage({ action: "auth", token, tab: { url: "https://example.com/HTTPAuth/" } });
             await settleAsync();
 
             // Match + decrypt with intent "http-auth"
@@ -1394,7 +1394,7 @@ describe("Agent", () => {
 
     test("passkey candidates are rule-classed entries whose path names the rpId", async () => {
         await configurePasskeyStore();
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const candidatesPromise = nextMessage(passkey, "passkey-candidates");
         passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://login.example.com", rpId: "example.com" });
@@ -1422,7 +1422,7 @@ describe("Agent", () => {
         // the worker sees the embedder's top-level URL via the port's sender
         const passkey = mock.chrome.runtime.connect({
             name: "passkey",
-            sender: { tab: { id: 5, url: "https://top.example/some/page?query=1" } },
+            sender: { url: "https://login.example.com/", tab: { id: 5, url: "https://top.example/some/page?query=1" } },
         });
         await settleAsync();
         const candidatesPromise = nextMessage(passkey, "passkey-candidates");
@@ -1442,7 +1442,7 @@ describe("Agent", () => {
         await configurePasskeyStore();
         const passkey = mock.chrome.runtime.connect({
             name: "passkey",
-            sender: { tab: { id: 5, url: "https://top.example" } },
+            sender: { url: "https://login.example.com/", tab: { id: 5, url: "https://top.example" } },
         });
         await settleAsync();
         const candidatesPromise = nextMessage(passkey, "passkey-candidates");
@@ -1455,7 +1455,10 @@ describe("Agent", () => {
         await configurePasskeyStore();
         // no host permission for the tab's URL (Firefox's sender omits it) — and
         // an opaque tab origin (about:blank) is not a usable topOrigin either
-        for (const sender of [{ tab: { id: 5 } }, { tab: { id: 6, url: "about:blank" } }]) {
+        for (const sender of [
+            { url: "https://login.example.com/", tab: { id: 5 } },
+            { url: "https://login.example.com/", tab: { id: 6, url: "about:blank" } },
+        ]) {
             const passkey = mock.chrome.runtime.connect({ name: "passkey", sender });
             await settleAsync();
             const candidatesPromise = nextMessage(passkey, "passkey-candidates");
@@ -1474,7 +1477,7 @@ describe("Agent", () => {
 
     test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
         await configurePasskeyStore();
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const resultPromise = nextMessage(passkey, "passkey-result");
         passkey.postMessage({
@@ -1492,7 +1495,7 @@ describe("Agent", () => {
 
     test("passkey assertion is rejected for an unclassed entry inside the passkey dir", async () => {
         await configurePasskeyStore();
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const errorPromise = nextMessage(passkey, "error");
         passkey.postMessage({
@@ -1510,7 +1513,7 @@ describe("Agent", () => {
 
     test("passkey assertion normalises a mixed-case rpId", async () => {
         await configurePasskeyStore();
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const resultPromise = nextMessage(passkey, "passkey-result");
         passkey.postMessage({
@@ -1528,7 +1531,7 @@ describe("Agent", () => {
 
     test("passkey assertion is rejected for a login-classed entry outside the passkey dir", async () => {
         await configurePasskeyStore();
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const errorPromise = nextMessage(passkey, "error");
         passkey.postMessage({
@@ -1546,7 +1549,7 @@ describe("Agent", () => {
 
     test("a browser-passkey rule defers WebAuthn ceremonies for its site", async () => {
         await configurePasskeyStore();
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const fallbackPromise = nextMessage(passkey, "passkey-fallback");
         passkey.postMessage({
@@ -1572,7 +1575,7 @@ describe("Agent", () => {
             if (msg.action === "list") return [];
             if (msg.action === "changes_since") return { changes: false };
         });
-        const passkey = mock.chrome.runtime.connect({ name: "passkey" });
+        const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://login.example.com/" } });
         await settleAsync();
         const candidatesPromise = nextMessage(passkey, "passkey-candidates");
         passkey.postMessage({ action: "passkey", phase: "candidates", origin: "https://ignored.com", rpId: "ignored.com" });
@@ -1879,6 +1882,139 @@ describe("Agent", () => {
             ["example.com/admin"],
             "cards are excluded when the popup is restricted to a different class",
         );
+    });
+
+    describe("URL scopes", () => {
+        /**
+         * Push a config with user-supplied scope rules into the agent.
+         * @param {object[]} scope - The user scope rules, prepended to the built-in defaults.
+         * @returns {Promise<void>}
+         */
+        async function configureScope(scope) {
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return { ...makeValidConfig(), modified: 2, scope };
+                if (msg.action === "list") return [];
+                if (msg.action === "changes_since") return { changes: false };
+            });
+            const integration = mock.chrome.runtime.connect({ name: "integration", sender: { frameId: 0, url: "https://example.com/" } });
+            await settleAsync();
+            const configPromise = nextMessage(integration, "config");
+            integration.postMessage({ action: "config" });
+            await configPromise;
+        }
+
+        /**
+         * Query the scope features for a URL via an authorised popup port.
+         * @param {string} url - The URL to scope.
+         * @returns {Promise<string[]>} The matched features.
+         */
+        async function queryScope(url) {
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+            await settleAsync();
+            const scopePromise = nextMessage(popup, "scope");
+            popup.postMessage({ action: "scope", url });
+            const msg = await scopePromise;
+            popup.disconnect();
+            return msg.features;
+        }
+
+        test("integration config replies include the frame URL's features", async () => {
+            await configureScope([]);
+            const integration = mock.chrome.runtime.connect({
+                name: "integration",
+                sender: { frameId: 1, url: "http://insecure.example/" },
+            });
+            await settleAsync();
+            const configPromise = nextMessage(integration, "config");
+            integration.postMessage({ action: "config" });
+            const msg = await configPromise;
+            assert.deepStrictEqual(msg.features, ["context", "fill", "http"]);
+        });
+
+        test("scope queries over popup ports require authorisation", async () => {
+            await configureScope([]);
+            const popup = mock.chrome.runtime.connect({ name: "popup" });
+            await settleAsync();
+            const errorPromise = nextMessage(popup, "error");
+            popup.postMessage({ action: "scope", url: "https://example.com/" });
+            const msg = await errorPromise;
+            assert.ok(msg.error?.includes("Unauthorised"), `expected authorisation failure, got: ${JSON.stringify(msg)}`);
+        });
+
+        test("the first matching rule wins", async () => {
+            await configureScope([
+                { match: "^https://special\\.example/", features: ["fill"] },
+                { match: "^https://special\\.example/", features: ["passkey"] },
+            ]);
+            assert.deepStrictEqual(await queryScope("https://special.example/page"), ["fill"]);
+        });
+
+        test("user rules take precedence over the built-in defaults", async () => {
+            await configureScope([{ match: "^https://", features: ["fill"] }]);
+            assert.deepStrictEqual(await queryScope("https://example.com/"), ["fill"]);
+        });
+
+        test("a blacklist rule wins over an earlier non-blacklist match", async () => {
+            await configureScope([
+                { match: "^https://evil\\.example/", features: ["fill"] },
+                { match: "^https://evil\\.example/", features: ["blacklist", "global"] },
+            ]);
+            assert.deepStrictEqual(await queryScope("https://evil.example/"), ["blacklist", "global"]);
+        });
+
+        test("the blacklist features are returned verbatim", async () => {
+            // defaultScope blacklists browser-internal schemes with the global companion
+            await configureScope([]);
+            assert.deepStrictEqual(await queryScope("chrome://extensions/"), ["blacklist", "global"]);
+        });
+
+        test("unmatched URLs fail safe to a bare blacklist", async () => {
+            await configureScope([]);
+            assert.deepStrictEqual(await queryScope("data:text/html,x"), ["blacklist"]);
+        });
+
+        test("an invalid user scope rule fails validation", async () => {
+            uninstallNativeHandler(mock, handler);
+            handler = installNativeHandler(mock, (msg) => {
+                if (msg.action === "install") return { success: true, message: "installed" };
+                if (msg.action === "configure") return { ...makeValidConfig(), modified: 2, scope: [{ match: "(", features: ["fill"] }] };
+            });
+            const integration = mock.chrome.runtime.connect({ name: "integration", sender: { frameId: 0, url: "https://example.com/" } });
+            await settleAsync();
+            const errorPromise = nextMessage(integration, "error");
+            integration.postMessage({ action: "config" });
+            const msg = await errorPromise;
+            assert.ok(msg.error?.includes("Invalid configuration"), `expected config rejection, got: ${JSON.stringify(msg)}`);
+        });
+
+        test("http-auth interception is skipped for scopes without the http feature", async () => {
+            await configureScope([{ match: "^https://noauth\\.example/", features: ["context", "fill"] }]);
+            mock.setCurrentTab({ id: 5, url: "https://noauth.example/login" });
+            const resultPromise = mock.fireAuthRequired({
+                isProxy: false,
+                type: "main_frame",
+                tabId: 5,
+                url: "https://noauth.example/login",
+            });
+            const result = await resultPromise;
+            assert.deepStrictEqual(result, {}, "blacklisted/no-http scopes do not intercept");
+            assert.strictEqual(mock.windowsCreated.length, 0, "no popup window is opened");
+        });
+
+        test("passkey action is rejected for scopes without the passkey feature", async () => {
+            await configureScope([]);
+            // the default http scope lacks the passkey feature
+            const passkey = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "http://legacy.example/" } });
+            await settleAsync();
+            const errorPromise = nextMessage(passkey, "error");
+            passkey.postMessage({ action: "passkey", phase: "candidates", origin: "http://legacy.example", rpId: "legacy.example" });
+            const msg = await errorPromise;
+            assert.ok(msg.error?.includes("disabled for this URL"), `expected scope rejection, got: ${JSON.stringify(msg)}`);
+        });
     });
 });
 

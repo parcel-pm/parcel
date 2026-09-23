@@ -1,5 +1,6 @@
 "use strict";
 import { Schema, ConfigSchema, classDefaults } from "./schema.js";
+import { defaultScope } from "./scopes.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
 
@@ -40,6 +41,8 @@ export class Agent extends EventTarget {
     #initRetries = 0;
     #destroyed = false;
     #pendingAuthCallbacks = new Map();
+    /** @type {{re: RegExp, features: string[]}[]} Compiled scope rules from the validated effective scope list. */
+    #compiledScope = [];
     #bootstrapVersion = null;
     /** @type {Set<chrome.runtime.Port>} Popup ports connected before the bootstrap version arrived. */
     #pendingBootstrapPorts = new Set();
@@ -476,6 +479,9 @@ export class Agent extends EventTarget {
      * @throws {Error} If the configuration fails schema validation.
      */
     #setConfig(config) {
+        // concatenate the built-in default scope after any user-supplied rules, before validation
+        config.scope = [...(Array.isArray(config.scope) ? config.scope : []), ...defaultScope];
+
         // validate the provided configuration
         try {
             Schema.validate(ConfigSchema, config);
@@ -484,8 +490,27 @@ export class Agent extends EventTarget {
             throw new Error(`Invalid configuration: ${err.message}`);
         }
 
+        // compile the scope rules
+        this.#compiledScope = config.scope.map((rule) => ({ re: new RegExp(rule.match, "iu"), features: rule.features }));
+
         // apply the configuration
         this.#config = config;
+    }
+
+    /**
+     * Match a URL against the effective scope list and return the applicable features.
+     * @since 1.0.8
+     * @param {string} url - The URL to match.
+     * @returns {string[]} The winning rule's features, or `["blacklist"]`.
+     */
+    #matchScope(url) {
+        let first = null;
+        for (const { re, features } of this.#compiledScope) {
+            if (!re.test(url)) continue;
+            if (features.includes("blacklist")) return features;
+            if (!first) first = features;
+        }
+        return first ?? ["blacklist"];
     }
 
     /**
@@ -767,7 +792,18 @@ export class Agent extends EventTarget {
         // content-script (`integration`) ports may only request `config` and resolve their frame ID.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
-            popup: ["auth", "clipboard", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
+            popup: [
+                "auth",
+                "clipboard",
+                "config",
+                "decrypt",
+                "http-auth-cancel",
+                "http-auth-manual",
+                "http-auth-url",
+                "match",
+                "scope",
+                "sha256",
+            ],
             integration: ["config", "frame-id"],
             passkey: ["passkey"], // not correlated against a clicked field, so no 'auth' correlation token is required
         };
@@ -930,6 +966,10 @@ export class Agent extends EventTarget {
                             } else throw err;
                         }
                     }
+                } else if (message?.action === "scope") {
+                    // port.sender is not authoritative on popup ports (popup-bridge in Firefox),
+                    // so the URL always comes from the message
+                    post({ action: "scope", features: this.#matchScope(message.url || "") });
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     updateStatus("Checking for config changes...");
@@ -941,11 +981,19 @@ export class Agent extends EventTarget {
                     }
                     clearStatus();
                     const response = { action: "config", config: this.#config };
-                    if (port.name === "integration") response.frameId = port.sender?.frameId || 0;
+                    if (port.name === "integration") {
+                        response.frameId = port.sender?.frameId || 0;
+                        response.features = this.#matchScope(port.sender?.url || "");
+                    }
                     post(response);
                 } else if (message?.action === "passkey") {
                     // passkey ceremony: list candidates, sign an assertion, or create a credential
                     if (!this.#config.handlePasskeys) throw new Error("Passkey support is disabled.");
+                    // The passkey port connects directly from the content script, so the
+                    // sender URL is authoritative; the scope must permit passkeys.
+                    const passkeyFeatures = this.#matchScope(port.sender?.url || "");
+                    if (passkeyFeatures.includes("blacklist") || !passkeyFeatures.includes("passkey"))
+                        throw new Error("Passkey support is disabled for this URL.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
                     // sites whose rules carry class "browser-passkey" defer every WebAuthn
                     // ceremony to the platform/browser handler without prompting. Rules patterns
@@ -1219,6 +1267,11 @@ export class Agent extends EventTarget {
             .then(() => true)
             .catch(() => false);
         if (!hasConfig || !this.#config?.handleHttpAuth) return callback({});
+
+        // Guard: the URL scope must permit HTTP auth (blacklist wins unconditionally)
+        const httpFeatures = this.#matchScope(details.url);
+        if (httpFeatures.includes("blacklist") || !httpFeatures.includes("http")) return callback({});
+
         const decryptTimeout = this.#config.decryptTimeout * 1000 + 5000;
 
         // Guard: if the user already chose "Enter manually" for this tab+origin,
