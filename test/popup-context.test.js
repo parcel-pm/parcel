@@ -138,6 +138,7 @@ before(async () => {
         popupPortReceiver = receiver;
         receiver.onMessage.addListener((msg) => {
             if (msg?.action === "config") receiver.postMessage({ action: "config", config: makeValidConfig() });
+            else if (msg?.action === "scope") receiver.postMessage({ action: "scope", features: ["context", "fill", "http", "passkey"] });
         });
     });
 

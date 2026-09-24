@@ -102,6 +102,7 @@ async function loadPopup(config) {
         if (receiver.name !== "popup") return;
         receiver.onMessage.addListener((msg) => {
             if (msg?.action === "config") receiver.postMessage({ action: "config", config });
+            else if (msg?.action === "scope") receiver.postMessage({ action: "scope", features: ["context", "fill", "http", "passkey"] });
         });
     });
 

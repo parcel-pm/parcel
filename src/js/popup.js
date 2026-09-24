@@ -294,6 +294,28 @@
     let limit = true;
     let history = [];
     let includeClasses = []; // fill classes the page reports as present (toolbar popup only)
+    /** URL-scope features applicable to the popup's URL; see {@link applyScopeFeatures}. */
+    let scopeFeatures = null;
+
+    // URL-scope features: inline/context popups receive the serving frame's features with the
+    // "origin" message (the Firefox bridge cannot trust port.sender); toolbar and window popups
+    // scope against the tab's top-level URL directly via the agent.
+    const isInlinePopup = token !== "broadcast" && !isWindowMode;
+    const scopeFromAgent =
+        !isInlinePopup && tab.url
+            ? new Promise((resolve) => {
+                  const listener = (msg) => {
+                      // settle as null if the agent cannot answer (e.g. init failure): scope
+                      // stays unresolved and the usual match/decrypt error path surfaces it
+                      if (msg?.action === "scope" || msg?.action === "error") {
+                          port.onMessage.removeListener(listener);
+                          resolve(msg.action === "scope" && Array.isArray(msg.features) ? msg.features : null);
+                      }
+                  };
+                  port.onMessage.addListener(listener);
+                  port.postMessage({ action: "scope", url: tab.url });
+              })
+            : null;
 
     /**
      * Re-run the entry search.
@@ -301,6 +323,10 @@
      * @returns {void}
      */
     function update() {
+        if (scopeFeatures?.includes("blacklist") && !scopeFeatures.includes("global")) {
+            scheduleRender([]);
+            return;
+        }
         port.postMessage({
             action: "match",
             url: tab.url || "unknown-url://",
@@ -310,6 +336,21 @@
             targetClass,
             includeClasses,
         });
+    }
+
+    /**
+     * Apply the URL-scope features: `global` opens the popup in global mode (as if Backspace
+     * had been pressed); a blacklist without `global` shows no matches at all.
+     * @since 1.0.8
+     * @returns {void}
+     */
+    function applyScopeFeatures() {
+        if (!Array.isArray(scopeFeatures)) return;
+        if (scopeFeatures.includes("global")) {
+            limit = false;
+            document.getElementById("origin").classList.add("hidden");
+        }
+        update();
     }
 
     /**
@@ -382,6 +423,10 @@
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
+                    if (scopeFeatures && !scopeFeatures.includes("fill")) {
+                        showError("Filling is disabled on this page.");
+                        return;
+                    }
                     void postFillWithAck({ action: "fill-value", value: this.getValue() }).then((delivered) => {
                         if (!delivered) showError(CONTACT_ERROR);
                     });
@@ -508,6 +553,10 @@
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
+                    if (scopeFeatures && !scopeFeatures.includes("fill")) {
+                        showError("Filling is disabled on this page.");
+                        return;
+                    }
                     void postFillWithAck({ action: "fill-value", value: this.#root.querySelector(".value").textContent }).then(
                         (delivered) => {
                             if (!delivered) showError(CONTACT_ERROR);
@@ -845,6 +894,10 @@
             const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
             const i = parseInt(index, 10);
             if (!Number.isNaN(i) && i >= 1 && i <= lines.length) {
+                if (scopeFeatures && !scopeFeatures.includes("fill")) {
+                    showError("Filling is disabled on this page.");
+                    return;
+                }
                 const line = lines[i - 1];
                 void postFillWithAck({ action: "fill-value", value: line.getValue() }).then((delivered) => {
                     if (!delivered) showError(CONTACT_ERROR);
@@ -863,6 +916,11 @@
         limit = false;
         document.getElementById("origin").classList.add("hidden");
     }
+
+    // toolbar/window popups get their scope features from the agent up-front;
+    // inline/context popups get them later from the "origin" message
+    if (scopeFromAgent) scopeFeatures = await scopeFromAgent;
+    applyScopeFeatures();
 
     document.getElementById("modal-shade").addEventListener("click", () => {
         document.querySelectorAll("parcel-detail").forEach((el) => el.remove());
@@ -938,6 +996,11 @@
                 p.remove();
             }, 5000);
         } else if (msg?.action === "origin") {
+            // URL-scope features for the serving frame, relayed by integration.js
+            if (Array.isArray(msg.features)) {
+                scopeFeatures = msg.features;
+                applyScopeFeatures();
+            }
             if (tab.url) {
                 frameOrigin = msg.origin;
                 const tabURL = new URL(tab.url);
@@ -1528,6 +1591,10 @@
 
             li.addEventListener("click", async () => {
                 const intent = mode === "http-auth" ? "http-auth" : "fill";
+                if (intent === "fill" && scopeFeatures && !scopeFeatures.includes("fill")) {
+                    showError("Filling is disabled on this page.");
+                    return;
+                }
                 port.postMessage({ action: "decrypt", intent, origin: url.origin, path: entry.path });
                 // Card entries are never added to fill history — card fills are not
                 // origin-specific and tracking them would clutter login history.
@@ -1742,7 +1809,9 @@
     await new Promise((resolve) => requestAnimationFrame(resolve));
     // In window mode the tab port is a dummy with no content script to acknowledge;
     // skip the handshake so http-auth window popups don't report a spurious failure.
-    if (isWindowMode || (await waitForTabReady())) {
+    // On blacklisted pages integration.js bails before registering the port handlers, so the
+    // handshake can never be acked there either.
+    if (isWindowMode || scopeFeatures?.includes("blacklist") || (await waitForTabReady())) {
         if (token !== "broadcast" && !isWindowMode) reportPopupSize();
     } else {
         showError(

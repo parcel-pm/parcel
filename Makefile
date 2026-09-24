@@ -116,7 +116,7 @@ test-modules:
 
 .PHONY: test-application
 test-application:
-	node --test $(TEST_FLAGS) test/agent.test.js test/integration.test.js test/popup.test.js test/popup-context.test.js test/popup-passkey.test.js test/popup-warnings.test.js
+	node --test $(TEST_FLAGS) test/agent.test.js test/integration.test.js test/integration-scope.test.js test/popup.test.js test/popup-context.test.js test/popup-passkey.test.js test/popup-warnings.test.js
 
 .PHONY: test-syntax
 test-syntax:
@@ -146,6 +146,7 @@ test: test-syntax require-shellcheck
 		test/main-world-webauthn.test.js \
 		test/agent.test.js \
 		test/integration.test.js \
+		test/integration-scope.test.js \
 		test/popup.test.js \
 		test/popup-context.test.js \
 		test/popup-passkey.test.js \

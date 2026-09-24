@@ -87,12 +87,149 @@
         };
     }
 
+    let frameId = 0;
+    let frameFeatures = ["blacklist"];
+
+    // Send a periodic keepalive message to the service worker so that MV3
+    // doesn't suspend it during idle periods. Content scripts run in the tab's
+    // process and are not subject to service worker suspension, so this timer
+    // keeps firing as long as the tab is open. Each message resets the worker's
+    // inactivity timer, which in turn keeps the native host ping interval alive.
+    //
+    // Only the top frame needs to send keepalives - integration.js runs with
+    // all_frames: true, but a single timer per tab is sufficient since any
+    // keepalive resets the shared service worker inactivity timer.
+    //
+    // Note that Chrome intensively throttles timers in tabs hidden for more
+    // than a few minutes (to ~1/minute), so a fully-backgrounded tab may stop
+    // keeping the worker alive. That failure mode is deliberately benign and
+    // self-healing: the native host exits via its own idle watchdog, and the
+    // next keepalive sendMessage wakes the worker, which reconnects on
+    // construction. We degrade to a dormant host, never a zombie one.
+    //
+    // After extension reload, this stale script's context is invalidated and
+    // sendMessage throws; catch it once and stop the timer (a fresh content
+    // script only arrives on page reload).
+    if (window === window.top) {
+        // clear any stale tab badge - a fresh document cannot hold the previous document's stash
+        reportStashPresence(false);
+        const keepalive = setInterval(() => {
+            try {
+                chrome.runtime.sendMessage({ type: "keepalive" }, () => void chrome.runtime.lastError);
+            } catch (_err) {
+                clearInterval(keepalive);
+            }
+        }, 25_000);
+    }
+
+    /**
+     * Configuration object retrieved from the background worker.
+     * @since 1.0.0
+     * @type {Promise<object>}
+     */
+    const config = new Promise((resolve, reject) => {
+        const MAX_ATTEMPTS = 5;
+        let attempts = 0;
+        let settled = false;
+
+        // settle-once rejection: the error is logged here, so consumers only
+        // receive it (and gate on configOK) without re-logging
+        const rejectConfig = (err) => {
+            if (settled) return;
+            settled = true;
+            console.error(err);
+            reject(err);
+        };
+
+        /**
+         * Request the config on a fresh "integration" port, retrying on error,
+         * disconnect or timeout. Rejects after MAX_ATTEMPTS failures.
+         * @since 1.0.6
+         * @returns {void}
+         */
+        function requestConfig() {
+            let port;
+            try {
+                port = chrome.runtime.connect({ name: "integration" });
+            } catch (_err) {
+                // Extension context invalidated - the content script is stale and
+                // the page must be reloaded to get a fresh injection.
+                rejectConfig(new Error("Extension context invalidated - please reload the page."));
+                return;
+            }
+            const timer = setTimeout(() => fail("timed out"), 10_000);
+            // retry the request, or give up once attempts are exhausted
+            const fail = (reason) => {
+                if (settled) return;
+                clearTimeout(timer);
+                if (++attempts >= MAX_ATTEMPTS) {
+                    rejectConfig(new Error(`Failed to load configuration after ${MAX_ATTEMPTS} attempts (${reason})`));
+                    return;
+                }
+                setTimeout(requestConfig, 1000);
+            };
+            port.onMessage.addListener((msg) => {
+                if (msg.action === "error") return fail(msg.error);
+                if (msg.action !== "config" || settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try {
+                    port.disconnect();
+                } catch (_err) {
+                    // already disconnected; nothing to clean up
+                }
+                frameId = msg?.frameId || 0;
+                frameFeatures = Array.isArray(msg?.features) ? msg.features : ["blacklist"];
+                broadcastFrameId(frameId);
+                resolve(msg.config);
+            });
+            port.onDisconnect.addListener(() => {
+                chrome.runtime.lastError; // consume the disconnect error
+                fail("disconnected");
+            });
+            port.postMessage({ action: "config" });
+        }
+        requestConfig();
+    });
+
+    /**
+     * True when the config loaded, false when it failed. Also marks `config` as
+     * handled so its rejection can't surface as "Uncaught (in promise)".
+     * @since 1.0.6
+     * @type {Promise<boolean>}
+     */
+    const configOK = config.then(
+        () => true,
+        () => false,
+    );
+
+    /**
+     * URL-scope features applicable to this frame's URL, resolved with the config.
+     * @since 1.0.8
+     * @type {Promise<string[]>}
+     */
+    const features = config.then(() => frameFeatures);
+
+    // Blacklisted URLs disable all in-page functionality: skip the expensive setup
+    // entirely. The webauthn interceptor still gets an explicit fallback so page
+    // ceremonies defer to the browser instead of hanging.
+    if ((await configOK) && (await features).includes("blacklist")) {
+        document.addEventListener("parcel-webauthn-request", (ev) => {
+            try {
+                const req = JSON.parse(ev.detail);
+                passkeyRespond(req.requestId, { type: "fallback" });
+            } catch (_err) {
+                // malformed request; nothing to answer
+            }
+        });
+        return;
+    }
+
     const authPort = reconnectingPort("auth");
     window.addEventListener("pageshow", (ev) => {
         // re-establish connection to the auth port on bfcache restore
         if (ev.persisted) authPort.reconnect();
     });
-    let frameId = 0;
 
     /**
      * Tell the root frame this frame's ID so its iframe mapping stays fresh for popup placement.
@@ -153,38 +290,6 @@
     // Re-resolve immediately on prerender activation (issue #163); self-gating where prerendering is unsupported.
     if (document.prerendering) {
         document.addEventListener("prerenderingchange", () => resolveFrameId(), { once: true });
-    }
-
-    // Send a periodic keepalive message to the service worker so that MV3
-    // doesn't suspend it during idle periods. Content scripts run in the tab's
-    // process and are not subject to service worker suspension, so this timer
-    // keeps firing as long as the tab is open. Each message resets the worker's
-    // inactivity timer, which in turn keeps the native host ping interval alive.
-    //
-    // Only the top frame needs to send keepalives — integration.js runs with
-    // all_frames: true, but a single timer per tab is sufficient since any
-    // keepalive resets the shared service worker inactivity timer.
-    //
-    // Note that Chrome intensively throttles timers in tabs hidden for more
-    // than a few minutes (to ~1/minute), so a fully-backgrounded tab may stop
-    // keeping the worker alive. That failure mode is deliberately benign and
-    // self-healing: the native host exits via its own idle watchdog, and the
-    // next keepalive sendMessage wakes the worker, which reconnects on
-    // construction. We degrade to a dormant host, never a zombie one.
-    //
-    // After extension reload, this stale script's context is invalidated and
-    // sendMessage throws; catch it once and stop the timer (a fresh content
-    // script only arrives on page reload).
-    if (window === window.top) {
-        // clear any stale tab badge — a fresh document cannot hold the previous document's stash
-        reportStashPresence(false);
-        const keepalive = setInterval(() => {
-            try {
-                chrome.runtime.sendMessage({ type: "keepalive" }, () => void chrome.runtime.lastError);
-            } catch (_err) {
-                clearInterval(keepalive);
-            }
-        }, 25_000);
     }
 
     // Trigger the http-auth scrim popup from the background worker.
@@ -254,87 +359,6 @@
             if (frameEl) frameEl._parcelFrameId = ev.data.frameId;
         }
     });
-
-    /**
-     * Configuration object retrieved from the background worker.
-     * @since 1.0.0
-     * @type {Promise<object>}
-     */
-    const config = new Promise((resolve, reject) => {
-        const MAX_ATTEMPTS = 5;
-        let attempts = 0;
-        let settled = false;
-
-        // settle-once rejection: the error is logged here, so consumers only
-        // receive it (and gate on configOK) without re-logging
-        const rejectConfig = (err) => {
-            if (settled) return;
-            settled = true;
-            console.error(err);
-            reject(err);
-        };
-
-        /**
-         * Request the config on a fresh "integration" port, retrying on error,
-         * disconnect or timeout. Rejects after MAX_ATTEMPTS failures.
-         * @since 1.0.6
-         * @returns {void}
-         */
-        function requestConfig() {
-            let port;
-            try {
-                port = chrome.runtime.connect({ name: "integration" });
-            } catch (_err) {
-                // Extension context invalidated — the content script is stale and
-                // the page must be reloaded to get a fresh injection.
-                rejectConfig(new Error("Extension context invalidated — please reload the page."));
-                return;
-            }
-            const timer = setTimeout(() => fail("timed out"), 10_000);
-            // retry the request, or give up once attempts are exhausted
-            const fail = (reason) => {
-                if (settled) return;
-                clearTimeout(timer);
-                if (++attempts >= MAX_ATTEMPTS) {
-                    rejectConfig(new Error(`Failed to load configuration after ${MAX_ATTEMPTS} attempts (${reason})`));
-                    return;
-                }
-                setTimeout(requestConfig, 1000);
-            };
-            port.onMessage.addListener((msg) => {
-                if (msg.action === "error") return fail(msg.error);
-                if (msg.action !== "config" || settled) return;
-                settled = true;
-                clearTimeout(timer);
-                try {
-                    port.disconnect();
-                } catch (_err) {
-                    // already disconnected; nothing to clean up
-                }
-                frameId = msg?.frameId || 0;
-                broadcastFrameId(frameId);
-                resolve(msg.config);
-            });
-            port.onDisconnect.addListener(() => {
-                chrome.runtime.lastError; // consume the disconnect error
-                fail("disconnected");
-            });
-            port.postMessage({ action: "config" });
-        }
-        requestConfig();
-    });
-
-    /**
-     * True when the config loaded, false when it failed. Also marks `config` as
-     * handled so its rejection can't surface as "Uncaught (in promise)".
-     * @since 1.0.6
-     * @type {Promise<boolean>}
-     */
-    const configOK = config.then(
-        () => true,
-        () => false,
-    );
-
     /**
      * List of valid focus targets, filtered to the current host.
      * @since 1.0.0
@@ -975,7 +999,7 @@
         }
     }
 
-    if ((await configOK) && !(await config).disableContextPopup) {
+    if ((await configOK) && !(await config).disableContextPopup && (await features).includes("context")) {
         document.addEventListener("click", (ev) => handleTriggerClick(ev.target, ev.clientX, ev.clientY), { capture: true, passive: true });
         document.addEventListener("keydown", handleTargetKeydown, { capture: true });
         document.addEventListener(
@@ -1280,6 +1304,11 @@
                 respond({ type: "fallback" });
                 return;
             }
+            if (!(await features).includes("passkey")) {
+                console.debug("[integration] deferring passkey to browser: passkey not in scope for this URL");
+                respond({ type: "fallback" });
+                return;
+            }
             const origin = window.location.origin;
             const crossOrigin = window !== window.top && !sameOriginWithAncestors(origin);
             let topOrigin = getTopOrigin();
@@ -1420,6 +1449,7 @@
         if (!(await configOK)) return;
         const cfg = await config;
         if (cfg.handlePasskeys === false) return;
+        if (!(await features).includes("passkey")) return;
         const hostname = window.location.hostname;
         const defersToBrowser = cfg.rules?.some((rule) => {
             if (rule.ignore || rule.class !== "browser-passkey") return false;
@@ -1854,6 +1884,7 @@
                 maybePost(port, {
                     action: "origin",
                     origin: window.location.origin,
+                    features: await features,
                     targetClasses: port.name === "broadcast" ? await getPageTargetClasses() : undefined,
                 });
             } else if (msg?.action === "focus-target") {
@@ -1863,6 +1894,10 @@
             } else if (msg?.action === "focus-resume") {
                 delete el._parcelFocusSuspended;
             } else if (msg?.action === "fill-value") {
+                if (!(await features).includes("fill")) {
+                    maybePost(port, { action: "error", error: "Filling is disabled on this page." });
+                    return;
+                }
                 // ack before touching the DOM so the popup can confirm delivery of one-shot fills
                 maybePost(port, { action: "ack", ack: "fill-value" });
                 // Fill the target field with the selected value
@@ -1872,6 +1907,10 @@
                 maybePost(port, { action: "close" });
                 triggerPort.postMessage({ action: "close-popup" });
             } else if (msg?.action === "fill") {
+                if (!(await features).includes("fill")) {
+                    maybePost(port, { action: "error", error: "Filling is disabled on this page." });
+                    return;
+                }
                 // ack before payload validation so the popup can distinguish a dead pipe from a fill error
                 maybePost(port, { action: "ack", ack: "fill" });
                 // fill the target field, and related fields if configured

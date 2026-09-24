@@ -367,6 +367,45 @@ The `rules` array controls which password-store entries Parcel can see. Rules ar
 | `additionalSelectors` | array | *(none)* | Custom DOM selectors to augment or override built-in field detection. |
 | `additionalTargets` | array | *(none)* | Custom target mappings for extracting and filling credential data. |
 | `targets` | array | Built-in set | Complete replacement for the built-in target extraction rules. |
+| `scope` | array | `[]` | Per-URL feature rules; see [URL scopes](#url-scopes). |
+
+#### URL scopes
+
+The `scope` array gates Parcel's features by URL. Each rule is `{ "match": "<regex>", "features": [...] }` and is matched against the frame URL in the content script, and the tab's top-level URL in the toolbar popup. Regexes are applied case-insensitively and must use JavaScript syntax. Rules are tried in order: the first rule whose `features` contain `blacklist` wins outright; otherwise the first match wins; if nothing matches, Parcel fails safe to `["blacklist"]`. A `blacklist` disables every feature on the page - including fills, popups, http-auth interception and passkeys - but if the same rule also carries `global`, the toolbar popup still opens in global search mode (no matches tied to the page origin).
+
+Available features: `blacklist` (priority; disables all functionality), `context` (inline/context popup), `fill` (autofill), `global` (toolbar popup opens in global mode), `http` (HTTP auth interception), `passkey` (WebAuthn).
+
+Your rules are prepended to the built-in `defaultScope`:
+
+- `https://` and localhost: `context`, `fill`, `http`, `passkey` (dev servers legitimately run passkey ceremonies)
+- other `http://`: `context`, `fill`, `http` (no passkeys)
+- `file:`, `blob:`, `ftp:`, `chrome:`, and browser-extension schemes: `blacklist`, `global`
+
+Because blacklist matching always wins, those built-in blacklist rules form a security floor user rules cannot override.
+
+Scopes cascade into child frames: a frame's effective features are the intersection of its own match with every ancestor frame's match, and a `blacklist` anywhere in the ancestor chain wins outright. Ancestors are matched by full URL (tracked passively via `webRequest`), so a blacklisted parent page - whether by scheme or path-specific rule - disables Parcel in all of its embedded frames. The cascade is best-effort: frames not yet observed by the background worker (for example, tabs that were already open when its service worker restarted) are scoped by their own URL only until the next navigation.
+
+In-page scope is evaluated at document load: `history.pushState`-style SPA navigation does not re-evaluate a frame's gates or its ancestors' cascaded rules, although the toolbar popup always reflects the live tab URL. See the [security tradeoffs](SECURITY.md#deliberate-tradeoffs) for the rationale.
+
+Example:
+
+```json
+{
+  "scope": [
+    { "match": "^https://internal\\.corp/", "features": ["http", "global"] },
+    { "match": "^https://[^/]*\\.example\\.com/", "features": ["context", "fill", "passkey"] }
+  ]
+}
+```
+
+| Feature | Effect |
+|---------|--------|
+| `blacklist` | Disables everything on the page; wins outright and cannot be overridden by later rules. |
+| `context` | Allows the inline/context popup on fillable fields. |
+| `fill` | Allows filling credentials into page fields. Gates autofill only; other popup functionality is unaffected. |
+| `global` | Toolbar popup opens in global search mode, listing matches not tied to the page origin. |
+| `http` | Allows HTTP-auth interception. |
+| `passkey` | Allows WebAuthn ceremonies. |
 
 #### Security warnings
 

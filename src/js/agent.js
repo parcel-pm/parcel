@@ -1,5 +1,6 @@
 "use strict";
 import { Schema, ConfigSchema, classDefaults } from "./schema.js";
+import { defaultScope } from "./scopes.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
 
@@ -40,6 +41,10 @@ export class Agent extends EventTarget {
     #initRetries = 0;
     #destroyed = false;
     #pendingAuthCallbacks = new Map();
+    /** @type {{re: RegExp, features: string[]}[]} Compiled scope rules from the validated effective scope list. */
+    #compiledScope = [];
+    /** @type {Map<number, Map<number, {url: string, parentFrameId: number}>>} Per-tab frame trees for scope cascading. */
+    #frameTree = new Map();
     #bootstrapVersion = null;
     /** @type {Set<chrome.runtime.Port>} Popup ports connected before the bootstrap version arrived. */
     #pendingBootstrapPorts = new Set();
@@ -101,6 +106,18 @@ export class Agent extends EventTarget {
                 { urls: ["<all_urls>"] },
                 ["asyncBlocking"],
             );
+        }
+
+        // Track the frame tree with a passive listener so scope matching can cascade across
+        // ancestors with full URLs: content scripts cannot enumerate their ancestors
+        // cross-browser (location.ancestorOrigins is Chromium-only), and webNavigation would
+        // require an extra permission.
+        if (chrome.webRequest?.onBeforeRequest) {
+            chrome.webRequest.onBeforeRequest.addListener((details) => this.#trackFrame(details), {
+                urls: ["<all_urls>"],
+                types: ["main_frame", "sub_frame"],
+            });
+            chrome.tabs?.onRemoved?.addListener((tabId) => this.#frameTree.delete(tabId));
         }
 
         // open port to native host
@@ -476,6 +493,11 @@ export class Agent extends EventTarget {
      * @throws {Error} If the configuration fails schema validation.
      */
     #setConfig(config) {
+        // concatenate user rules with the built-in defaults before validation; a non-array
+        // scope (e.g. "foo") passes through so schema validation can reject it with a clear error
+        if (config.scope === undefined || config.scope === null) config.scope = [];
+        if (Array.isArray(config.scope)) config.scope = [...config.scope, ...defaultScope];
+
         // validate the provided configuration
         try {
             Schema.validate(ConfigSchema, config);
@@ -484,8 +506,68 @@ export class Agent extends EventTarget {
             throw new Error(`Invalid configuration: ${err.message}`);
         }
 
+        // compile the scope rules
+        this.#compiledScope = config.scope.map((rule) => ({ re: new RegExp(rule.match, "iu"), features: rule.features }));
+
         // apply the configuration
         this.#config = config;
+    }
+
+    /**
+     * Match a URL against the effective scope list and return the applicable features.
+     * @since 1.0.8
+     * @param {string} url - The URL to match.
+     * @returns {string[]} The winning rule's features, or `["blacklist"]`.
+     */
+    #matchScope(url) {
+        let first = null;
+        for (const { re, features } of this.#compiledScope) {
+            if (!re.test(url)) continue;
+            if (features.includes("blacklist")) return features;
+            if (!first) first = features;
+        }
+        return first ?? ["blacklist"];
+    }
+
+    /**
+     * Record a main_frame/sub_frame request in the per-tab frame tree.
+     * A fresh main_frame navigation invalidates the tab's existing subtree.
+     * @since 1.0.8
+     * @param {object} details - The webRequest event details.
+     * @returns {void}
+     */
+    #trackFrame(details) {
+        let frames = this.#frameTree.get(details.tabId);
+        if (!frames) this.#frameTree.set(details.tabId, (frames = new Map()));
+        if (details.type === "main_frame") frames.clear();
+        frames.set(details.frameId, { url: details.url, parentFrameId: details.type === "main_frame" ? -1 : details.parentFrameId });
+    }
+
+    /**
+     * Cascade a frame's scope match across its tracked ancestor chain: `blacklist` on any
+     * ancestor wins outright, otherwise the effective features are the intersection of the
+     * frame's own match with every ancestor's match. Ancestors beyond the tracked portion
+     * of the chain are not consulted.
+     * @since 1.0.8
+     * @param {string} url - The frame's own URL (port.sender.url).
+     * @param {number|undefined} tabId - The frame's tab ID (port.sender.tab.id).
+     * @param {number} frameId - The frame's ID (port.sender.frameId).
+     * @returns {string[]} The effective feature list for the frame.
+     */
+    #cascadeScope(url, tabId, frameId) {
+        const own = this.#matchScope(url);
+        if (own.includes("blacklist")) return own;
+        const frames = this.#frameTree.get(tabId);
+        let effective = own;
+        let current = frames?.get(frameId);
+        while (current && current.parentFrameId >= 0) {
+            current = frames.get(current.parentFrameId);
+            if (!current) break;
+            const parentFeatures = this.#matchScope(current.url || "");
+            if (parentFeatures.includes("blacklist")) return parentFeatures;
+            effective = effective.filter((f) => parentFeatures.includes(f));
+        }
+        return effective;
     }
 
     /**
@@ -767,7 +849,18 @@ export class Agent extends EventTarget {
         // content-script (`integration`) ports may only request `config` and resolve their frame ID.
         // Unknown actions are always rejected.
         const PORT_ACTIONS = {
-            popup: ["auth", "clipboard", "config", "decrypt", "http-auth-cancel", "http-auth-manual", "http-auth-url", "match", "sha256"],
+            popup: [
+                "auth",
+                "clipboard",
+                "config",
+                "decrypt",
+                "http-auth-cancel",
+                "http-auth-manual",
+                "http-auth-url",
+                "match",
+                "scope",
+                "sha256",
+            ],
             integration: ["config", "frame-id"],
             passkey: ["passkey"], // not correlated against a clicked field, so no 'auth' correlation token is required
         };
@@ -930,6 +1023,10 @@ export class Agent extends EventTarget {
                             } else throw err;
                         }
                     }
+                } else if (message?.action === "scope") {
+                    // port.sender is not authoritative on popup ports (popup-bridge in Firefox),
+                    // so the URL always comes from the message
+                    post({ action: "scope", features: this.#matchScope(message.url || "") });
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     updateStatus("Checking for config changes...");
@@ -941,11 +1038,19 @@ export class Agent extends EventTarget {
                     }
                     clearStatus();
                     const response = { action: "config", config: this.#config };
-                    if (port.name === "integration") response.frameId = port.sender?.frameId || 0;
+                    if (port.name === "integration") {
+                        response.frameId = port.sender?.frameId || 0;
+                        response.features = this.#cascadeScope(port.sender?.url || "", port.sender?.tab?.id, port.sender?.frameId || 0);
+                    }
                     post(response);
                 } else if (message?.action === "passkey") {
                     // passkey ceremony: list candidates, sign an assertion, or create a credential
                     if (!this.#config.handlePasskeys) throw new Error("Passkey support is disabled.");
+                    // The passkey port connects directly from the content script, so the
+                    // sender URL is authoritative; the scope must permit passkeys.
+                    const passkeyFeatures = this.#cascadeScope(port.sender?.url || "", port.sender?.tab?.id, port.sender?.frameId || 0);
+                    if (passkeyFeatures.includes("blacklist") || !passkeyFeatures.includes("passkey"))
+                        throw new Error("Passkey support is disabled for this URL.");
                     const rpId = await this.#validateRpId(message.origin, message.rpId);
                     // sites whose rules carry class "browser-passkey" defer every WebAuthn
                     // ceremony to the platform/browser handler without prompting. Rules patterns
@@ -1219,6 +1324,11 @@ export class Agent extends EventTarget {
             .then(() => true)
             .catch(() => false);
         if (!hasConfig || !this.#config?.handleHttpAuth) return callback({});
+
+        // Guard: the URL scope must permit HTTP auth (blacklist wins unconditionally)
+        const httpFeatures = this.#matchScope(details.url);
+        if (httpFeatures.includes("blacklist") || !httpFeatures.includes("http")) return callback({});
+
         const decryptTimeout = this.#config.decryptTimeout * 1000 + 5000;
 
         // Guard: if the user already chose "Enter manually" for this tab+origin,
