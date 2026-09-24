@@ -562,7 +562,7 @@ Parcel can act as a passkey authenticator for websites. Passkey private keys are
 
 User verification is reported to the site as satisfied: consent is given interactively, and decryption itself requires your GPG key passphrase (or PIN/biometric via your GPG agent).
 
-**Discoverability:** the popups show a small "Passkey available for this site" notice beneath the entry list when passkey entries name the current host - subject to the `passkey` scope feature and the `handlePasskeys` setting.
+**Discoverability:** the popups show a small "A passkey is available for this site" notice beneath the entry list when passkey entries name the current host - subject to the `passkey` scope feature and the `handlePasskeys` setting.
 
 ### Passkey entry format
 
