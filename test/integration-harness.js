@@ -143,6 +143,7 @@ export async function setupIntegration() {
     // warnings on routine error paths (blacklist, missing config, etc.) that
     // we don't want polluting test output.  Node's runner still reports
     // assertion failures via its own reporter.
+    ctx.origConsole = globalThis.console;
     globalThis.console = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 
     ctx.dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", { url: "http://localhost/", pretendToBeVisual: true });
@@ -243,10 +244,12 @@ export async function setupIntegration() {
 }
 
 /**
- * Cancel tracked intervals and restore the original setInterval.
+ * Restore globals patched by setupIntegration(): cancel tracked intervals,
+ * restore the original setInterval, and unstub globalThis.console.
  * @param {object} ctx - Context returned by setupIntegration().
  */
 export function teardownIntegration(ctx) {
     ctx.trackedTimers.forEach((t) => clearInterval(t.id));
     globalThis.setInterval = ctx.origSetInterval;
+    globalThis.console = ctx.origConsole;
 }
