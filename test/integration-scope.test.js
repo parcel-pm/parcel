@@ -193,10 +193,11 @@ describe("URL-scope gating", { concurrency: false }, () => {
         assert.strictEqual(msg.type, "fallback", "passkey requests must defer to the browser when out of scope");
         assert.ok(!ports.some((p) => p.name === "passkey"), "no passkey port may be opened");
 
-        // a conflict report must likewise produce no UI
+        // a conflict report must likewise produce no UI (posts travel caller-side to the receiver)
         const trigger = ports.find((p) => p.name === "trigger");
+        assert.ok(trigger.receiver, "the trigger port must have a receiver end");
         const triggerMessages = [];
-        trigger.caller.onMessage.addListener((m) => triggerMessages.push(m));
+        trigger.receiver.onMessage.addListener((m) => triggerMessages.push(m));
         document.dispatchEvent(new CustomEvent("parcel-webauthn-conflict", { detail: JSON.stringify({ reason: "locked" }) }));
         await settleAsync();
         await settleAsync();
