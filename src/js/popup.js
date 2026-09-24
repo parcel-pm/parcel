@@ -1623,7 +1623,7 @@
      */
     function renderPasskeyNote(passkeys) {
         const note = document.getElementById("passkey-note");
-        if (!Array.isArray(passkeys) || !passkeys.length) {
+        if (mode === "http-auth" || !Array.isArray(passkeys) || !passkeys.length) {
             note.classList.add("hidden");
             return;
         }
