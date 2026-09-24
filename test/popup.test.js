@@ -123,6 +123,7 @@ const popupHtml = `<!doctype html>
   <input type="text" id="searchPattern" class="selected" />
 </div>
 <ul id="entries"></ul>
+<p id="passkey-note" class="hidden"></p>
 <p id="status"><span id="status-text">Status bar</span><span id="version-info" class="hidden"></span></p>
 <div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 </body>
@@ -341,6 +342,36 @@ describe("Popup script", { concurrency: false }, () => {
 
         const notice = document.querySelector("p.no-matches");
         assert.ok(notice, "no-matches notice shown");
+    });
+
+    test("match message toggles the passkey availability notice", async () => {
+        const popupReceiver = portReceivers["popup"];
+        const note = document.getElementById("passkey-note");
+        assert.ok(note.classList.contains("hidden"), "notice hidden before any match");
+
+        popupReceiver.postMessage({
+            action: "match",
+            entries: [],
+            passkeys: [{ name: "passkeys/example.com/carol", path: "passkeys/example.com/carol", rule: { class: "passkey" } }],
+        });
+        await settleAsync();
+        assert.ok(!note.classList.contains("hidden"), "notice shown for a single passkey");
+        assert.strictEqual(note.textContent, "A passkey is available for this site.");
+
+        popupReceiver.postMessage({
+            action: "match",
+            entries: [],
+            passkeys: [
+                { name: "a/example.com", path: "a", rule: { class: "passkey" } },
+                { name: "b/example.com", path: "b", rule: { class: "passkey" } },
+            ],
+        });
+        await settleAsync();
+        assert.strictEqual(note.textContent, "2 passkeys are available for this site.");
+
+        popupReceiver.postMessage({ action: "match", entries: [] });
+        await settleAsync();
+        assert.ok(note.classList.contains("hidden"), "notice hidden when the payload carries no passkeys");
     });
 
     test("match message removes no-matches notice when entries present", async () => {

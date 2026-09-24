@@ -129,6 +129,12 @@ p.list-notice {
     font-style: italic;
     margin: 5px;
 }
+#passkey-note {
+    border-top: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-passkey-accent);
+    margin: 0;
+    padding: 0.5em calc(0.5em - 3px);
+}
 ul {
     list-style: none;
     margin: 0;
