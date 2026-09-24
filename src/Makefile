@@ -27,6 +27,7 @@ DIST_FILES := \
     js/main-world/webauthn.js \
     js/plaintext.js \
     js/popup.js \
+    js/popup-elements.js \
     js/schema.js \
     js/scopes.js \
     js/selectors.js \
