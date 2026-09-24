@@ -633,14 +633,7 @@
             const lines = detail.shadowRoot.querySelectorAll("parcel-plaintext-line");
             const i = parseInt(index, 10);
             if (!Number.isNaN(i) && i >= 1 && i <= lines.length) {
-                if (scopeFeatures && !scopeFeatures.includes("fill")) {
-                    showError("Filling is disabled on this page.");
-                    return;
-                }
-                const line = lines[i - 1];
-                void postFillWithAck({ action: "fill-value", value: line.getValue() }).then((delivered) => {
-                    if (!delivered) showError(CONTACT_ERROR);
-                });
+                void fillValue(lines[i - 1].getValue());
             }
         }
     }
