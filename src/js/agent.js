@@ -956,8 +956,20 @@ export class Agent extends EventTarget {
                         message.targetClass || null,
                         includeClasses,
                     );
+                    const response = { action: "match", entries: result };
+                    // surface passkey candidates for the page host as an availability
+                    // hint; the hint is informational only, so any failure degrades
+                    // silently instead of breaking the match itself
+                    try {
+                        const matchUrl = new URL(message.url);
+                        const features = this.#cascadeScope(message.url || "", port.sender?.tab?.id, 0);
+                        if (matchUrl.host && this.#config.handlePasskeys && !features.includes("blacklist") && features.includes("passkey"))
+                            response.passkeys = await this.#passkeyCandidatesForRpId(matchUrl.hostname);
+                    } catch (_err) {
+                        // unavailable hint: fall through without the passkeys field
+                    }
                     clearStatus();
-                    post({ action: "match", entries: result });
+                    post(response);
                 } else if (message?.action === "decrypt") {
                     // The http-auth token may only decrypt with intent "http-auth"; form fills
                     // are not permitted even after the challenge has resolved.
@@ -1066,22 +1078,7 @@ export class Agent extends EventTarget {
                     }
                     if (message.phase === "candidates") {
                         updateStatus("Searching for passkey entries...");
-                        // candidates must be rule-classed as passkeys and name the relying
-                        // party somewhere in their path, mirroring how login entries are
-                        // matched for an origin (full-host or host-suffix path segments,
-                        // placement-independent) - an entry for this rpId is offered wherever
-                        // in the store the user files it. The host re-enforces the rpId
-                        // binding against the entry contents at assert time
-                        const suffix = await this.#getPublicSuffix(rpId);
-                        const slices = [];
-                        for (let s = rpId; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
-                        const candidates = (await this.#getEntries())
-                            .filter((entry) => {
-                                if (entry.rule?.class !== "passkey") return false;
-                                const parts = entry.name.split("/");
-                                return slices.some((s) => parts.includes(s));
-                            })
-                            .map((entry) => ({ name: entry.name, path: entry.path, rule: entry.rule }));
+                        const candidates = await this.#passkeyCandidatesForRpId(rpId);
                         clearStatus();
                         const reply = { action: "passkey-candidates", rpId, candidates };
                         if (message.needTopOrigin) reply.topOrigin = this.#topOriginFor(port);
@@ -1486,6 +1483,27 @@ export class Agent extends EventTarget {
         }
 
         return matches;
+    }
+
+    /**
+     * Find passkey entries naming the relying party, mirroring how login entries are
+     * matched for an origin (full-host or host-suffix path segments, placement-independent).
+     * The host re-enforces the rpId binding against the entry contents at assert time.
+     * @since 1.0.8
+     * @param {string} rpId - The relying party identifier (a hostname).
+     * @returns {Promise<object[]>} Candidate entries with name, path and rule.
+     */
+    async #passkeyCandidatesForRpId(rpId) {
+        const suffix = await this.#getPublicSuffix(rpId);
+        const slices = [];
+        for (let s = rpId; s.length && s !== suffix; s = s.slice(s.indexOf(".") + 1)) slices.push(s);
+        return (await this.#getEntries())
+            .filter((entry) => {
+                if (entry.rule?.class !== "passkey") return false;
+                const parts = entry.name.split("/");
+                return slices.some((s) => parts.includes(s));
+            })
+            .map((entry) => ({ name: entry.name, path: entry.path, rule: entry.rule }));
     }
 
     /**

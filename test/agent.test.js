@@ -1438,6 +1438,30 @@ describe("Agent", () => {
         assert.strictEqual(msg.topOrigin, "https://top.example");
     });
 
+    test("match response includes passkey candidates for the page host", async () => {
+        await configurePasskeyStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({ action: "match", url: "https://login.example.com", search: "", limit: true, history: [] });
+        const match = await matchPromise;
+        // same candidates as the ceremony path would offer, returned as a hint
+        assert.deepStrictEqual(match.passkeys.map((p) => p.name).sort(), ["misc/example.com/a", "passkeys/example.com/carol"]);
+    });
+
+    test("match response omits passkeys where the page scope forbids them", async () => {
+        await configurePasskeyStore();
+        const popup = mock.chrome.runtime.connect({ name: "popup" });
+        await settleAsync();
+        popup.postMessage({ action: "auth", token: "broadcast", tab: { id: 1 } });
+        // plain http has no "passkey" scope feature, so the hint must be suppressed
+        const matchPromise = nextMessage(popup, "match");
+        popup.postMessage({ action: "match", url: "http://example.com", search: "", limit: true, history: [] });
+        const match = await matchPromise;
+        assert.ok(!match.passkeys?.length, "no passkey hint over http");
+    });
+
     test("passkey candidates reply omits the top origin unless the frame asks for it", async () => {
         await configurePasskeyStore();
         const passkey = mock.chrome.runtime.connect({

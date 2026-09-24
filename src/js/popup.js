@@ -1616,6 +1616,23 @@
     let pendingEntries;
 
     /**
+     * Toggle the passkey availability notice in the fill view.
+     * @since 1.0.8
+     * @param {object[]} [passkeys] - Passkey candidates for the page host, or undefined.
+     * @returns {void}
+     */
+    function renderPasskeyNote(passkeys) {
+        const note = document.getElementById("passkey-note");
+        if (!Array.isArray(passkeys) || !passkeys.length) {
+            note.classList.add("hidden");
+            return;
+        }
+        note.textContent =
+            passkeys.length === 1 ? "Passkey available for this site" : `${passkeys.length} passkeys available for this site`;
+        note.classList.remove("hidden");
+    }
+
+    /**
      * Queue a render, coalescing if one is in flight.
      * @since 1.0.7
      * @param {object[]} entries - The match entries to render.
@@ -1650,6 +1667,7 @@
             setStatus("Idle");
         } else if (msg.action === "match") {
             scheduleRender(msg.entries);
+            renderPasskeyNote(msg.passkeys);
         } else if (msg.action === "plaintext") {
             if (msg.intent === "fill") {
                 const delivered = await postFillWithAck({
