@@ -47,6 +47,7 @@ function makeValidConfig(overrides = {}) {
         fillRelated: true,
         historyLength: 40,
         saveHistory: true,
+        handlePasskeys: true,
         targets: [
             {
                 name: "login",
@@ -71,9 +72,11 @@ let origSetInterval;
 /**
  * Load a fresh integration.js instance into a clean JSDOM/chrome environment.
  * @param {string[]} features - The URL-scope features to report in the config reply.
- * @returns {Promise<object>} Handles for the scenario: document, window, mock, and recorded ports.
+ * @param {object} [configOverrides] - Extra fields merged into the config reply.
+ * @returns {Promise<object>} Handles for the scenario: document, window, mock, recorded ports,
+ *   and `windowEvents` (types of observed parcel-webauthn document events).
  */
-async function loadScenario(features) {
+async function loadScenario(features, configOverrides = {}) {
     const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", { url: "http://localhost/", pretendToBeVisual: true });
     const window = dom.window;
     const document = window.document;
@@ -109,6 +112,9 @@ async function loadScenario(features) {
     const mock = createChromeMock({ baseUrl: "file:///" + process.cwd() + "/src/" });
     mock.installChrome();
 
+    const windowEvents = [];
+    document.addEventListener("parcel-webauthn-enable", () => windowEvents.push("parcel-webauthn-enable"));
+
     // Record both ends of every port the content script opens.
     const ports = []; // {name, caller, receiver}
     const origConnect = chrome.runtime.connect.bind(chrome.runtime);
@@ -124,7 +130,7 @@ async function loadScenario(features) {
         if (receiver.name !== "integration") return;
         receiver.onMessage.addListener((msg) => {
             if (msg?.action === "config") {
-                receiver.postMessage({ action: "config", config: makeValidConfig(), frameId: 0, features });
+                receiver.postMessage({ action: "config", config: makeValidConfig(configOverrides), frameId: 0, features });
             } else if (msg?.action === "frame-id") {
                 receiver.postMessage({ action: "frame-id", frameId: 0 });
             }
@@ -139,7 +145,7 @@ async function loadScenario(features) {
         `../src/js/integration.js?scope-scenario=${ports.length === 0 && features.join(",")}${Math.random().toString(36).slice(2)}`
     );
     await settleAsync();
-    return { window, document, mock, ports };
+    return { window, document, mock, ports, windowEvents };
 }
 
 before(() => {
@@ -244,6 +250,30 @@ describe("URL-scope gating", { concurrency: false }, () => {
         }
         assert.strictEqual(input.value, "", "refused fills must not touch the DOM");
         window.close();
+    });
+
+    test("the webauthn enable event fires only when passkeys are enabled and in scope", async () => {
+        const enabled = await loadScenario(["context", "http", "passkey"]);
+        for (let i = 0; i < 50 && enabled.windowEvents.length === 0; i++) await settleAsync();
+        const enabledSeen = enabled.windowEvents.slice();
+        enabled.window.close();
+        assert.deepStrictEqual(enabledSeen, ["parcel-webauthn-enable"], "in-scope frame must enable the interceptor");
+
+        for (const scenario of [
+            [["context", "fill", "http"], {}], // passkey feature out of scope
+            [["context", "fill", "http", "passkey"], { handlePasskeys: false }], // globally disabled
+            [["blacklist"], {}], // early bail
+        ]) {
+            const { window, windowEvents } = await loadScenario(scenario[0], scenario[1]);
+            for (let i = 0; i < 50; i++) await settleAsync();
+            const seen = windowEvents.slice();
+            window.close();
+            assert.deepStrictEqual(
+                seen,
+                [],
+                `no enable event for features=${scenario[0].join(",")} overrides=${JSON.stringify(scenario[1])}`,
+            );
+        }
     });
 
     /**

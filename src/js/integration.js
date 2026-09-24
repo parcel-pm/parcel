@@ -211,8 +211,9 @@
     const features = config.then(() => frameFeatures);
 
     // Blacklisted URLs disable all in-page functionality: skip the expensive setup
-    // entirely. The webauthn interceptor still gets an explicit fallback so page
-    // ceremonies defer to the browser instead of hanging.
+    // entirely. The MAIN-world interceptor is never enabled here, so nothing should
+    // emit parcel-webauthn-request; the fallback listener is kept defensively so a
+    // stray emitter still gets browser deferral instead of a hang.
     if ((await configOK) && (await features).includes("blacklist")) {
         document.addEventListener("parcel-webauthn-request", (ev) => {
             try {
@@ -403,7 +404,9 @@
                         const host = el.getRootNode()?.host;
                         if (!host || !host.matches(target.shadow)) continue;
                     }
-                    finalTarget = target;
+                    // copy before decorating: entries live in the shared
+                    // selectors registry and must not accumulate instance state
+                    finalTarget = { ...target };
 
                     finalTarget.related =
                         (await config).targets.concat((await config).additionalTargets || []).find((t) => t.name === finalTarget.type)
@@ -1718,12 +1721,20 @@
     document.addEventListener("parcel-webauthn-request", (ev) => handlePasskeyRequest(ev.detail));
     document.addEventListener("parcel-webauthn-abort", (ev) => handlePasskeyAbort(ev.detail));
     document.addEventListener("parcel-webauthn-conflict", (ev) => handlePasskeyConflict(ev.detail));
-    // the MAIN-world interceptor runs at document_start too and may report a conflict
-    // before this script has finished evaluating; pick up its marker if so
+    // vestigial: conflicts are now only reported at enable time (after these
+    // listeners exist), but keep the marker pickup in case of unusual ordering
     const earlyConflict = document.documentElement?.getAttribute("data-parcel-webauthn-conflict");
     if (earlyConflict === "locked" || earlyConflict === "wrapped") {
         document.documentElement?.removeAttribute("data-parcel-webauthn-conflict");
         handlePasskeyConflict(JSON.stringify({ reason: earlyConflict }));
+    }
+
+    // Wake the inert MAIN-world interceptor only when passkeys are enabled
+    // globally and in scope for this frame's URL; otherwise
+    // navigator.credentials stays untouched so other password managers get
+    // uncontended access to the API.
+    if ((await configOK) && (await config).handlePasskeys && (await features).includes("passkey")) {
+        document.dispatchEvent(new CustomEvent("parcel-webauthn-enable"));
     }
 
     /**
