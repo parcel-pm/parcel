@@ -28,6 +28,7 @@ DIST_FILES := \
     js/plaintext.js \
     js/popup.js \
     js/popup-elements.js \
+    js/popup-webauthn.js \
     js/schema.js \
     js/scopes.js \
     js/selectors.js \
