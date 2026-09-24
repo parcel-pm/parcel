@@ -1779,7 +1779,7 @@
             return;
         }
 
-        // http-auth scrim popup: no target binding — only resize and close.
+        // http-auth scrim popup: no target binding - only the ready handshake, resize, and close.
         // Handles both integration.js-created and executeScript-injected scrims.
         if (httpAuthTokens.has(port.name)) {
             httpAuthTokens.delete(port.name);
