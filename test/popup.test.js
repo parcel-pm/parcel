@@ -356,7 +356,7 @@ describe("Popup script", { concurrency: false }, () => {
         });
         await settleAsync();
         assert.ok(!note.classList.contains("hidden"), "notice shown for a single passkey");
-        assert.strictEqual(note.textContent, "A passkey is available for this site");
+        assert.strictEqual(note.textContent, "A passkey is available for this site.");
 
         popupReceiver.postMessage({
             action: "match",
@@ -367,7 +367,7 @@ describe("Popup script", { concurrency: false }, () => {
             ],
         });
         await settleAsync();
-        assert.strictEqual(note.textContent, "2 passkeys are available for this site");
+        assert.strictEqual(note.textContent, "2 passkeys are available for this site.");
 
         popupReceiver.postMessage({ action: "match", entries: [] });
         await settleAsync();

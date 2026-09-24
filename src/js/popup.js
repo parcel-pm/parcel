@@ -1628,7 +1628,7 @@
             return;
         }
         note.textContent =
-            passkeys.length === 1 ? "A passkey is available for this site" : `${passkeys.length} passkeys are available for this site`;
+            passkeys.length === 1 ? "A passkey is available for this site." : `${passkeys.length} passkeys are available for this site.`;
         note.classList.remove("hidden");
     }
 
