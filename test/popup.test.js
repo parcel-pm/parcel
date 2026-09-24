@@ -123,7 +123,7 @@ const popupHtml = `<!doctype html>
   <input type="text" id="searchPattern" class="selected" />
 </div>
 <ul id="entries"></ul>
-<p id="passkey-note" class="list-notice hidden"></p>
+<p id="passkey-note" class="hidden"></p>
 <p id="status"><span id="status-text">Status bar</span><span id="version-info" class="hidden"></span></p>
 <div id="live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 </body>
