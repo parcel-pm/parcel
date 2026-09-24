@@ -33,6 +33,8 @@ All files below live in `test/` and are run by `make test`. The `test/setup/*.te
 | `main-world-webauthn.test.js` | `main-world/webauthn.js` isolated-world installer and ceremony shim. |
 | `agent.test.js` | Background agent: config validation, entry caching, port brokering. |
 | `integration.test.js` | Content script: target detection and autofill behaviour. |
+| `integration-harness.js` | Shared bootstrap harness used by the content-script test suites (not a test file itself). |
+| `webauthn-integration.test.js` | Content script: WebAuthn/passkey ceremony bridge. |
 | `integration-scope.test.js` | Content script: URL-scope gating. |
 | `popup.test.js` | Popup UI: match listing, decrypted plaintext, fill relay. |
 | `popup-context.test.js` | Popup per-origin/per-container history. |
