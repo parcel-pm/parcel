@@ -398,6 +398,15 @@ Example:
 }
 ```
 
+| Feature | Effect |
+|---------|--------|
+| `blacklist` | Disables everything on the page; wins outright and cannot be overridden by later rules. |
+| `context` | Allows the inline/context popup on fillable fields. |
+| `fill` | Allows filling credentials into page fields. Gates autofill only; other popup functionality is unaffected. |
+| `global` | Toolbar popup opens in global search mode, listing matches not tied to the page origin. |
+| `http` | Allows HTTP-auth interception. |
+| `passkey` | Allows WebAuthn ceremonies. |
+
 #### Security warnings
 
 The popup shows an informational warning banner when the configuration is in a weakened security posture. Each banner explains the problem and how to fix it, and can be hidden by adding its ID to the `suppressWarnings` array in `.parcel.json`.
