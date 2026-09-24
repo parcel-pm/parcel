@@ -11,12 +11,8 @@ let Helpers = null;
  * @since 1.0.8
  * @param {object} deps - Wiring provided by the popup script.
  * @param {Function} deps.copyValue - Copy a secret to the clipboard; resolves `true` when the popup should close.
- * @param {Function} deps.showError - Show an error banner (message, category).
- * @param {Function} deps.postFillWithAck - Post a one-shot fill message to the content script; resolves whether it was delivered.
- * @param {Function} deps.getScopeFeatures - Returns the current URL-scope feature list, or `null`.
- * @param {Function} deps.reportPopupSize - Report the rendered popup size to the host page.
- * @param {boolean} deps.isWindowMode - `true` when running as a standalone window popup.
- * @param {string} deps.CONTACT_ERROR - Error message shown when the page cannot be contacted.
+ * @param {Function} deps.fillValue - Fill a value into the page, handling scope checks and delivery errors.
+ * @param {Function} deps.notifyResized - Notify the host page after the detail view has resized the popup.
  * @returns {Promise<void>}
  */
 export async function definePopupElements(newDeps) {
@@ -50,14 +46,7 @@ export async function definePopupElements(newDeps) {
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    const features = deps.getScopeFeatures();
-                    if (features && !features.includes("fill")) {
-                        deps.showError("Filling is disabled on this page.");
-                        return;
-                    }
-                    void deps.postFillWithAck({ action: "fill-value", value: this.getValue() }).then((delivered) => {
-                        if (!delivered) deps.showError(deps.CONTACT_ERROR);
-                    });
+                    deps.fillValue(this.getValue());
                 });
             }
         }
@@ -181,16 +170,7 @@ export async function definePopupElements(newDeps) {
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    const features = deps.getScopeFeatures();
-                    if (features && !features.includes("fill")) {
-                        deps.showError("Filling is disabled on this page.");
-                        return;
-                    }
-                    void deps
-                        .postFillWithAck({ action: "fill-value", value: this.#root.querySelector(".value").textContent })
-                        .then((delivered) => {
-                            if (!delivered) deps.showError(deps.CONTACT_ERROR);
-                        });
+                    deps.fillValue(this.#root.querySelector(".value").textContent);
                 });
             }
         }
@@ -309,7 +289,7 @@ export async function definePopupElements(newDeps) {
             await new Promise((resolve) => requestAnimationFrame(resolve));
             document.body.style.minHeight = this.scrollHeight + "px";
             document.body.style.minWidth = `min(500px, ${this.scrollWidth}px)`;
-            if (!deps.isWindowMode) deps.reportPopupSize();
+            deps.notifyResized();
         }
     }
     customElements.define("parcel-detail", ParcelDetail);

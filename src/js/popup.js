@@ -397,16 +397,31 @@
         }
     };
 
+    /**
+     * Fill a single value into the page, honouring URL-scope gating and reporting
+     * delivery failures. Used by the detail-view custom elements when clicked in
+     * the context popup.
+     * @since 1.0.8
+     * @param {string} value - The value to fill.
+     * @returns {Promise<void>}
+     */
+    async function fillValue(value) {
+        if (scopeFeatures && !scopeFeatures.includes("fill")) {
+            showError("Filling is disabled on this page.");
+            return;
+        }
+        if (!(await postFillWithAck({ action: "fill-value", value }))) showError(CONTACT_ERROR);
+    }
+
     // Register the custom elements used by the detail view; all dependencies are
-    // function declarations (hoisted) or runtime closures, so this can run early.
+    // function declarations (hoisted), so this can run early.
     await definePopupElements({
         copyValue,
-        showError,
-        postFillWithAck,
-        getScopeFeatures: () => scopeFeatures,
-        reportPopupSize,
-        isWindowMode,
-        CONTACT_ERROR,
+        fillValue,
+        // window-mode popups have no host page to resize their frame
+        notifyResized: () => {
+            if (!isWindowMode) reportPopupSize();
+        },
     });
 
     /**
