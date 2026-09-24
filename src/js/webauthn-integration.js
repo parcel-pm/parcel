@@ -241,29 +241,29 @@ async function handlePasskeyRequest(detailJSON) {
         req = JSON.parse(detailJSON);
         Schema.validate(PasskeyRequestSchema, req);
     } catch (err) {
-        console.warn("[integration] rejected malformed passkey request:", err.message);
+        console.warn("[webauthn-integration] rejected malformed passkey request:", err.message);
         return;
     }
     const respond = (payload) => passkeyRespond(req.requestId, payload);
     try {
         if (!mayHandlePasskeyHere(req.op)) {
-            console.debug("[integration] deferring passkey to browser: frame not permitted to handle ceremonies");
+            console.debug("[webauthn-integration] deferring passkey to browser: frame not permitted to handle ceremonies");
             respond({ type: "fallback" });
             return;
         }
         if (!(await configOK)) {
             // without a config we cannot make passkey decisions - defer to the browser
-            console.debug("[integration] deferring passkey to browser: config unavailable");
+            console.debug("[webauthn-integration] deferring passkey to browser: config unavailable");
             respond({ type: "fallback" });
             return;
         }
         if ((await config).handlePasskeys === false) {
-            console.debug("[integration] deferring passkey to browser: handlePasskeys is disabled");
+            console.debug("[webauthn-integration] deferring passkey to browser: handlePasskeys is disabled");
             respond({ type: "fallback" });
             return;
         }
         if (!(await features).includes("passkey")) {
-            console.debug("[integration] deferring passkey to browser: passkey not in scope for this URL");
+            console.debug("[webauthn-integration] deferring passkey to browser: passkey not in scope for this URL");
             respond({ type: "fallback" });
             return;
         }
@@ -275,7 +275,7 @@ async function handlePasskeyRequest(detailJSON) {
             // refuse popup-free rather than falling back: handing a spam loop to the
             // browser's native UI would still interrupt the user, so mirror what
             // native implementations do for rapid repeats of a dismissed ceremony
-            console.warn("[integration] passkey request refused: ceremony was dismissed too recently");
+            console.warn("[webauthn-integration] passkey request refused: ceremony was dismissed too recently");
             respond({
                 type: "error",
                 name: "NotAllowedError",
@@ -293,7 +293,7 @@ async function handlePasskeyRequest(detailJSON) {
         });
         if (reply.fallback) {
             // the site opted into browser passkeys via a browser-passkey rule
-            console.debug(`[integration] deferring passkey to browser: browser-passkey rule matched for rpId ${rpId}`);
+            console.debug(`[webauthn-integration] deferring passkey to browser: browser-passkey rule matched for rpId ${rpId}`);
             respond({ type: "fallback" });
             return;
         }
@@ -302,7 +302,7 @@ async function handlePasskeyRequest(detailJSON) {
 
         if (req.op === "get" && candidates.length === 0) {
             // nothing stored for this relying party - silently hand the call back to the browser
-            console.debug(`[integration] deferring passkey get() to browser: no stored candidates for rpId ${rpId}`);
+            console.debug(`[webauthn-integration] deferring passkey get() to browser: no stored candidates for rpId ${rpId}`);
             respond({ type: "fallback" });
             return;
         }
@@ -357,7 +357,7 @@ async function handlePasskeyRequest(detailJSON) {
             mode: "passkey",
         });
     } catch (err) {
-        console.warn("[integration] passkey request failed:", err);
+        console.warn("[webauthn-integration] passkey request failed:", err);
         respond({ type: "fallback" });
     }
 }
@@ -375,7 +375,7 @@ function handlePasskeyAbort(detailJSON) {
         msg = JSON.parse(detailJSON);
         Schema.validate(PasskeyAbortSchema, msg);
     } catch (err) {
-        console.warn("[integration] rejected malformed passkey abort:", err.message);
+        console.warn("[webauthn-integration] rejected malformed passkey abort:", err.message);
         return;
     }
     const token = Object.keys(passkeyBindings).find((t) => passkeyBindings[t]?.requestId === msg?.requestId);
@@ -402,7 +402,7 @@ async function handlePasskeyConflict(detailJSON) {
         msg = JSON.parse(detailJSON);
         Schema.validate(PasskeyConflictSchema, msg);
     } catch (err) {
-        console.warn("[integration] rejected malformed passkey conflict:", err.message);
+        console.warn("[webauthn-integration] rejected malformed passkey conflict:", err.message);
         return;
     }
     // one notice per frame lifetime is plenty, whatever happens later; the flag is
@@ -515,7 +515,7 @@ function handlePasskeyConflictPort(port, binding, token) {
                 triggerPort.postMessage({ action: "resize-popup", height: msg.height, width: msg.width });
             }
         } catch (err) {
-            console.warn("[integration] passkey conflict notice failed:", err);
+            console.warn("[webauthn-integration] passkey conflict notice failed:", err);
             close();
         }
     });
@@ -677,7 +677,7 @@ function handlePasskeyPort(port, binding, token) {
                 triggerPort.postMessage({ action: "resize-popup", height: msg.height, width: msg.width });
             }
         } catch (err) {
-            console.warn("[integration] passkey ceremony failed:", err);
+            console.warn("[webauthn-integration] passkey ceremony failed:", err);
             finish({ type: "error", name: "NotAllowedError", message: err.message });
         }
     });
