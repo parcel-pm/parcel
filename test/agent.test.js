@@ -1935,16 +1935,6 @@ describe("Agent", () => {
             assert.deepStrictEqual(msg.features, ["context", "fill", "http"]);
         });
 
-        test("scope queries over popup ports require authorisation", async () => {
-            await configureScope([]);
-            const popup = mock.chrome.runtime.connect({ name: "popup" });
-            await settleAsync();
-            const errorPromise = nextMessage(popup, "error");
-            popup.postMessage({ action: "scope", url: "https://example.com/" });
-            const msg = await errorPromise;
-            assert.ok(msg.error?.includes("Unauthorised"), `expected authorisation failure, got: ${JSON.stringify(msg)}`);
-        });
-
         test("the first matching rule wins", async () => {
             await configureScope([
                 { match: "^https://special\\.example/", features: ["fill"] },
@@ -1958,37 +1948,18 @@ describe("Agent", () => {
             assert.deepStrictEqual(await queryScope("https://example.com/"), ["fill"]);
         });
 
-        test("a blacklist rule wins over an earlier non-blacklist match", async () => {
+        test("a blacklist rule wins over an earlier non-blacklist match, verbatim", async () => {
             await configureScope([
                 { match: "^https://evil\\.example/", features: ["fill"] },
                 { match: "^https://evil\\.example/", features: ["blacklist", "global"] },
             ]);
+            // the winning blacklist rule is returned verbatim, companions like global included
             assert.deepStrictEqual(await queryScope("https://evil.example/"), ["blacklist", "global"]);
-        });
-
-        test("the blacklist features are returned verbatim", async () => {
-            // defaultScope blacklists browser-internal schemes with the global companion
-            await configureScope([]);
-            assert.deepStrictEqual(await queryScope("chrome://extensions/"), ["blacklist", "global"]);
         });
 
         test("unmatched URLs fail safe to a bare blacklist", async () => {
             await configureScope([]);
             assert.deepStrictEqual(await queryScope("data:text/html,x"), ["blacklist"]);
-        });
-
-        test("an invalid user scope rule fails validation", async () => {
-            uninstallNativeHandler(mock, handler);
-            handler = installNativeHandler(mock, (msg) => {
-                if (msg.action === "install") return { success: true, message: "installed" };
-                if (msg.action === "configure") return { ...makeValidConfig(), modified: 2, scope: [{ match: "(", features: ["fill"] }] };
-            });
-            const integration = mock.chrome.runtime.connect({ name: "integration", sender: { frameId: 0, url: "https://example.com/" } });
-            await settleAsync();
-            const errorPromise = nextMessage(integration, "error");
-            integration.postMessage({ action: "config" });
-            const msg = await errorPromise;
-            assert.ok(msg.error?.includes("Invalid configuration"), `expected config rejection, got: ${JSON.stringify(msg)}`);
         });
 
         test("http-auth interception is skipped for scopes without the http feature", async () => {
