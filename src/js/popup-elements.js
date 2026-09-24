@@ -46,7 +46,7 @@ export async function definePopupElements(newDeps) {
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    deps.fillValue(this.getValue());
+                    void deps.fillValue(this.getValue());
                 });
             }
         }
@@ -170,7 +170,7 @@ export async function definePopupElements(newDeps) {
             if (document.querySelector(".context-popup")) {
                 this.addEventListener("click", (ev) => {
                     ev.stopPropagation();
-                    deps.fillValue(this.#root.querySelector(".value").textContent);
+                    void deps.fillValue(this.#root.querySelector(".value").textContent);
                 });
             }
         }
