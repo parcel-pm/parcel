@@ -113,6 +113,8 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 - When considering solutions, remember that security is paramount. More secure solutions are usually preferable unless there is a compelling reason for a tradeoff. If a proposed solution introduces or exacerbates security risks, those risks must be clearly communicated.
 - If a recommended solution mitigates security risks, explain how it does so and why it is a better approach than the alternatives.
 - Run `make todo` to check for any relevant outstanding tasks.
+- Review of maintainer PRs is mostly local, with output surfacing as follow-up commits on the PR branch rather than GitHub review comments.
+- Make inline comments in the diff editor as needed. Never create GitHub review comments unless directly instructed to.
 
 ## User approval
 
