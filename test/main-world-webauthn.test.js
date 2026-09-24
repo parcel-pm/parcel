@@ -131,6 +131,7 @@ describe("Main-world webauthn installer", () => {
         env.credentials.create = rawCreate;
         env.credentials.get = rawGet;
         env.run();
+        env.emit("parcel-webauthn-enable");
 
         const wrappedCreate = env.credentials.create;
         assert.notStrictEqual(wrappedCreate, rawCreate, "create should be replaced with the wrapper");
@@ -156,6 +157,8 @@ describe("Main-world webauthn installer", () => {
         const foreignGet = env.foreignFn();
         lockLikeForeignManager(env.credentials, foreignCreate, foreignGet);
         env.run();
+        assert.deepStrictEqual(env.events, [], "no verdict until the enable event");
+        env.emit("parcel-webauthn-enable");
 
         assert.strictEqual(env.credentials.create, foreignCreate, "foreign create wrapper must remain in place");
         assert.strictEqual(env.credentials.get, foreignGet, "foreign get wrapper must remain in place");
@@ -184,11 +187,43 @@ describe("Main-world webauthn installer", () => {
         env.credentials.create = rawCreate; // native and replaceable...
         Object.defineProperty(env.credentials, "get", { configurable: false, enumerable: true, get: () => foreignGet, set: () => {} });
         env.run();
+        env.emit("parcel-webauthn-enable");
 
         assert.strictEqual(env.credentials.create, rawCreate, "the native create must never be wrapped");
         assert.strictEqual(env.credentials.get, foreignGet, "the foreign lock must remain untouched");
         assert.strictEqual(env.credentials.__parcelWrapped, undefined);
         assert.strictEqual(env.credentials.__parcelConflict, "locked");
+    });
+
+    test("backs off when a foreign lock lands between load and enable", () => {
+        const env = makeEnv();
+        const rawCreate = env.nativeFn();
+        const rawGet = env.nativeFn();
+        env.credentials.create = rawCreate;
+        env.credentials.get = rawGet;
+        env.run();
+        // another manager wraps and locks the API in the window before enable
+        const foreignCreate = env.foreignFn();
+        const foreignGet = env.foreignFn();
+        lockLikeForeignManager(env.credentials, foreignCreate, foreignGet);
+        env.emit("parcel-webauthn-enable");
+
+        assert.strictEqual(env.credentials.create, foreignCreate, "foreign create wrapper must remain in place");
+        assert.strictEqual(env.credentials.__parcelWrapped, undefined, "install must detect the late lock");
+        assert.strictEqual(env.credentials.__parcelConflict, "locked");
+    });
+
+    test("backs off when a foreign shim lands between load and enable", () => {
+        const env = makeEnv();
+        env.credentials.create = env.nativeFn();
+        env.credentials.get = env.nativeFn();
+        env.run();
+        env.credentials.create = env.foreignFn();
+        env.credentials.get = env.foreignFn();
+        env.emit("parcel-webauthn-enable");
+
+        assert.strictEqual(env.credentials.__parcelWrapped, undefined, "install must detect the late wrap");
+        assert.strictEqual(env.credentials.__parcelConflict, "wrapped");
     });
 
     test("backs off and reports when a foreign (but replaceable) shim is already installed", () => {
@@ -198,6 +233,7 @@ describe("Main-world webauthn installer", () => {
         env.credentials.create = foreignCreate; // writable data properties, non-native
         env.credentials.get = foreignGet;
         env.run();
+        env.emit("parcel-webauthn-enable");
 
         assert.strictEqual(env.credentials.create, foreignCreate, "Parcel must not stack its shim on a foreign one");
         assert.strictEqual(env.credentials.get, foreignGet);
@@ -216,8 +252,10 @@ describe("Main-world webauthn installer", () => {
         env.credentials.create = env.nativeFn();
         env.credentials.get = env.nativeFn();
         env.run();
+        env.emit("parcel-webauthn-enable");
         const installedCreate = env.credentials.create;
         env.run(); // duplicate document_start injection
+        env.emit("parcel-webauthn-enable");
         assert.strictEqual(env.credentials.create, installedCreate, "second run must not reinstall");
         assert.strictEqual(env.credentials.__parcelWrapped, true);
         assert.deepStrictEqual(env.warnings, []);
@@ -228,7 +266,9 @@ describe("Main-world webauthn installer", () => {
         const env = makeEnv();
         lockLikeForeignManager(env.credentials, env.foreignFn(), env.foreignFn());
         env.run();
+        env.emit("parcel-webauthn-enable");
         env.run();
+        env.emit("parcel-webauthn-enable");
         assert.strictEqual(env.warnings.length, 1, "the conflict should be reported only once");
         assert.strictEqual(env.events.length, 1);
     });
@@ -239,6 +279,7 @@ describe("Main-world webauthn installer", () => {
         env.credentials.create = rawCreate;
         env.credentials.get = env.nativeFn();
         env.run();
+        env.emit("parcel-webauthn-enable");
         assert.strictEqual(env.credentials.create, rawCreate, "native API must stay untouched");
         assert.strictEqual(env.credentials.__parcelWrapped, undefined);
         assert.deepStrictEqual(env.warnings, []);
@@ -257,6 +298,7 @@ function makeInstalledEnv() {
     env.credentials.create = env.nativeFn();
     env.credentials.get = env.nativeFn();
     env.run();
+    env.emit("parcel-webauthn-enable");
     assert.strictEqual(env.credentials.__parcelWrapped, true);
     return env;
 }
@@ -423,6 +465,7 @@ describe("Main-world webauthn ceremonies", () => {
         env.credentials.create = env.nativeFn();
         env.credentials.get = env.nativeFn();
         env.run();
+        env.emit("parcel-webauthn-enable");
         assert.strictEqual(env.credentials.__parcelWrapped, true);
 
         // Frame hostname is "login.example.com", rpId is "example.com" → suffix match
@@ -440,6 +483,7 @@ describe("Main-world webauthn ceremonies", () => {
         env.credentials.create = env.nativeFn();
         env.credentials.get = env.nativeFn();
         env.run();
+        env.emit("parcel-webauthn-enable");
         assert.strictEqual(env.credentials.__parcelWrapped, true);
 
         // Frame hostname is "login.example.com", rpId is "other.com" → no suffix match.
@@ -458,6 +502,7 @@ describe("Main-world webauthn ceremonies", () => {
         env.credentials.create = env.nativeFn();
         env.credentials.get = env.nativeFn();
         env.run();
+        env.emit("parcel-webauthn-enable");
         assert.strictEqual(env.credentials.__parcelWrapped, true);
 
         // Frame hostname is "login.example.com", rpId is "login.example.com" → exact match
