@@ -39,7 +39,8 @@
                 "js/schema.js",
                 "js/selectors.js",
                 "js/targets.js",
-                "js/webauthn.js"
+                "js/webauthn.js",
+                "js/webauthn-integration.js"
             ],
             "matches": ["<all_urls>"]
         }

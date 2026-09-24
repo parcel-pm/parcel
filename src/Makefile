@@ -32,6 +32,7 @@ DIST_FILES := \
     js/selectors.js \
     js/targets.js \
     js/webauthn.js \
+    js/webauthn-integration.js \
 	ttf/NotoSansMono-VariableFont_wdth,wght.ttf \
 	ttf/Roboto-VariableFont_wdth,wght.ttf \
 
