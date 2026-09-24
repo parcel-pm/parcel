@@ -1779,11 +1779,15 @@
             return;
         }
 
-        // http-auth scrim popup: no target binding — only resize and close.
+        // http-auth scrim popup: no target binding - only the ready handshake, resize, and close.
         // Handles both integration.js-created and executeScript-injected scrims.
         if (httpAuthTokens.has(port.name)) {
             httpAuthTokens.delete(port.name);
-            port.onMessage.addListener((msg) => {
+            port.onMessage.addListener(async (msg) => {
+                if (msg?.action === "ready") {
+                    maybePost(port, { action: "origin", origin: window.location.origin, features: await features });
+                    return;
+                }
                 const popup = document.querySelector(".parcel-popup");
                 if (!popup) return;
                 if (msg?.action === "resize") {
