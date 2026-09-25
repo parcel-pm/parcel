@@ -3,6 +3,7 @@ import { Schema, ConfigSchema, classDefaults } from "./schema.js";
 import { defaultScope } from "./scopes.js";
 import { Helpers } from "./helpers.js";
 import { Plaintext } from "./plaintext.js";
+import { NativeTransport } from "./agent-native.js";
 
 // Drop a clipboard request that cannot be dispatched within this window, so a queued copy
 // never lands after the popup's no-response safety net (3s, see copyValue in popup.js) fires.
@@ -21,26 +22,19 @@ const CLIPBOARD_DISPATCH_WINDOW = 2500;
  * @since 1.0.0
  */
 export class Agent extends EventTarget {
-    #connectedNative = false;
     #config;
-    #host;
     #entries;
     #entriesUpdated = 0;
     /** @type {WeakMap<object, Promise<string>>} Cached SHA-256 hashes of entry paths, keyed by entry object. */
     #pathHashes = new WeakMap();
     #initError;
-    #pendingCall = null;
-    /** Always-fulfilled promise settling when the previous native call has fully finished (including timeouts); see {@link Agent.#callNative}. */
-    #nativeCallLock = Promise.resolve();
     #authorisedTokens = new Set();
     #publicSuffixList = null;
     #refreshingEntries = null;
-    #nativePingInterval = null;
-    #nativePingFailures = 0;
-    #reconnectTimer = null;
     #initRetries = 0;
-    #destroyed = false;
     #pendingAuthCallbacks = new Map();
+    /** @type {NativeTransport} Serialised transport to the native host; wired up in the constructor. */
+    #transport;
     /** @type {{re: RegExp, features: string[]}[]} Compiled scope rules from the validated effective scope list. */
     #compiledScope = [];
     /** @type {Map<number, Map<number, {url: string, parentFrameId: number}>>} Per-tab frame trees for scope cascading. */
@@ -91,10 +85,10 @@ export class Agent extends EventTarget {
         // used here to guarantee the native connection is (re-)established
         // deterministically rather than relying on the first port connection.
         if (chrome.runtime.onStartup) {
-            chrome.runtime.onStartup.addListener(() => this.#ensureNativeConnected());
+            chrome.runtime.onStartup.addListener(() => this.#transport.ensureConnected());
         }
         if (chrome.runtime.onInstalled) {
-            chrome.runtime.onInstalled.addListener(() => this.#ensureNativeConnected());
+            chrome.runtime.onInstalled.addListener(() => this.#transport.ensureConnected());
         }
 
         // Intercept HTTP authentication challenges (401) and present Parcel's
@@ -120,8 +114,22 @@ export class Agent extends EventTarget {
             chrome.tabs?.onRemoved?.addListener((tabId) => this.#frameTree.delete(tabId));
         }
 
-        // open port to native host
-        this.#connectNative();
+        // open port to native host. Host-originated broadcasts are re-dispatched as
+        // agent events, preserving the documented `parcel::native::*` event contract.
+        // On disconnect the config is cleared so #waitUntilReady() waits for the new
+        // host's init; a previously-set #initError is preserved so broadcast errors
+        // surface to late popups.
+        this.#transport = new NativeTransport({
+            onError: (message) => {
+                this.#initError = new Error(message);
+                console.error(this.#initError);
+                this.dispatchEvent(new CustomEvent("initFailed", { detail: message }));
+            },
+            onBroadcast: (action, data) => this.dispatchEvent(new CustomEvent(`parcel::native::${action}`, { detail: data })),
+            onDisconnect: () => {
+                this.#config = undefined;
+            },
+        });
     }
 
     /**
@@ -130,38 +138,12 @@ export class Agent extends EventTarget {
      * @returns {void}
      */
     destroy() {
-        this.#destroyed = true;
-        this.#stopNativePing();
-        if (this.#reconnectTimer) {
-            clearTimeout(this.#reconnectTimer);
-            this.#reconnectTimer = null;
-        }
-        this.#rejectPendingCall?.("Agent destroyed");
+        this.#transport.destroy();
         for (const { callback, timer } of this.#pendingAuthCallbacks.values()) {
             clearTimeout(timer);
             callback({});
         }
         this.#pendingAuthCallbacks.clear();
-        if (this.#host) {
-            try {
-                this.#host.disconnect();
-            } catch {
-                // already disconnected
-            }
-        }
-    }
-
-    /**
-     * Ensure the native host connection is open, (re)connecting if necessary.
-     *
-     * Idempotent: a no-op when the connection is already live, so it is safe to
-     * call from multiple lifecycle hooks (constructor, onStartup, onInstalled).
-     * @since 1.0.2
-     * @returns {void}
-     */
-    #ensureNativeConnected() {
-        if (this.#connectedNative) return;
-        this.#connectNative();
     }
 
     /**
@@ -179,14 +161,14 @@ export class Agent extends EventTarget {
                 signatureURL = chrome.runtime.getURL("parcel-host.asc"),
                 signature = await (await fetch(signatureURL)).text();
             try {
-                const result = await this.#callNative("install", { script, signature }, 30_000);
+                const result = await this.#transport.call("install", { script, signature }, 30_000);
                 if (!result.success) throw new Error(result.message);
                 console.log(result.message);
             } catch (err) {
                 throw new Error(`Failed to install native host: ${err.message}`);
             }
-            this.#setConfig(await this.#callNative("configure", {}, 10_000));
-            this.#startNativePing();
+            this.#setConfig(await this.#transport.call("configure", {}, 10_000));
+            this.#transport.startNativePing();
             this.#initError = null;
             this.#initRetries = 0;
             this.dispatchEvent(new CustomEvent("ready"));
@@ -196,47 +178,8 @@ export class Agent extends EventTarget {
             this.dispatchEvent(new CustomEvent("initFailed", { detail: err.message }));
             // re-attempt init with exponential backoff
             this.#initRetries++;
-            this.#scheduleReconnect(Math.min(5_000 * 2 ** (this.#initRetries - 1), 60_000));
+            this.#transport.scheduleReconnect(Math.min(5_000 * 2 ** (this.#initRetries - 1), 60_000));
         }
-    }
-
-    /**
-     * Schedule a native-host reconnect, replacing any pending reconnect.
-     *
-     * If the current connection is still considered live (e.g. init failed
-     * against a wedged host that never disconnected), the port is forcibly
-     * disconnected so the retry spawns a fresh host process; the resulting
-     * `#onNativeDisconnect` then schedules the actual reconnect on its normal
-     * short timer. Should the browser never deliver `onDisconnect` for the
-     * forced disconnect, an identity-guarded fallback clears the stale state
-     * and reconnects, so the agent cannot wedge with a dead-but-flagged-live
-     * port while no ping watchdog is running.
-     * @since 1.0.7
-     * @param {number} delay - Time to wait before reconnecting, in milliseconds.
-     * @returns {void}
-     */
-    #scheduleReconnect(delay) {
-        if (this.#destroyed) return;
-        if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
-        this.#reconnectTimer = setTimeout(() => {
-            this.#reconnectTimer = null;
-            if (this.#connectedNative && this.#host) {
-                const host = this.#host;
-                try {
-                    host.disconnect();
-                } catch (_err) {
-                    // already disconnected; nothing to clean up
-                }
-                // Fallback if onDisconnect is never delivered for the forced disconnect
-                setTimeout(() => {
-                    if (!this.#destroyed && this.#connectedNative && this.#host === host) {
-                        this.#connectedNative = false;
-                        this.#ensureNativeConnected();
-                    }
-                }, 1000);
-            }
-            this.#ensureNativeConnected();
-        }, delay);
     }
 
     /**
@@ -254,196 +197,6 @@ export class Agent extends EventTarget {
         } catch (err) {
             console.error(`Failed to clear history for container ${cookieStoreId}: ${err.message}`);
         }
-    }
-
-    /**
-     * Open a connection to the native host.
-     * @since 1.0.0
-     * @returns {void}
-     */
-    #connectNative() {
-        if (this.#reconnectTimer) {
-            clearTimeout(this.#reconnectTimer);
-            this.#reconnectTimer = null;
-        }
-        this.#host = chrome.runtime.connectNative("com.github.erayd.parcel");
-        this.#connectedNative = true;
-        this.#host.onDisconnect.addListener(this.#onNativeDisconnect.bind(this));
-        this.#host.onMessage.addListener(this.#onNativeMessage.bind(this));
-    }
-
-    /**
-     * Start a periodic ping to the native host to prevent the idle watchdog
-     * (in src/parcel-host's dd() shadow) from killing the host during normal
-     * idle periods. The interval is well within the host's 300s timeout.
-     *
-     * A ping timeout does not necessarily mean the host is dead — the ping's
-     * 5s window can lapse while the host is legitimately busy (e.g. a long
-     * pinentry wait inside a decrypt). But if several pings fail in a row the
-     * host is assumed wedged with its pipe still open (where the watchdog
-     * cannot help), so the port is disconnected, which routes through
-     * #onNativeDisconnect and reconnects with a fresh host.
-     *
-     * @since 1.0.5
-     * @returns {void}
-     */
-    #startNativePing() {
-        if (this.#nativePingInterval) this.#stopNativePing();
-        this.#nativePingInterval = setInterval(() => {
-            if (!this.#connectedNative) return;
-            this.#callNative("ping", {}, 5000)
-                .then(() => {
-                    this.#nativePingFailures = 0;
-                })
-                .catch((err) => {
-                    console.error(`Native host ping failed: ${err.message}`);
-                    if (++this.#nativePingFailures >= 3 && this.#connectedNative) {
-                        console.error("Native host unresponsive after 3 consecutive pings - reconnecting");
-                        this.#nativePingFailures = 0;
-                        this.#host.disconnect();
-                    }
-                });
-        }, 60_000);
-    }
-
-    /**
-     * Stop the periodic native host ping.
-     * @since 1.0.5
-     * @returns {void}
-     */
-    #stopNativePing() {
-        if (this.#nativePingInterval) {
-            clearInterval(this.#nativePingInterval);
-            this.#nativePingInterval = null;
-        }
-    }
-
-    /**
-     * Call the native host.
-     *
-     * Calls are strictly serialised via a promise chain: the native messaging
-     * transport can drop messages sent in rapid succession, so the next call must
-     * not post to the host until the previous call has fully settled. Awaiting a
-     * shared "current call" promise is not sufficient — two concurrent callers both
-     * read the settled promise before either publishes its own, defeating the mutex.
-     * @since 1.0.0
-     * @param {string} action - The action to send to the native host.
-     * @param {object} [message={}] - The message to send to the native host.
-     * @param {number} [timeout=2000] - The timeout for the call in milliseconds.
-     * @param {number} [deadline=null] - Epoch-ms deadline; the call is dropped if it has passed once the lock is free.
-     * @returns {Promise<*>} The native host response payload.
-     * @throws {Error} If not connected, the dispatch deadline has passed, the call times out, or the host errors.
-     */
-    async #callNative(action, message = {}, timeout = 2000, deadline = null) {
-        // executed only once the previous call has settled
-        const run = () => {
-            if (deadline !== null && Date.now() > deadline) {
-                const err = new Error(`Native call deadline expired: ${action}`);
-                err.notDispatched = true;
-                throw err;
-            }
-            return new Promise((resolve, reject) => {
-                if (!this.#connectedNative) {
-                    const err = new Error("Not connected to native host");
-                    err.notDispatched = true;
-                    reject(err);
-                    return;
-                }
-                const token = crypto.randomUUID();
-                // Remove the listener on settle to prevent a late response for a
-                // timed-out call from corrupting a subsequent in-flight call.
-                const onMessage = (ev) => {
-                    cleanup();
-                    if (ev.detail?.error) reject(new Error(ev.detail.error));
-                    else resolve(ev.detail.data);
-                };
-                const timer = setTimeout(() => {
-                    cleanup();
-                    reject(new Error(`Native host call timed out: ${action}`));
-                }, timeout);
-                const cleanup = () => {
-                    clearTimeout(timer);
-                    this.removeEventListener(token, onMessage);
-                    if (this.#pendingCall?.token === token) this.#pendingCall = null;
-                };
-                this.#pendingCall = { reject, cleanup, token };
-                this.addEventListener(token, onMessage, { once: true });
-                this.#host.postMessage({ ...message, token, action });
-            });
-        };
-
-        const result = this.#nativeCallLock.then(run);
-        this.#nativeCallLock = result.then(
-            () => {},
-            () => {},
-        );
-        return result;
-    }
-
-    /**
-     * Reject any pending native call with the given error message.
-     *
-     * This is used when the host sends a broadcast error or disconnects
-     * unexpectedly — the pending call (if any) should receive the actual
-     * error immediately rather than waiting for the timeout to fire.
-     * @param {string} message - The error message.
-     * @since 1.0.4
-     * @returns {void}
-     */
-    #rejectPendingCall(message) {
-        if (!this.#pendingCall) return;
-        this.#pendingCall.reject(new Error(message));
-        this.#pendingCall.cleanup();
-        this.#pendingCall = null;
-    }
-
-    /**
-     * Handle messages from the native host.
-     * @since 1.0.0
-     * @param {object} message - The message from the native host.
-     * @returns {Promise<void>}
-     */
-    async #onNativeMessage(message) {
-        if (message.token === "broadcast") {
-            if ("error" in message) {
-                this.#initError = new Error(message.error);
-                console.error(this.#initError);
-                this.dispatchEvent(new CustomEvent("initFailed", { detail: message.error }));
-                this.#rejectPendingCall(message.error);
-            }
-            if (message?.data?.action) {
-                this.dispatchEvent(new CustomEvent(`parcel::native::${message.data.action}`, { detail: message.data }));
-            }
-        } else {
-            this.dispatchEvent(new CustomEvent(message.token, { detail: message }));
-        }
-    }
-
-    /**
-     * Handle disconnections from the native host, reinitialising on unexpected disconnects.
-     *
-     * Clear `#config` so `#waitUntilReady()` waits for the new host's init.
-     * Preserve `#initError` so broadcast errors surface to late popups.
-     * @since 1.0.0
-     * @returns {Promise<void>}
-     */
-    async #onNativeDisconnect() {
-        this.#connectedNative = false;
-        this.#stopNativePing();
-        this.#config = undefined;
-        if (this.#host.error) {
-            console.error(new Error(this.#host.error.message));
-        }
-        if (chrome.runtime.lastError) {
-            console.error(new Error(chrome.runtime.lastError.message));
-        }
-        this.#rejectPendingCall("Native host disconnected unexpectedly");
-        console.error("Native host disconnected unexpectedly - reinitialising...");
-        // Reconnect on the next tick. Under MV3 the service worker may be
-        // terminated inside this 1s window; on the next cold start the
-        // constructor re-runs #connectNative() anyway, so correctness is
-        // preserved either way.
-        this.#scheduleReconnect(1000);
     }
 
     /**
@@ -658,7 +411,8 @@ export class Agent extends EventTarget {
         let needRefresh = !this.#entriesUpdated;
         if (this.#entriesUpdated) {
             // if the cache is valid, check with the native host if there have been any changes since we last updated it
-            const changes = (await this.#callNative("changes_since", { since: Math.floor(this.#entriesUpdated / 1000) }, 10_000))?.changes;
+            const changes = (await this.#transport.call("changes_since", { since: Math.floor(this.#entriesUpdated / 1000) }, 10_000))
+                ?.changes;
             if (!changes) {
                 this.#entriesUpdated = Date.now();
                 needRefresh = false;
@@ -683,7 +437,7 @@ export class Agent extends EventTarget {
         if (this.#refreshingEntries) return this.#refreshingEntries;
         this.#refreshingEntries = (async () => {
             try {
-                this.#setEntries(await this.#callNative("list", {}, 30_000));
+                this.#setEntries(await this.#transport.call("list", {}, 30_000));
             } finally {
                 this.#refreshingEntries = null;
             }
@@ -920,7 +674,7 @@ export class Agent extends EventTarget {
                 // sees the real cause rather than a generic disconnect message. The error
                 // is retained as state because the failure can happen at any time.
                 if (this.#initError) throw this.#initError;
-                if (!this.#connectedNative) throw new Error("Not connected to native host");
+                if (!this.#transport.connected) throw new Error("Not connected to native host");
                 updateStatus("Waiting for native host startup...");
                 await this.#waitUntilReady();
                 clearStatus();
@@ -978,7 +732,7 @@ export class Agent extends EventTarget {
                     }
                     // decrypt the specified entry
                     updateStatus("Decrypting entry...");
-                    const result = await this.#callNative(
+                    const result = await this.#transport.call(
                         "decrypt",
                         // use origin from the message, because port.sender is not authoritative - the other end may be a *popup-bridge* port
                         { path: message.path, intent: message.intent, origin: message.origin },
@@ -1042,7 +796,7 @@ export class Agent extends EventTarget {
                 } else if (message?.action === "config") {
                     // provide the current configuration
                     updateStatus("Checking for config changes...");
-                    const newConfig = await this.#callNative("configure", {}, 10_000);
+                    const newConfig = await this.#transport.call("configure", {}, 10_000);
                     if (newConfig?.modified > this.#config.modified) {
                         this.#setConfig(newConfig);
                         updateStatus("Refreshing entry list...");
@@ -1092,7 +846,7 @@ export class Agent extends EventTarget {
                             throw new Error(`Invalid passkey entry path: ${message.path}`);
                         }
                         updateStatus("Signing passkey assertion...");
-                        const result = await this.#callNative(
+                        const result = await this.#transport.call(
                             "passkey",
                             {
                                 op: "get",
@@ -1110,7 +864,7 @@ export class Agent extends EventTarget {
                         post({ action: "passkey-result", result });
                     } else if (message.phase === "create") {
                         updateStatus("Creating passkey credential...");
-                        const result = await this.#callNative(
+                        const result = await this.#transport.call(
                             "passkey",
                             {
                                 op: "create",
@@ -1135,7 +889,7 @@ export class Agent extends EventTarget {
                             throw new Error("Invalid clipboard value");
                         let result;
                         try {
-                            result = await this.#callNative(
+                            result = await this.#transport.call(
                                 "clipboard",
                                 { value: String(message.value), timeout: message.timeout },
                                 10_000,

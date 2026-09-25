@@ -7,7 +7,7 @@ DIST_FILES := \
     manifest.json \
     parcel-host \
     parcel-host.asc \
-	css/fonts.css \
+    css/fonts.css \
     css/popup.css \
     html/popup.html \
     img/logo.svg \
@@ -20,6 +20,7 @@ DIST_FILES := \
     img/icon-history-nuke.svg \
     img/icon-show-details.svg \
     js/agent.js \
+    js/agent-native.js \
     js/helpers.js \
     js/integration.js \
     js/integration.es6.js \
@@ -35,8 +36,8 @@ DIST_FILES := \
     js/targets.js \
     js/webauthn.js \
     js/webauthn-integration.js \
-	ttf/NotoSansMono-VariableFont_wdth,wght.ttf \
-	ttf/Roboto-VariableFont_wdth,wght.ttf \
+    ttf/NotoSansMono-VariableFont_wdth,wght.ttf \
+    ttf/Roboto-VariableFont_wdth,wght.ttf \
 
 .PHONY: default
 default: prettier dist
