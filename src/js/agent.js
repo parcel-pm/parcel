@@ -168,9 +168,6 @@ export class Agent extends EventTarget {
                 throw new Error(`Failed to install native host: ${err.message}`);
             }
             this.#setConfig(await this.#transport.call("configure", {}, 10_000));
-            // Init succeeded, so discard any backoff reconnect from a failed
-            // earlier attempt before it can force-disconnect the healthy host.
-            this.#transport.cancelReconnect();
             this.#transport.startNativePing();
             this.#initError = null;
             this.#initRetries = 0;

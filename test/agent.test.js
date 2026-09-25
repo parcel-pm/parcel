@@ -26,6 +26,14 @@ function settleAsync() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Drain the microtask queue. Needed to advance promise chains while timers are
+ * mocked, where settleAsync() would itself require a timer tick.
+ */
+async function drainMicrotasks() {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+}
+
 function once(emitter, event) {
     return new Promise((resolve) => emitter.addEventListener(event, resolve, { once: true }));
 }
@@ -819,13 +827,14 @@ describe("Agent", () => {
         assert.strictEqual(after, before, "no spurious reconnect when already connected");
     });
 
-    test("ping watchdog recovers from a wedged host when onDisconnect is never delivered", async (t) => {
+    test("ping watchdog recovers from a wedged host, ignoring the stale port's late onDisconnect", async (t) => {
         const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
         // Chrome-faithful wedge semantics for the first connection: the
         // extension's own port.disconnect() does not fire its onDisconnect,
         // and a stopped host never reads or answers the pipe.
         let connects = 0;
         let wedgedForceDisconnected = false;
+        const staleDisconnectListeners = [];
         chrome.runtime.connectNative = (hostName) => {
             connects++;
             if (connects > 1) return origConnectNative(hostName);
@@ -835,11 +844,11 @@ describe("Agent", () => {
                     wedgedForceDisconnected = true;
                 },
                 onMessage: { addListener() {}, removeListener() {} },
-                onDisconnect: { addListener() {}, removeListener() {} },
+                onDisconnect: {
+                    addListener: (fn) => staleDisconnectListeners.push(fn),
+                    removeListener() {},
+                },
             };
-        };
-        const drainMicrotasks = async () => {
-            for (let i = 0; i < 10; i++) await Promise.resolve();
         };
 
         let transport = null;
@@ -852,16 +861,15 @@ describe("Agent", () => {
             });
             transport.startNativePing();
 
-            // three consecutive ping timeouts force the watchdog to fire
+            // three consecutive ping timeouts trip the watchdog; its probe also times out
             for (let i = 0; i < 3; i++) {
                 t.mock.timers.tick(60_000);
                 await drainMicrotasks(); // ping dispatched, 5s timeout registered
                 t.mock.timers.tick(5_000);
                 await drainMicrotasks(); // rejection reaches the failure counter
             }
-            // watchdog probe (2s) times out, triggering the immediate reconnect
             t.mock.timers.tick(2_000);
-            await drainMicrotasks();
+            await drainMicrotasks(); // probe times out, scheduling the immediate reconnect
             t.mock.timers.tick(0);
             await drainMicrotasks(); // forced disconnect schedules the fallback
             t.mock.timers.tick(1_000);
@@ -872,65 +880,9 @@ describe("Agent", () => {
             assert.strictEqual(connects, 2, "the watchdog must spawn a fresh host connection");
             assert.ok(wedgedForceDisconnected, "the wedged port must be force-disconnected");
             assert.ok(transport.connected, "the new connection must be reported as live");
-        } finally {
-            transport?.destroy();
-            chrome.runtime.connectNative = origConnectNative;
-            // Without an explicit reset the runner's teardown hangs on the
-            // mocked timer queue left pending by the ping interval.
-            t.mock.timers.reset();
-        }
-    });
 
-    test("late onDisconnect from a force-disconnected stale port is ignored", async (t) => {
-        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
-        let connects = 0;
-        const staleDisconnectListeners = [];
-        chrome.runtime.connectNative = (hostName) => {
-            connects++;
-            if (connects > 1) return origConnectNative(hostName);
-            return {
-                postMessage() {},
-                disconnect() {},
-                onMessage: { addListener() {}, removeListener() {} },
-                onDisconnect: {
-                    addListener: (fn) => staleDisconnectListeners.push(fn),
-                    removeListener() {},
-                },
-            };
-        };
-        const drainMicrotasks = async () => {
-            for (let i = 0; i < 10; i++) await Promise.resolve();
-        };
-
-        let transport = null;
-        try {
-            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
-            transport = new NativeTransport({
-                onError: () => {},
-                onBroadcast: () => {},
-                onDisconnect: () => {},
-            });
-            transport.startNativePing();
-
-            // three consecutive ping timeouts force the watchdog to fire
-            for (let i = 0; i < 3; i++) {
-                t.mock.timers.tick(60_000);
-                await drainMicrotasks();
-                t.mock.timers.tick(5_000);
-                await drainMicrotasks();
-            }
-            // watchdog probe times out before the reconnect fires
-            t.mock.timers.tick(2_000);
-            await drainMicrotasks();
-            t.mock.timers.tick(0);
-            await drainMicrotasks(); // forced disconnect
-            t.mock.timers.tick(1_000); // fallback fires
-            await drainMicrotasks();
-            t.mock.timers.tick(1_000); // reconnect timer spawns the fresh connection
-            await drainMicrotasks();
-            assert.strictEqual(connects, 2, "watchdog spawned a fresh connection");
-
-            // the wedged host finally exits, delivering the stale port's late onDisconnect
+            // the wedged host finally exits, delivering the stale port's late
+            // onDisconnect; the port-identity guard must ignore it
             for (const fn of staleDisconnectListeners) fn();
             await drainMicrotasks();
             t.mock.timers.tick(5_000);
@@ -941,6 +893,8 @@ describe("Agent", () => {
         } finally {
             transport?.destroy();
             chrome.runtime.connectNative = origConnectNative;
+            // Without an explicit reset the runner's teardown hangs on the
+            // mocked timer queue left pending by the ping interval.
             t.mock.timers.reset();
         }
     });
@@ -968,9 +922,6 @@ describe("Agent", () => {
                 onMessage: port.onMessage,
                 onDisconnect: port.onDisconnect,
             };
-        };
-        const drainMicrotasks = async () => {
-            for (let i = 0; i < 10; i++) await Promise.resolve();
         };
 
         let transport = null;
@@ -1027,9 +978,6 @@ describe("Agent", () => {
                 onMessage: { addListener() {}, removeListener() {} },
                 onDisconnect: { addListener() {}, removeListener() {} },
             };
-        };
-        const drainMicrotasks = async () => {
-            for (let i = 0; i < 10; i++) await Promise.resolve();
         };
 
         let transport = null;

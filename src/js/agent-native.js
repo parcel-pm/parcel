@@ -126,8 +126,7 @@ export class NativeTransport extends EventTarget {
                 // is cleared exactly as it is for a delivered disconnect.
                 setTimeout(() => {
                     if (!this.#destroyed && this.#connectedNative && this.#host === host) {
-                        // A throw anywhere in #onNativeDisconnect (e.g. a throwing owner callback)
-                        // must not swallow the reconnect, or the transport wedges for good.
+                        // A rejected #onNativeDisconnect must not swallow the reconnect, or the transport wedges for good.
                         this.#onNativeDisconnect().catch((err) => {
                             console.error(err);
                             this.scheduleReconnect(RECONNECT_DELAY_MS);
@@ -137,18 +136,6 @@ export class NativeTransport extends EventTarget {
             }
             this.ensureConnected();
         }, delay);
-    }
-
-    /**
-     * Cancel any pending scheduled reconnect.
-     * @since 1.0.8
-     * @returns {void}
-     */
-    cancelReconnect() {
-        if (this.#reconnectTimer) {
-            clearTimeout(this.#reconnectTimer);
-            this.#reconnectTimer = null;
-        }
     }
 
     /**
