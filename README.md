@@ -279,11 +279,11 @@ Origin-scoping cannot be re-enabled within the same popup session — once you s
 
 #### Search terms
 
-Search terms are **regular expressions**, not plain text. Each term is compiled as a JavaScript regex with the case-insensitive and unicode flags enabled (`new RegExp(term, "ui")`), and matched against the entry path.
+Search terms are **regular expressions**, not plain text. Each term is compiled as a JavaScript regex with the case-insensitive and unicode flags enabled (`new RegExp(term, "ui")`), and matched against the entry path (the entry's name in the store, not its decrypted contents). Matching is unanchored: a term matches if it appears anywhere in the path.
 
 Terms are combined with **AND** semantics: splitting your input on whitespace produces multiple terms, and an entry must match *every* term to appear in the results. For example, `example smith` shows only entries that match both `example` and `smith`.
 
-If you want to search for characters that have special regex meaning (such as `.`, `[`, or `$`), escape them with a backslash. For example, use `example\.com` to match only the literal path `example.com`, rather than `example.com` which would also match `exampleXcom`.
+If you want to search for characters that have special regex meaning (such as `.`, `[`, or `$`), escape them with a backslash. For example, use `example\.com` to match a literal dot in the path, rather than `example.com` which would also match `exampleXcom`.
 
 An invalid regex (for example, an unbalanced `[`) will fail with an error rather than being treated as a literal string, so be sure to escape special characters.
 
