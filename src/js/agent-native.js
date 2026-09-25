@@ -145,7 +145,7 @@ export class NativeTransport extends EventTarget {
      * (in src/parcel-host's dd() shadow) from killing the host during normal
      * idle periods. The interval is well within the host's 300s timeout.
      *
-     * A ping timeout does not necessarily mean the host is dead — the ping's
+     * A ping timeout does not necessarily mean the host is dead  - the ping's
      * 5s window can lapse while the host is legitimately busy (e.g. a long
      * pinentry wait inside a decrypt). But if several pings fail in a row the
      * host is assumed wedged with its pipe still open (where the watchdog
@@ -192,7 +192,7 @@ export class NativeTransport extends EventTarget {
      * Calls are strictly serialised via a promise chain: the native messaging
      * transport can drop messages sent in rapid succession, so the next call must
      * not post to the host until the previous call has fully settled. Awaiting a
-     * shared "current call" promise is not sufficient — two concurrent callers both
+     * shared "current call" promise is not sufficient  - two concurrent callers both
      * read the settled promise before either publishes its own, defeating the mutex.
      * @since 1.0.0
      * @param {string} action - The action to send to the native host.
@@ -252,7 +252,7 @@ export class NativeTransport extends EventTarget {
      * Reject any pending native call with the given error message.
      *
      * This is used when the host sends a broadcast error or disconnects
-     * unexpectedly — the pending call (if any) should receive the actual
+     * unexpectedly  - the pending call (if any) should receive the actual
      * error immediately rather than waiting for the timeout to fire.
      * @param {string} message - The error message.
      * @since 1.0.4
