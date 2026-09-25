@@ -411,6 +411,7 @@ function action_clipboard() {
 # @param {string} $2 - validated seconds until the clipboard is auto-cleared
 # @since 1.0.7
 function clipboard_macos() {
+    # no per-binary ownership check: osascript resolves via the bootstrap's PATH, which strict mode has already sanitised to root-owned, non-writable directories
     if ! command -v osascript &>/dev/null; then
         clipboard_refuse "Cannot find osascript: the clipboard action requires macOS"
         return 0
@@ -451,6 +452,7 @@ if (pb.changeCount == $COUNT) pb.clearContents
 # @since 1.0.7
 function clipboard_linux() {
     if [ -n "$WAYLAND_DISPLAY" ]; then
+        # no per-binary ownership check: wl-copy/wl-paste resolve via the bootstrap's PATH, which strict mode has already sanitised to root-owned, non-writable directories
         if ! command -v wl-copy &>/dev/null || ! command -v wl-paste &>/dev/null; then
             clipboard_refuse "Cannot find wl-copy/wl-paste: no privacy-enhancing clipboard tool available"
             return 0
@@ -472,6 +474,7 @@ function clipboard_linux() {
         ( sleep "$2"; if [[ "$(wl-paste -n 2>/dev/null)" == "$1" ]]; then wl-copy --clear; fi ) </dev/null >/dev/null 2>&1 &
         return 0
     elif [ -n "$DISPLAY" ]; then
+        # no per-binary ownership check: xclip resolves via the bootstrap's PATH, which strict mode has already sanitised to root-owned, non-writable directories
         if ! command -v xclip &>/dev/null; then
             clipboard_refuse "Cannot find xclip: no privacy-enhancing clipboard tool available"
             return 0
