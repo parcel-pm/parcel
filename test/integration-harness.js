@@ -139,7 +139,7 @@ export async function setupIntegration() {
         return id;
     };
 
-    // Keep console stubbed during tests — integration.js logs elements and
+    // Keep console stubbed during tests - integration.js logs elements and
     // warnings on routine error paths (blacklist, missing config, etc.) that
     // we don't want polluting test output.  Node's runner still reports
     // assertion failures via its own reporter.
