@@ -1011,6 +1011,55 @@ describe("Agent", () => {
         }
     });
 
+    test("a throwing owner onDisconnect callback does not swallow the reconnect", async (t) => {
+        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
+        let connects = 0;
+        let wedgedForceDisconnected = false;
+        // Wedged host: its own onDisconnect is never delivered for a forced disconnect.
+        chrome.runtime.connectNative = (hostName) => {
+            connects++;
+            if (connects > 1) return origConnectNative(hostName);
+            return {
+                postMessage() {},
+                disconnect() {
+                    wedgedForceDisconnected = true;
+                },
+                onMessage: { addListener() {}, removeListener() {} },
+                onDisconnect: { addListener() {}, removeListener() {} },
+            };
+        };
+        const drainMicrotasks = async () => {
+            for (let i = 0; i < 10; i++) await Promise.resolve();
+        };
+
+        let transport = null;
+        try {
+            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+            transport = new NativeTransport({
+                onError: () => {},
+                onBroadcast: () => {},
+                onDisconnect: () => {
+                    throw new Error("owner callback failed");
+                },
+            });
+
+            transport.scheduleReconnect(0);
+            t.mock.timers.tick(0);
+            await drainMicrotasks(); // forced disconnect schedules the fallback
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // fallback runs #onNativeDisconnect, which throws
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // the reconnect must still be scheduled
+
+            assert.ok(wedgedForceDisconnected, "the wedged port must be force-disconnected");
+            assert.strictEqual(connects, 2, "a thrown owner callback must not prevent the reconnect");
+        } finally {
+            transport?.destroy();
+            chrome.runtime.connectNative = origConnectNative;
+            t.mock.timers.reset();
+        }
+    });
+
     describe("HTTP auth interception", () => {
         test("returns credentials via popup port decrypt", async () => {
             const resultPromise = mock.fireAuthRequired({

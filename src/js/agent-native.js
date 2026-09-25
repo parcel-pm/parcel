@@ -126,7 +126,12 @@ export class NativeTransport extends EventTarget {
                 // is cleared exactly as it is for a delivered disconnect.
                 setTimeout(() => {
                     if (!this.#destroyed && this.#connectedNative && this.#host === host) {
-                        this.#onNativeDisconnect();
+                        // A throw anywhere in #onNativeDisconnect (e.g. a throwing owner callback)
+                        // must not swallow the reconnect, or the transport wedges for good.
+                        this.#onNativeDisconnect().catch((err) => {
+                            console.error(err);
+                            this.scheduleReconnect(RECONNECT_DELAY_MS);
+                        });
                     }
                 }, RECONNECT_DELAY_MS);
             }
@@ -325,7 +330,12 @@ export class NativeTransport extends EventTarget {
     async #onNativeDisconnect() {
         this.#connectedNative = false;
         this.stopNativePing();
-        this.#onDisconnect();
+        try {
+            this.#onDisconnect();
+        } catch (err) {
+            // Owner callbacks are not expected to throw; a throw must not skip the reconnect below.
+            console.error(err);
+        }
         if (this.#host.error) {
             console.error(new Error(this.#host.error.message));
         }
