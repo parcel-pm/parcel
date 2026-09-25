@@ -20,6 +20,7 @@ DIST_FILES := \
     img/icon-history-nuke.svg \
     img/icon-show-details.svg \
     js/agent.js \
+    js/agent-native.js \
     js/helpers.js \
     js/integration.js \
     js/integration.es6.js \
