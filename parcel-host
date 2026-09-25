@@ -378,7 +378,7 @@ function parcelrc_check_binary() {
     fi
     if $STRICT_BINARIES; then
         local OWNER LINK_OWNER
-        OWNER="$(stat -L -c %u "$TARGET" 2>/dev/null || stat -L -f %u "$TARGET")"
+        OWNER="$(stat -L -c %u "$TARGET" 2>/dev/null || stat -L -f %u "$TARGET" 2>/dev/null)" || OWNER=""
         if [ "$OWNER" != "0" ] || [ -w "$TARGET" ]; then
             parcelrc_fatal "$KEY: $TARGET must be owned by root and not writable by you (the bootstrap host is installed system-wide)"
         fi
@@ -386,7 +386,7 @@ function parcelrc_check_binary() {
         # would pass the check above and could be repointed after startup; require the
         # link itself to be root-owned (stat without -L judges the link)
         if [ -L "$TARGET" ]; then
-            LINK_OWNER="$(stat -c %u "$TARGET" 2>/dev/null || stat -f %u "$TARGET")"
+            LINK_OWNER="$(stat -c %u "$TARGET" 2>/dev/null || stat -f %u "$TARGET" 2>/dev/null)" || LINK_OWNER=""
             if [ "$LINK_OWNER" != "0" ]; then
                 parcelrc_fatal "$KEY: $TARGET must be owned by root, not a caller-owned symlink (the bootstrap host is installed system-wide)"
             fi
