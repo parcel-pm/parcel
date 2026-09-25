@@ -4,6 +4,7 @@ import assert from "node:assert";
 import nodeCrypto from "node:crypto";
 import { createChromeMock } from "./chrome-api-mock.js";
 import { Agent } from "../src/js/agent.js";
+import { NativeTransport } from "../src/js/agent-native.js";
 
 const noopConsole = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 let realConsole;
@@ -816,6 +817,61 @@ describe("Agent", () => {
 
         const after = mock.getNativePort("com.github.erayd.parcel");
         assert.strictEqual(after, before, "no spurious reconnect when already connected");
+    });
+
+    test("ping watchdog recovers from a wedged host when onDisconnect is never delivered", async (t) => {
+        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
+        // Chrome-faithful wedge semantics for the first connection: the
+        // extension's own port.disconnect() does not fire its onDisconnect,
+        // and a stopped host never reads or answers the pipe.
+        let connects = 0;
+        let wedgedForceDisconnected = false;
+        chrome.runtime.connectNative = (hostName) => {
+            connects++;
+            if (connects > 1) return origConnectNative(hostName);
+            return {
+                postMessage() {},
+                disconnect() {
+                    wedgedForceDisconnected = true;
+                },
+                onMessage: { addListener() {}, removeListener() {} },
+                onDisconnect: { addListener() {}, removeListener() {} },
+            };
+        };
+        const drainMicrotasks = async () => {
+            for (let i = 0; i < 10; i++) await Promise.resolve();
+        };
+
+        let transport = null;
+        try {
+            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+            transport = new NativeTransport({
+                onError: () => {},
+                onBroadcast: () => {},
+                onDisconnect: () => {},
+            });
+            transport.startNativePing();
+
+            // three consecutive ping timeouts force the watchdog to fire
+            for (let i = 0; i < 3; i++) {
+                t.mock.timers.tick(60_000);
+                await drainMicrotasks(); // ping dispatched, 5s timeout registered
+                t.mock.timers.tick(5_000);
+                await drainMicrotasks(); // rejection reaches the failure counter
+            }
+            // reconnect delay, then the identity-guarded fallback window
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // forced disconnect schedules the fallback
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks();
+
+            assert.strictEqual(connects, 2, "the watchdog must spawn a fresh host connection");
+            assert.ok(wedgedForceDisconnected, "the wedged port must be force-disconnected");
+            assert.ok(transport.connected, "the new connection must be reported as live");
+        } finally {
+            transport?.destroy();
+            chrome.runtime.connectNative = origConnectNative;
+        }
     });
 
     describe("HTTP auth interception", () => {

@@ -1,6 +1,15 @@
 "use strict";
 
 /**
+ * Delay before reconnecting a dead native host, in milliseconds. Both unexpected
+ * disconnects and the ping watchdog use it. Short enough that an MV3 service-worker
+ * suspension inside the window is covered by the constructor's cold-start connect.
+ *
+ * @since 1.0.8
+ */
+const RECONNECT_DELAY_MS = 1000;
+
+/**
  * Native host transport for the background agent.
  *
  * Owns the native messaging connection: initial connect, reconnect scheduling, the
@@ -150,8 +159,11 @@ export class NativeTransport extends EventTarget {
      * 5s window can lapse while the host is legitimately busy (e.g. a long
      * pinentry wait inside a decrypt). But if several pings fail in a row the
      * host is assumed wedged with its pipe still open (where the watchdog
-     * cannot help), so the port is disconnected, which routes through
-     * #onNativeDisconnect and reconnects with a fresh host.
+     * cannot help), so a reconnect is scheduled through scheduleReconnect():
+     * it force-disconnects the port, and its identity-guarded fallback
+     * recovers even when the browser never delivers onDisconnect for that
+     * self-initiated disconnect (which it does not for a host that never
+     * exits).
      *
      * @since 1.0.5
      * @returns {void}
@@ -169,7 +181,7 @@ export class NativeTransport extends EventTarget {
                     if (++this.#nativePingFailures >= 3 && this.#connectedNative) {
                         console.error("Native host unresponsive after 3 consecutive pings - reconnecting");
                         this.#nativePingFailures = 0;
-                        this.#host.disconnect();
+                        this.scheduleReconnect(RECONNECT_DELAY_MS);
                     }
                 });
         }, 60_000);
@@ -310,6 +322,6 @@ export class NativeTransport extends EventTarget {
         // terminated inside this 1s window; on the next cold start the
         // constructor re-runs connectNative() anyway, so correctness is
         // preserved either way.
-        this.scheduleReconnect(1000);
+        this.scheduleReconnect(RECONNECT_DELAY_MS);
     }
 }
