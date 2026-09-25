@@ -1280,7 +1280,9 @@ export class Agent extends EventTarget {
 
         const list = await this.#publicSuffixList;
         for (let suffix = hostname; suffix.length; suffix = suffix.slice(suffix.indexOf(".") + 1)) {
-            if (list.has(`!${suffix}`)) continue;
+            // exception rules resolve in place: their public suffix is the rule minus its leftmost
+            // label; continuing the scan would fall past unlisted parents to a shorter rule
+            if (list.has(`!${suffix}`)) return suffix.slice(suffix.indexOf(".") + 1);
             if (list.has(suffix)) return suffix;
             if (list.has(`*.${suffix.slice(suffix.indexOf(".") + 1)}`)) return suffix;
             if (suffix.indexOf(".") === -1) break;
