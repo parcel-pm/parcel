@@ -81,7 +81,7 @@ export class NativeTransport extends EventTarget {
      * @returns {void}
      */
     ensureConnected() {
-        if (this.#connectedNative) return;
+        if (this.#destroyed || this.#connectedNative) return;
         this.connectNative();
     }
 
@@ -130,6 +130,7 @@ export class NativeTransport extends EventTarget {
      * @returns {void}
      */
     connectNative() {
+        if (this.#destroyed) return;
         if (this.#reconnectTimer) {
             clearTimeout(this.#reconnectTimer);
             this.#reconnectTimer = null;
