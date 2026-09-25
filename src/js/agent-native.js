@@ -121,13 +121,14 @@ export class NativeTransport extends EventTarget {
                 } catch (_err) {
                     // already disconnected; nothing to clean up
                 }
-                // Fallback if onDisconnect is never delivered for the forced disconnect
+                // Fallback if onDisconnect is never delivered for the forced disconnect.
+                // Route through #onNativeDisconnect so owner state (e.g. the config)
+                // is cleared exactly as it is for a delivered disconnect.
                 setTimeout(() => {
                     if (!this.#destroyed && this.#connectedNative && this.#host === host) {
-                        this.#connectedNative = false;
-                        this.ensureConnected();
+                        this.#onNativeDisconnect();
                     }
-                }, 1000);
+                }, RECONNECT_DELAY_MS);
             }
             this.ensureConnected();
         }, delay);
@@ -144,10 +145,18 @@ export class NativeTransport extends EventTarget {
             clearTimeout(this.#reconnectTimer);
             this.#reconnectTimer = null;
         }
-        this.#host = chrome.runtime.connectNative("com.github.erayd.parcel");
+        const host = chrome.runtime.connectNative("com.github.erayd.parcel");
+        this.#host = host;
         this.#connectedNative = true;
-        this.#host.onDisconnect.addListener(this.#onNativeDisconnect.bind(this));
-        this.#host.onMessage.addListener(this.#onNativeMessage.bind(this));
+        // Guard by port identity: a stale port left over from a forced disconnect
+        // keeps its listeners, and its late events must not tear down the
+        // replacement connection or corrupt its in-flight calls.
+        host.onDisconnect.addListener(() => {
+            if (this.#host === host) this.#onNativeDisconnect();
+        });
+        host.onMessage.addListener((message) => {
+            if (this.#host === host) this.#onNativeMessage(message);
+        });
     }
 
     /**
