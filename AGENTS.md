@@ -46,10 +46,14 @@ Do not use `src/publicsuffix` as Parcel test guidance unless the task explicitly
 ## High-level architecture
 
 - `src/` is the canonical source tree. `src/dist/`, `chrome/`, and `firefox/` are generated outputs; edit source files under `src/`, not generated bundles.
-- The browser-side runtime is split into three main pieces:
-  - `src/js/agent.js` is the MV3 background/service-worker coordinator. It owns native messaging, bootstraps the native host, validates config with `ConfigSchema`, caches entry lists, and brokers runtime ports.
+- The browser-side runtime is split into three main pieces, each with supporting modules:
+  - `src/js/agent.js` is the MV3 background/service-worker coordinator. It validates config with `ConfigSchema`, caches entry lists, and brokers runtime ports.
+  - `src/js/agent-native.js` owns the agent's native-messaging connection: connect, reconnect scheduling, keepalive ping, and serialised request/response dispatch.
   - `src/js/integration.js` is the content script injected into all frames at `document_start`. It detects fill targets, opens the inline/context popup, fills fields, and handles the broadcast "best target" autofill path.
+  - `src/js/webauthn-integration.js` handles in-page passkey ceremonies on behalf of the content script, which loads it on demand.
   - `src/js/popup.js` is the toolbar/context popup UI. It requests matches and decrypted plaintext from the background worker, relays fill commands back into the active frame, and stores per-origin/per-container history in `chrome.storage.local`.
+  - `src/js/popup-elements.js` provides the popup's UI custom elements: plaintext lines, copyable values, and expandable entry details.
+  - `src/js/popup-webauthn.js` provides the popup's passkey modes: registration save prompts and passkey-conflict resolution.
 - Shared behavior lives in `src/js/helpers.js`, `src/js/plaintext.js`, `src/js/schema.js`, `src/js/selectors.js`, and `src/js/targets.js`. The intended config extension points are `additionalSelectors` and `additionalTargets`.
 - Shadow DOM support is deliberate: `src/js/main-world/shadow.js` patches `attachShadow`, and cross-shadow lookups are expected to go through `Helpers.shadowSelector()` / `Helpers.shadowSelectorAll()`.
 - The native side is split in two:

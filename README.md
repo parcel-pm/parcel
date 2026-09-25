@@ -53,8 +53,12 @@ If you wish to run the test suite, you will also need the following:
 | File | Role |
 |------|------|
 | `src/js/agent.js` | Background service worker. Manages native messaging, config validation, entry caching, and runtime port brokering. |
+| `src/js/agent-native.js` | Native transport used by the agent. Owns the native-messaging connection: connect, reconnect scheduling, keepalive ping, and serialised request/response dispatch. |
 | `src/js/integration.js` | Content script injected at `document_start`. Detects fill targets, opens inline/context popups, and handles autofill. |
+| `src/js/webauthn-integration.js` | Isolated-world passkey bridge. Gates and coordinates WebAuthn ceremonies between the MAIN-world interceptor, the popup, and the background worker. |
 | `src/js/popup.js` | Toolbar and context-popup UI. Requests matches and decrypted credentials from the agent, relays fill commands. |
+| `src/js/popup-elements.js` | Custom elements used by the popup: plaintext lines, copyable values, and expandable entry details. |
+| `src/js/popup-webauthn.js` | Passkey modes of the popup: registration save prompts and passkey-conflict resolution. |
 | `src/js/helpers.js` | Shared utilities, including shadow-DOM selectors and cross-frame helpers. |
 | `src/js/schema.js` | Schema–based validation for configuration, selectors, and targets. |
 | `src/js/selectors.js` | DOM selectors for detecting login, password, TOTP, and other credential fields. |
