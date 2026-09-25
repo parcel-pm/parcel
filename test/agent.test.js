@@ -1365,6 +1365,10 @@ describe("Agent", () => {
                 { pattern: "^passkeys/other\\.test/", class: "passkey" },
                 // proves passkey entries work from any location that names the rpId
                 { pattern: "^misc/", class: "passkey" },
+                // exception-rule fixtures for the PSL regression test
+                { pattern: "^passkeys/kobe\\.jp/", class: "passkey" },
+                { pattern: "^passkeys/city\\.kobe\\.jp/", class: "passkey" },
+                { pattern: "^passkeys/www\\.ck/", class: "passkey" },
                 { pattern: "^github\\.com$", class: "browser-passkey" },
             ],
         };
@@ -1381,6 +1385,9 @@ describe("Agent", () => {
                     { name: "shared/fido/carol", path: "/home/test/.password-store/shared/fido/carol.gpg" },
                     { name: "misc/example.com/a", path: "/home/test/.password-store/misc/example.com/a.gpg" },
                     { name: "test/bob", path: "/home/test/.password-store/test/bob.gpg" },
+                    { name: "passkeys/kobe.jp/eve", path: "/home/test/.password-store/passkeys/kobe.jp/eve.gpg" },
+                    { name: "passkeys/city.kobe.jp/bob", path: "/home/test/.password-store/passkeys/city.kobe.jp/bob.gpg" },
+                    { name: "passkeys/www.ck/alice", path: "/home/test/.password-store/passkeys/www.ck/alice.gpg" },
                 ];
             if (msg.action === "changes_since") return { changes: false };
             if (msg.action === "passkey") return { op: "get", credentialId: "Y3JlZA" };
@@ -1497,6 +1504,37 @@ describe("Agent", () => {
             assert.strictEqual(msg.topOrigin, null, `top origin should be null for sender ${JSON.stringify(sender)}`);
             passkey.disconnect();
         }
+    });
+
+    test("passkey candidacy honours exception public-suffix rules", async () => {
+        // vendored-PSL shapes: wildcard rule plus exception without an explicit parent rule,
+        // mirroring *.kobe.jp/!city.kobe.jp and *.ck/!www.ck in public_suffix_list.dat
+        mock.registerFetchResponse(mock.chrome.runtime.getURL("/public_suffix_list.dat"), "jp\n*.kobe.jp\n!city.kobe.jp\n*.ck\n!www.ck\n");
+        await configurePasskeyStore();
+
+        // the exception makes kobe.jp the public suffix of every *.city.kobe.jp host: candidates
+        // may name the host or the exception target, but must not slice into the sibling
+        // registrable domain kobe.jp (as the old fall-through past the exception did)
+        const kobe = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://www.city.kobe.jp/" } });
+        await settleAsync();
+        const kobePromise = nextMessage(kobe, "passkey-candidates");
+        kobe.postMessage({ action: "passkey", phase: "candidates", origin: "https://www.city.kobe.jp", rpId: "city.kobe.jp" });
+        assert.deepStrictEqual(
+            (await kobePromise).candidates.map((c) => c.name),
+            ["passkeys/city.kobe.jp/bob"],
+        );
+        kobe.disconnect();
+
+        // the ck exception target www.ck is registrable with ck as its public suffix
+        const ck = mock.chrome.runtime.connect({ name: "passkey", sender: { url: "https://x.www.ck/" } });
+        await settleAsync();
+        const ckPromise = nextMessage(ck, "passkey-candidates");
+        ck.postMessage({ action: "passkey", phase: "candidates", origin: "https://x.www.ck", rpId: "www.ck" });
+        assert.deepStrictEqual(
+            (await ckPromise).candidates.map((c) => c.name),
+            ["passkeys/www.ck/alice"],
+        );
+        ck.disconnect();
     });
 
     test("passkey assertion is allowed for a rule-classed entry outside the passkey dir", async () => {
