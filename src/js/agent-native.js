@@ -1,6 +1,17 @@
 "use strict";
 
 /**
+ * Delay before reconnecting a dead native host, in milliseconds. Unexpected
+ * disconnects use it directly; it also bounds the forced-disconnect fallback
+ * window in scheduleReconnect(). Short enough that an MV3 service-worker
+ * suspension inside the window is covered by the constructor's cold-start
+ * connect.
+ *
+ * @since 1.0.8
+ */
+const RECONNECT_DELAY_MS = 1000;
+
+/**
  * Native host transport for the background agent.
  *
  * Owns the native messaging connection: initial connect, reconnect scheduling, the
@@ -88,14 +99,12 @@ export class NativeTransport extends EventTarget {
     /**
      * Schedule a native-host reconnect, replacing any pending reconnect.
      *
-     * If the current connection is still considered live (e.g. init failed
-     * against a wedged host that never disconnected), the port is forcibly
-     * disconnected so the retry spawns a fresh host process; the resulting
-     * `#onNativeDisconnect` then schedules the actual reconnect on its normal
-     * short timer. Should the browser never deliver `onDisconnect` for the
-     * forced disconnect, an identity-guarded fallback clears the stale state
-     * and reconnects, so the agent cannot wedge with a dead-but-flagged-live
-     * port while no ping watchdog is running.
+     * If the connection is still flagged live (e.g. init failed against a
+     * wedged host), the port is force-disconnected so the retry spawns a
+     * fresh host; `#onNativeDisconnect` then schedules the real reconnect.
+     * The browser does not deliver onDisconnect for a self-initiated
+     * disconnect while the host lives, so an identity-guarded fallback
+     * clears the stale state instead.
      * @since 1.0.7
      * @param {number} delay - Time to wait before reconnecting, in milliseconds.
      * @returns {void}
@@ -112,13 +121,18 @@ export class NativeTransport extends EventTarget {
                 } catch (_err) {
                     // already disconnected; nothing to clean up
                 }
-                // Fallback if onDisconnect is never delivered for the forced disconnect
+                // Fallback if onDisconnect is never delivered for the forced disconnect.
+                // Route through #onNativeDisconnect so owner state (e.g. the config)
+                // is cleared exactly as it is for a delivered disconnect.
                 setTimeout(() => {
                     if (!this.#destroyed && this.#connectedNative && this.#host === host) {
-                        this.#connectedNative = false;
-                        this.ensureConnected();
+                        // A rejected #onNativeDisconnect must not swallow the reconnect, or the transport wedges for good.
+                        this.#onNativeDisconnect().catch((err) => {
+                            console.error(err);
+                            this.scheduleReconnect(RECONNECT_DELAY_MS);
+                        });
                     }
-                }, 1000);
+                }, RECONNECT_DELAY_MS);
             }
             this.ensureConnected();
         }, delay);
@@ -135,10 +149,18 @@ export class NativeTransport extends EventTarget {
             clearTimeout(this.#reconnectTimer);
             this.#reconnectTimer = null;
         }
-        this.#host = chrome.runtime.connectNative("com.github.erayd.parcel");
+        const host = chrome.runtime.connectNative("com.github.erayd.parcel");
+        this.#host = host;
         this.#connectedNative = true;
-        this.#host.onDisconnect.addListener(this.#onNativeDisconnect.bind(this));
-        this.#host.onMessage.addListener(this.#onNativeMessage.bind(this));
+        // Guard by port identity: a stale port left over from a forced disconnect
+        // keeps its listeners, and its late events must not tear down the
+        // replacement connection or corrupt its in-flight calls.
+        host.onDisconnect.addListener(() => {
+            if (this.#host === host) this.#onNativeDisconnect();
+        });
+        host.onMessage.addListener((message) => {
+            if (this.#host === host) this.#onNativeMessage(message);
+        });
     }
 
     /**
@@ -146,12 +168,9 @@ export class NativeTransport extends EventTarget {
      * (in src/parcel-host's dd() shadow) from killing the host during normal
      * idle periods. The interval is well within the host's 300s timeout.
      *
-     * A ping timeout does not necessarily mean the host is dead - the ping's
-     * 5s window can lapse while the host is legitimately busy (e.g. a long
-     * pinentry wait inside a decrypt). But if several pings fail in a row the
-     * host is assumed wedged with its pipe still open (where the watchdog
-     * cannot help), so the port is disconnected, which routes through
-     * #onNativeDisconnect and reconnects with a fresh host.
+     * Repeated failures imply a wedged host with its pipe still open (a single
+     * timeout can just be a busy host, e.g. a long pinentry). Probe once before
+     * reconnecting so a host that unwedged during detection is left alone.
      *
      * @since 1.0.5
      * @returns {void}
@@ -169,7 +188,8 @@ export class NativeTransport extends EventTarget {
                     if (++this.#nativePingFailures >= 3 && this.#connectedNative) {
                         console.error("Native host unresponsive after 3 consecutive pings - reconnecting");
                         this.#nativePingFailures = 0;
-                        this.#host.disconnect();
+                        // Probe first: a host that recovered during detection must not be dropped (reconnect clears the config).
+                        this.call("ping", {}, 2000).catch(() => this.scheduleReconnect(0));
                     }
                 });
         }, 60_000);
@@ -297,7 +317,12 @@ export class NativeTransport extends EventTarget {
     async #onNativeDisconnect() {
         this.#connectedNative = false;
         this.stopNativePing();
-        this.#onDisconnect();
+        try {
+            this.#onDisconnect();
+        } catch (err) {
+            // Owner callbacks are not expected to throw; a throw must not skip the reconnect below.
+            console.error(err);
+        }
         if (this.#host.error) {
             console.error(new Error(this.#host.error.message));
         }
@@ -310,6 +335,6 @@ export class NativeTransport extends EventTarget {
         // terminated inside this 1s window; on the next cold start the
         // constructor re-runs connectNative() anyway, so correctness is
         // preserved either way.
-        this.scheduleReconnect(1000);
+        this.scheduleReconnect(RECONNECT_DELAY_MS);
     }
 }

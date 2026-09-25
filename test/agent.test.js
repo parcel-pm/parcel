@@ -4,6 +4,7 @@ import assert from "node:assert";
 import nodeCrypto from "node:crypto";
 import { createChromeMock } from "./chrome-api-mock.js";
 import { Agent } from "../src/js/agent.js";
+import { NativeTransport } from "../src/js/agent-native.js";
 
 const noopConsole = { log() {}, error() {}, warn() {}, info() {}, debug() {} };
 let realConsole;
@@ -23,6 +24,14 @@ function sha256Native(s) {
  */
 function settleAsync() {
     return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Drain the microtask queue. Needed to advance promise chains while timers are
+ * mocked, where settleAsync() would itself require a timer tick.
+ */
+async function drainMicrotasks() {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 function once(emitter, event) {
@@ -816,6 +825,187 @@ describe("Agent", () => {
 
         const after = mock.getNativePort("com.github.erayd.parcel");
         assert.strictEqual(after, before, "no spurious reconnect when already connected");
+    });
+
+    test("ping watchdog recovers from a wedged host, ignoring the stale port's late onDisconnect", async (t) => {
+        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
+        // Chrome-faithful wedge semantics for the first connection: the
+        // extension's own port.disconnect() does not fire its onDisconnect,
+        // and a stopped host never reads or answers the pipe.
+        let connects = 0;
+        let wedgedForceDisconnected = false;
+        const staleDisconnectListeners = [];
+        chrome.runtime.connectNative = (hostName) => {
+            connects++;
+            if (connects > 1) return origConnectNative(hostName);
+            return {
+                postMessage() {},
+                disconnect() {
+                    wedgedForceDisconnected = true;
+                },
+                onMessage: { addListener() {}, removeListener() {} },
+                onDisconnect: {
+                    addListener: (fn) => staleDisconnectListeners.push(fn),
+                    removeListener() {},
+                },
+            };
+        };
+
+        let transport = null;
+        try {
+            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+            transport = new NativeTransport({
+                onError: () => {},
+                onBroadcast: () => {},
+                onDisconnect: () => {},
+            });
+            transport.startNativePing();
+
+            // three consecutive ping timeouts trip the watchdog; its probe also times out
+            for (let i = 0; i < 3; i++) {
+                t.mock.timers.tick(60_000);
+                await drainMicrotasks(); // ping dispatched, 5s timeout registered
+                t.mock.timers.tick(5_000);
+                await drainMicrotasks(); // rejection reaches the failure counter
+            }
+            t.mock.timers.tick(2_000);
+            await drainMicrotasks(); // probe times out, scheduling the immediate reconnect
+            t.mock.timers.tick(0);
+            await drainMicrotasks(); // forced disconnect schedules the fallback
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // fallback fires, scheduling the actual reconnect
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // reconnect timer spawns the fresh connection
+
+            assert.strictEqual(connects, 2, "the watchdog must spawn a fresh host connection");
+            assert.ok(wedgedForceDisconnected, "the wedged port must be force-disconnected");
+            assert.ok(transport.connected, "the new connection must be reported as live");
+
+            // the wedged host finally exits, delivering the stale port's late
+            // onDisconnect; the port-identity guard must ignore it
+            for (const fn of staleDisconnectListeners) fn();
+            await drainMicrotasks();
+            t.mock.timers.tick(5_000);
+            await drainMicrotasks();
+
+            assert.strictEqual(connects, 2, "late stale onDisconnect must not trigger another reconnect");
+            assert.ok(transport.connected, "the live connection survives the stale port's disconnect");
+        } finally {
+            transport?.destroy();
+            chrome.runtime.connectNative = origConnectNative;
+            // Without an explicit reset the runner's teardown hangs on the
+            // mocked timer queue left pending by the ping interval.
+            t.mock.timers.reset();
+        }
+    });
+
+    test("watchdog probe spares a host that recovered during the detection window", async (t) => {
+        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
+        // The first host ignores pings until it "recovers", then answers them
+        // like a healthy host (via the real mock receiver).
+        let connects = 0;
+        let forceDisconnected = false;
+        let live = false;
+        chrome.runtime.connectNative = (hostName) => {
+            connects++;
+            if (connects > 1) return origConnectNative(hostName);
+            const port = origConnectNative(hostName);
+            return {
+                postMessage(message) {
+                    if (message.action === "ping" && live) {
+                        mock.getNativePort("com.github.erayd.parcel").receiver.postMessage({ token: message.token, data: {} });
+                    }
+                },
+                disconnect() {
+                    forceDisconnected = true;
+                },
+                onMessage: port.onMessage,
+                onDisconnect: port.onDisconnect,
+            };
+        };
+
+        let transport = null;
+        try {
+            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+            transport = new NativeTransport({
+                onError: () => {},
+                onBroadcast: () => {},
+                onDisconnect: () => {},
+            });
+            transport.startNativePing();
+
+            // three consecutive ping timeouts trip the watchdog...
+            for (let i = 0; i < 2; i++) {
+                t.mock.timers.tick(60_000);
+                await drainMicrotasks();
+                t.mock.timers.tick(5_000);
+                await drainMicrotasks();
+            }
+            t.mock.timers.tick(60_000);
+            await drainMicrotasks();
+            // ...but the host recovers as the third ping times out, so the
+            // watchdog's verification probe is answered.
+            live = true;
+            t.mock.timers.tick(5_000);
+            await drainMicrotasks();
+
+            t.mock.timers.tick(10_000); // any reconnect attempt would settle here
+            await drainMicrotasks();
+
+            assert.strictEqual(connects, 1, "a host that answers the probe must not be reconnected");
+            assert.ok(!forceDisconnected, "the recovered port is not force-disconnected");
+            assert.ok(transport.connected, "the live connection is preserved");
+        } finally {
+            transport?.destroy();
+            chrome.runtime.connectNative = origConnectNative;
+            t.mock.timers.reset();
+        }
+    });
+
+    test("a throwing owner onDisconnect callback does not swallow the reconnect", async (t) => {
+        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
+        let connects = 0;
+        let wedgedForceDisconnected = false;
+        // Wedged host: its own onDisconnect is never delivered for a forced disconnect.
+        chrome.runtime.connectNative = (hostName) => {
+            connects++;
+            if (connects > 1) return origConnectNative(hostName);
+            return {
+                postMessage() {},
+                disconnect() {
+                    wedgedForceDisconnected = true;
+                },
+                onMessage: { addListener() {}, removeListener() {} },
+                onDisconnect: { addListener() {}, removeListener() {} },
+            };
+        };
+
+        let transport = null;
+        try {
+            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+            transport = new NativeTransport({
+                onError: () => {},
+                onBroadcast: () => {},
+                onDisconnect: () => {
+                    throw new Error("owner callback failed");
+                },
+            });
+
+            transport.scheduleReconnect(0);
+            t.mock.timers.tick(0);
+            await drainMicrotasks(); // forced disconnect schedules the fallback
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // fallback runs #onNativeDisconnect, which throws
+            t.mock.timers.tick(1_000);
+            await drainMicrotasks(); // the reconnect must still be scheduled
+
+            assert.ok(wedgedForceDisconnected, "the wedged port must be force-disconnected");
+            assert.strictEqual(connects, 2, "a thrown owner callback must not prevent the reconnect");
+        } finally {
+            transport?.destroy();
+            chrome.runtime.connectNative = origConnectNative;
+            t.mock.timers.reset();
+        }
     });
 
     describe("HTTP auth interception", () => {
