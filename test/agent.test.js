@@ -579,7 +579,7 @@ describe("Agent", () => {
         await settleAsync();
 
         // Before releasing the list response, only one list call should have
-        // been dispatched. This is guaranteed by the #callNative semaphore
+        // been dispatched. This is guaranteed by NativeTransport's call semaphore
         // (which serialises native calls), not by the debounce — the debounce
         // is verified by the final assertion below.
         assert.strictEqual(listCalls, 1, "action_list called only once before response");

@@ -18,6 +18,11 @@ import { createChromeMock } from "./chrome-api-mock.js";
  * context so onConnect responders observe later reassignments.
  */
 
+/**
+ * Flush the pending microtask queue.
+ * @since 1.0.0
+ * @returns {Promise<void>} Resolves after one microtask tick.
+ */
 export function flushMicrotasks() {
     return new Promise((resolve) => queueMicrotask(resolve));
 }
@@ -28,11 +33,22 @@ export function flushMicrotasks() {
  * A macrotask (setTimeout) only executes after the event loop has emptied
  * the *entire* microtask queue, including all chained promise resolutions.
  * This is the deterministic alternative to guessing a loop count.
+ *
+ * @since 1.0.0
+ * @returns {Promise<void>} Resolves on the next macrotask.
  */
 export function settleAsync() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Resolve with the next message received on a port.
+ * @since 1.0.0
+ * @param {object} port - Mock port to listen on.
+ * @param {string|null} [action] - Required message action, or any message when null.
+ * @param {number} [timeout] - Reject after this many milliseconds without a match.
+ * @returns {Promise<object>} The first matching message.
+ */
 export function nextMessage(port, action = null, timeout = 5000) {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`Timeout waiting for message${action ? ` action=${action}` : ""}`)), timeout);
@@ -47,6 +63,12 @@ export function nextMessage(port, action = null, timeout = 5000) {
     });
 }
 
+/**
+ * Build an integration config object that passes schema validation.
+ * @since 1.0.0
+ * @param {object} [overrides] - Merged over the defaults.
+ * @returns {object} A valid integration config.
+ */
 export function makeValidConfig(overrides = {}) {
     return {
         modified: 1,
@@ -98,11 +120,22 @@ export function makeValidConfig(overrides = {}) {
     };
 }
 
+/**
+ * Remove all body content and stray popups between tests.
+ * @since 1.0.0
+ * @returns {void}
+ */
 export function clearBody() {
     document.body.innerHTML = "";
     document.querySelectorAll(".parcel-popup").forEach((el) => el.remove());
 }
 
+/**
+ * Create an input element and append it to the body.
+ * @since 1.0.0
+ * @param {object} [attrs] - Attribute overrides; type defaults to "text", value to "".
+ * @returns {HTMLInputElement} The appended input.
+ */
 export function makeInput(attrs = {}) {
     const el = document.createElement("input");
     for (const [k, v] of Object.entries({ type: "text", value: "", ...attrs })) {
@@ -112,6 +145,12 @@ export function makeInput(attrs = {}) {
     return el;
 }
 
+/**
+ * Simulate a user click and let async handlers settle.
+ * @since 1.0.0
+ * @param {HTMLElement} el - Element to click.
+ * @returns {Promise<void>} Resolves after one macrotask.
+ */
 export async function click(el) {
     el._lastClicked = 0;
     el.dispatchEvent(new window.MouseEvent("click", { bubbles: true, clientX: 10, clientY: 10 }));
@@ -121,6 +160,7 @@ export async function click(el) {
 /**
  * Bootstrap a JSDOM environment with integration.js loaded and ready.
  *
+ * @since 1.0.0
  * @returns {Promise<object>} Context: dom, window, document, mock,
  *   portReceivers, portCallers, stashReports, initStashReports,
  *   trackedTimers, and the mutable liveFrameId scalar.
@@ -139,7 +179,7 @@ export async function setupIntegration() {
         return id;
     };
 
-    // Keep console stubbed during tests — integration.js logs elements and
+    // Keep console stubbed during tests - integration.js logs elements and
     // warnings on routine error paths (blacklist, missing config, etc.) that
     // we don't want polluting test output.  Node's runner still reports
     // assertion failures via its own reporter.
@@ -246,7 +286,9 @@ export async function setupIntegration() {
 /**
  * Restore globals patched by setupIntegration(): cancel tracked intervals,
  * restore the original setInterval, and unstub globalThis.console.
+ * @since 1.0.0
  * @param {object} ctx - Context returned by setupIntegration().
+ * @returns {void}
  */
 export function teardownIntegration(ctx) {
     ctx.trackedTimers.forEach((t) => clearInterval(t.id));

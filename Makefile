@@ -146,6 +146,7 @@ test: test-syntax require-shellcheck
 		test/main-world-webauthn.test.js \
 		test/agent.test.js \
 		test/integration.test.js \
+		test/webauthn-integration.test.js \
 		test/integration-scope.test.js \
 		test/popup.test.js \
 		test/popup-context.test.js \

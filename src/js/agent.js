@@ -72,8 +72,8 @@ export class Agent extends EventTarget {
         }
 
         // Content scripts send a periodic keepalive message to reset the MV3
-        // service worker's inactivity timer, keeping the worker (and its
-        // #nativePingInterval below) alive as long as at least one tab is open.
+        // service worker's inactivity timer, keeping the worker (and the
+        // native transport's ping interval) alive as long as at least one tab is open.
         chrome.runtime.onMessage.addListener((msg, sender) => {
             if (msg?.type === "keepalive") return;
             if (msg?.type === "parcel-error-stash") void this.#handleErrorStash(msg, sender);

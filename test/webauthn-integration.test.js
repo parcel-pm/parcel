@@ -487,7 +487,7 @@ describe("WebAuthn/passkey bridge", { concurrency: false }, () => {
                 });
             },
         });
-        // Provide a Permissions-Policy that denies WebAuthn — this is the
+        // Provide a Permissions-Policy that denies WebAuthn - this is the
         // ISOLATED-world gate that blocks forged events when the top frame
         // has not opted in via the allow attribute
         Object.defineProperty(document, "permissionsPolicy", {
@@ -588,7 +588,7 @@ describe("WebAuthn/passkey bridge", { concurrency: false }, () => {
             const contextPromise = nextMessage(popup, "passkey-context", 3000);
             popup.postMessage({ action: "ready" });
             const context = await contextPromise;
-            // hints must not defer the ceremony — it reaches the popup
+            // hints must not defer the ceremony - it reaches the popup
             assert.strictEqual(context.context.op, "create");
             assert.deepStrictEqual(context.context.hintWarning.violated, ["security-key", "hybrid"]);
             popup.postMessage({ action: "passkey-cancel" });
@@ -677,14 +677,14 @@ describe("WebAuthn/passkey bridge", { concurrency: false }, () => {
         const teardown = fakePasskeyAgent((port, msg) => {
             if (msg.phase === "candidates") port.postMessage({ action: "passkey-candidates", rpId: "example.com", candidates: [] });
         });
-        // No permissionsPolicy API — ceremony proceeds via the MAIN-world gate and downstream validation.
+        // No permissionsPolicy API - ceremony proceeds via the MAIN-world gate and downstream validation.
         const fakeWindow = crossOriginWindow();
         const realWindow = globalThis.window;
         globalThis.window = fakeWindow;
         try {
             const response = await dispatchPasskey({ requestId: "pw-xorigin-nopolicy", op: "get", options: GET_OPTIONS() });
             // get with no candidates still falls back (no stored passkeys),
-            // but the background worker was contacted — that's how it knows
+            // but the background worker was contacted - that's how it knows
             assert.strictEqual(response.type, "fallback");
         } finally {
             globalThis.window = realWindow;
