@@ -871,6 +871,9 @@ describe("Agent", () => {
         } finally {
             transport?.destroy();
             chrome.runtime.connectNative = origConnectNative;
+            // Without an explicit reset the runner's teardown hangs on the
+            // mocked timer queue left pending by the ping interval.
+            t.mock.timers.reset();
         }
     });
 
