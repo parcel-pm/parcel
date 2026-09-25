@@ -1,9 +1,11 @@
 "use strict";
 
 /**
- * Delay before reconnecting a dead native host, in milliseconds. Both unexpected
- * disconnects and the ping watchdog use it. Short enough that an MV3 service-worker
- * suspension inside the window is covered by the constructor's cold-start connect.
+ * Delay before reconnecting a dead native host, in milliseconds. Unexpected
+ * disconnects use it directly; it also bounds the forced-disconnect fallback
+ * window in scheduleReconnect(). Short enough that an MV3 service-worker
+ * suspension inside the window is covered by the constructor's cold-start
+ * connect.
  *
  * @since 1.0.8
  */
@@ -135,6 +137,18 @@ export class NativeTransport extends EventTarget {
     }
 
     /**
+     * Cancel any pending scheduled reconnect.
+     * @since 1.0.8
+     * @returns {void}
+     */
+    cancelReconnect() {
+        if (this.#reconnectTimer) {
+            clearTimeout(this.#reconnectTimer);
+            this.#reconnectTimer = null;
+        }
+    }
+
+    /**
      * Open a connection to the native host.
      * @since 1.0.0
      * @returns {void}
@@ -168,11 +182,13 @@ export class NativeTransport extends EventTarget {
      * 5s window can lapse while the host is legitimately busy (e.g. a long
      * pinentry wait inside a decrypt). But if several pings fail in a row the
      * host is assumed wedged with its pipe still open (where the watchdog
-     * cannot help), so a reconnect is scheduled through scheduleReconnect():
-     * it force-disconnects the port, and its identity-guarded fallback
-     * recovers even when the browser never delivers onDisconnect for that
-     * self-initiated disconnect (which it does not for a host that never
-     * exits).
+     * cannot help), so the watchdog first probes the host with one short ping -
+     * a host that unwedged during the detection window (e.g. pinentry finished)
+     * answers the probe and is left alone - and only a still-wedged host is
+     * reconnected via scheduleReconnect(0). That force-disconnects the port, and
+     * its identity-guarded fallback recovers even when the browser never delivers
+     * onDisconnect for that self-initiated disconnect (which it does not for a
+     * host that never exits).
      *
      * @since 1.0.5
      * @returns {void}
@@ -190,7 +206,11 @@ export class NativeTransport extends EventTarget {
                     if (++this.#nativePingFailures >= 3 && this.#connectedNative) {
                         console.error("Native host unresponsive after 3 consecutive pings - reconnecting");
                         this.#nativePingFailures = 0;
-                        this.scheduleReconnect(RECONNECT_DELAY_MS);
+                        // Probe before committing to a reconnect: the host may
+                        // have unwedged (e.g. pinentry finished) during the
+                        // detection window, and dropping a live host needlessly
+                        // clears the config. Only a wedged host is reconnected.
+                        this.call("ping", {}, 2000).catch(() => this.scheduleReconnect(0));
                     }
                 });
         }, 60_000);

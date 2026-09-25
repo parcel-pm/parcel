@@ -859,8 +859,10 @@ describe("Agent", () => {
                 t.mock.timers.tick(5_000);
                 await drainMicrotasks(); // rejection reaches the failure counter
             }
-            // reconnect delay, then the identity-guarded fallback window
-            t.mock.timers.tick(1_000);
+            // watchdog probe (2s) times out, triggering the immediate reconnect
+            t.mock.timers.tick(2_000);
+            await drainMicrotasks();
+            t.mock.timers.tick(0);
             await drainMicrotasks(); // forced disconnect schedules the fallback
             t.mock.timers.tick(1_000);
             await drainMicrotasks(); // fallback fires, scheduling the actual reconnect
@@ -917,8 +919,11 @@ describe("Agent", () => {
                 t.mock.timers.tick(5_000);
                 await drainMicrotasks();
             }
-            t.mock.timers.tick(1_000); // watchdog reconnect delay: forced disconnect
+            // watchdog probe times out before the reconnect fires
+            t.mock.timers.tick(2_000);
             await drainMicrotasks();
+            t.mock.timers.tick(0);
+            await drainMicrotasks(); // forced disconnect
             t.mock.timers.tick(1_000); // fallback fires
             await drainMicrotasks();
             t.mock.timers.tick(1_000); // reconnect timer spawns the fresh connection
@@ -933,6 +938,72 @@ describe("Agent", () => {
 
             assert.strictEqual(connects, 2, "late stale onDisconnect must not trigger another reconnect");
             assert.ok(transport.connected, "the live connection survives the stale port's disconnect");
+        } finally {
+            transport?.destroy();
+            chrome.runtime.connectNative = origConnectNative;
+            t.mock.timers.reset();
+        }
+    });
+
+    test("watchdog probe spares a host that recovered during the detection window", async (t) => {
+        const origConnectNative = chrome.runtime.connectNative.bind(chrome.runtime);
+        // The first host ignores pings until it "recovers", then answers them
+        // like a healthy host (via the real mock receiver).
+        let connects = 0;
+        let forceDisconnected = false;
+        let live = false;
+        chrome.runtime.connectNative = (hostName) => {
+            connects++;
+            if (connects > 1) return origConnectNative(hostName);
+            const port = origConnectNative(hostName);
+            return {
+                postMessage(message) {
+                    if (message.action === "ping" && live) {
+                        mock.getNativePort("com.github.erayd.parcel").receiver.postMessage({ token: message.token, data: {} });
+                    }
+                },
+                disconnect() {
+                    forceDisconnected = true;
+                },
+                onMessage: port.onMessage,
+                onDisconnect: port.onDisconnect,
+            };
+        };
+        const drainMicrotasks = async () => {
+            for (let i = 0; i < 10; i++) await Promise.resolve();
+        };
+
+        let transport = null;
+        try {
+            t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+            transport = new NativeTransport({
+                onError: () => {},
+                onBroadcast: () => {},
+                onDisconnect: () => {},
+            });
+            transport.startNativePing();
+
+            // three consecutive ping timeouts trip the watchdog...
+            for (let i = 0; i < 2; i++) {
+                t.mock.timers.tick(60_000);
+                await drainMicrotasks();
+                t.mock.timers.tick(5_000);
+                await drainMicrotasks();
+            }
+            t.mock.timers.tick(60_000);
+            await drainMicrotasks();
+            // ...but the host recovers as the third ping times out, so the
+            // watchdog's verification probe is answered.
+            live = true;
+            t.mock.timers.tick(5_000);
+            await drainMicrotasks();
+
+            t.mock.timers.tick(10_000); // any reconnect attempt would settle here
+            await drainMicrotasks();
+
+            assert.strictEqual(connects, 1, "a host that answers the probe must not be reconnected");
+            assert.ok(!forceDisconnected, "the recovered port is not force-disconnected");
+            assert.ok(transport.connected, "the live connection is preserved");
         } finally {
             transport?.destroy();
             chrome.runtime.connectNative = origConnectNative;
