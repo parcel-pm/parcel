@@ -300,6 +300,11 @@ if [ ! -e "$PARCELRC" ]; then
 # script before they are executed, you can set this to the expected hash and the
 # bootstrap script will verify the hash of the script before executing it.
 #HOST_HASH="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+# The minimum host script version accepted on install. The bootstrap host
+# refuses to install a candidate script whose HOST_VERSION is lower than this
+# value or the minimum recorded in the state file, whichever is higher.
+#MINIMUM_HOST_VERSION="0"
 EOT
 chmod 0600 "$PARCELRC"
 fi
@@ -314,7 +319,7 @@ fi
 # its full session environment, and only validated parcelrc content may set these.
 # PASSWORD_STORE_DIR is the exception, as setting it in the session environment is
 # legitimate and longstanding for pass users.
-unset VALID_SIGNERS BLACKLIST_SIGNERS GPG JQ OPENSSL LOGFILE STATEFILE HOST_HASH
+unset VALID_SIGNERS BLACKLIST_SIGNERS MINIMUM_HOST_VERSION HOST_VERSION GPG JQ OPENSSL LOGFILE STATEFILE HOST_HASH
 
 # default paths; parcelrc may override them
 LOGFILE="$HOME/.local/log/parcel-host.log"
@@ -451,6 +456,12 @@ function parcelrc_apply() {
             [[ "$VALUE" =~ ^[0-9A-Fa-f]{64}$ ]] ||
                 parcelrc_fatal "HOST_HASH must be a 64-character hex sha256 hash"
             ;;
+        MINIMUM_HOST_VERSION)
+            if [[ ! "$VALUE" =~ ^[0-9]+$ ]]; then
+                parcelrc_note "MINIMUM_HOST_VERSION is malformed; ignoring it"
+                return 1
+            fi
+            ;;
         LOGFILE | STATEFILE | PASSWORD_STORE_DIR)
             case "$VALUE" in
                 /* | \$HOME | \$HOME/* | \$\{HOME\} | \$\{HOME\}/*) ;;
@@ -566,6 +577,10 @@ fi
 # effective revocation list (state-file value, then the shipped list)
 BLACKLIST_SIGNERS=""
 
+# effective host version floor: the higher of the parcelrc value and the
+# state-file value, combined by load_version_floor
+MINIMUM_HOST_VERSION="${MINIMUM_HOST_VERSION:-0}"
+
 if [ -n "$GPG" ]; then function gpg() { "$GPG" "$@"; return $?; }; fi
 if [ -n "$JQ" ]; then function jq() { "$JQ" "$@"; return $?; }; fi
 
@@ -623,6 +638,43 @@ function load_blacklist() {
         return 0
     fi
     BLACKLIST_SIGNERS="$VALUE"
+    return 0
+}
+
+# Load the host version floor from the state file, or its locked variant.
+# Unknown state lines are ignored: only the floor value is validated, so
+# future state fields can't break the bootstrap. Missing files, bad
+# permissions, or a malformed value contribute a floor of zero. The effective
+# floor is the higher of the parcelrc and state-file values.
+#
+# @return 0 always; problems are logged, not reported.
+# @since 1.0.8
+function load_version_floor() {
+    # deliberately lockless to keep the bootstrap simple: a mid-save read fails validation and fails open
+    local FILE="$STATEFILE"
+    if [ ! -e "$FILE" ] && [ -e "$STATEFILE.locked" ]; then
+        FILE="$STATEFILE.locked"
+    fi
+    local STATE_VERSION="0"
+    if [ -e "$FILE" ]; then
+        if [ "$FILE" != "$(find "$FILE" -maxdepth 1 -type f -perm 0600 2>/dev/null || true)" ]; then
+            printf '[%s] state file %s must have permissions 0600; ignoring version floor\n' \
+                "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$FILE" >&5
+        else
+            local CONTENT VALUE
+            CONTENT="$(cat "$FILE" 2>/dev/null)" || CONTENT=""
+            VALUE="$(sed -n 's/^MINIMUM_HOST_VERSION="\(.*\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
+            if [ -n "$VALUE" ] && [[ ! "$VALUE" =~ ^[0-9]+$ ]]; then
+                printf '[%s] state file %s has an invalid version floor; ignoring it\n' \
+                    "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$FILE" >&5
+                VALUE=""
+            fi
+            STATE_VERSION="${VALUE:-0}"
+        fi
+    fi
+    if (( 10#$STATE_VERSION > 10#$MINIMUM_HOST_VERSION )); then
+        MINIMUM_HOST_VERSION="$STATE_VERSION"
+    fi
     return 0
 }
 
@@ -723,6 +775,20 @@ function action_install() {
         fi
     fi
 
+    # version ratchet: refuse candidates below the effective minimum version
+    local CANDIDATE_VERSION
+    CANDIDATE_VERSION="$(sed -n 's/^HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' <<< "$SCRIPT" | head -n1)"
+    if [[ ! "$CANDIDATE_VERSION" =~ ^[0-9]+$ ]]; then
+        # a script without a version marker predates the ratchet and earns no floor credit
+        CANDIDATE_VERSION="0"
+    fi
+    if (( 10#$CANDIDATE_VERSION < 10#$MINIMUM_HOST_VERSION )); then
+        printf '[%s] Refusing to install host script version %s: the minimum permitted version is %s\n' \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$CANDIDATE_VERSION" "$MINIMUM_HOST_VERSION" >&5
+        parcel_error "Refusing to install outdated host script"
+        return 0
+    fi
+
     PARCEL_HOST="$SCRIPT"
 
     parcel_send '{"success": true, "message": "Native host script installed successfully"}'
@@ -780,6 +846,9 @@ fi
 
 # load the persisted signer revocation list before the event loop
 load_blacklist
+
+# load the persisted host version floor before the event loop
+load_version_floor
 
 # tell the extension that we are ready for bootstrapping
 parcel_send "$(jq -n --arg version "$BOOTSTRAP_VERSION" '{action: "bootstrap", version: $version}')"

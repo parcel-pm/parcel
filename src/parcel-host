@@ -21,6 +21,15 @@ set -e
 # set up the environment
 # shellcheck disable=SC2034 # consumed by parcel_transmit() / parcel_send() in the bootstrap host
 TOKEN="broadcast"
+# Version of this host script. The bootstrap host refuses to install a
+# candidate script whose version is lower than the effective minimum (the
+# higher of the parcelrc and state-file floors), and the value is persisted
+# to the state file by save_state, completing the ratchet.
+HOST_VERSION="1"
+# ratchet the in-memory floor: no later install in this session may be older
+if (( 10#$HOST_VERSION > 10#${MINIMUM_HOST_VERSION:-0} )); then
+    MINIMUM_HOST_VERSION="$HOST_VERSION"
+fi
 ALLOWED_FILES=()
 PASSKEY_FILES=()
 if [ ! -d "$PASSWORD_STORE_DIR" ]; then
@@ -82,12 +91,14 @@ function validate_state_content() {
     local LINE
     local FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
     local BLACKLIST_RE="^BLACKLIST_SIGNERS=\"(${FPR_PATTERN}( ${FPR_PATTERN})*)?\"$"
+    local FLOOR_RE='^MINIMUM_HOST_VERSION="[0-9]+"$'
     while IFS= read -r LINE || [[ -n "$LINE" ]]; do
         # Skip empty and whitespace-only lines
         [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
         # Each non-empty line must be a whitelisted assignment.
         [[ "$LINE" =~ ^(DECRYPT_BUCKET_TOKENS|DECRYPT_BUCKET_LAST)=[0-9]+$ ]] && continue
         [[ "$LINE" =~ $BLACKLIST_RE ]] && continue
+        [[ "$LINE" =~ $FLOOR_RE ]] && continue
         return 1
     done <<< "$CONTENT"
     return 0
@@ -111,10 +122,10 @@ function load_state() {
             "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$LOCKED_STATEFILE" >&5
         return 0
     fi
-    # skip the persisted blacklist: the shipped list is authoritative. The
-    # persisted copy is a cache of the last installed script's list; durable
-    # revocations belong in parcelrc.
-    eval "$(sed '/^BLACKLIST_SIGNERS=/d' <<< "$CONTENT")"
+    # skip the persisted blacklist and version floor: the shipped values are
+    # authoritative. The persisted copies are caches of the last installed
+    # script's values; durable floors belong in parcelrc.
+    eval "$(sed -e '/^BLACKLIST_SIGNERS=/d' -e '/^MINIMUM_HOST_VERSION=/d' <<< "$CONTENT")"
     # discard loaded values if they are non-numeric
     if [[ ! "$DECRYPT_BUCKET_TOKENS" =~ ^[0-9]+$ ]]; then
         DECRYPT_BUCKET_TOKENS=""
@@ -125,11 +136,12 @@ function load_state() {
 }
 
 # save current state variables to the state file (clobbers).
-# only non-sensitive numeric values and the signer blacklist are written.
+# only non-sensitive numeric values, the shipped blacklist and the version
+# floor are written.
 # Only valid under the state lock (see lock_state).
 function save_state() {
-    printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\nBLACKLIST_SIGNERS="%s"\n' \
-        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" "$BLACKLIST_SIGNERS" > "$LOCKED_STATEFILE"
+    printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\nBLACKLIST_SIGNERS="%s"\nMINIMUM_HOST_VERSION="%s"\n' \
+        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" "$BLACKLIST_SIGNERS" "$HOST_VERSION" > "$LOCKED_STATEFILE"
     chmod 0600 "$LOCKED_STATEFILE"
 }
 
@@ -252,6 +264,20 @@ function repair_state() {
             DECRYPT_BUCKET_TOKENS="${DECRYPT_BUCKET_TOKENS:-0}"
             DECRYPT_BUCKET_LAST="${DECRYPT_BUCKET_LAST:-0}"
             save_state
+        else
+            # valid content with a current blacklist: only a stale or missing floor remains
+            local PERSISTED_FLOOR
+            PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
+            if (( 10#${PERSISTED_FLOOR:-0} < 10#$HOST_VERSION )); then
+                printf '[%s] state file %s predates this host version; updating the version floor\n' \
+                    "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
+                # valid content: preserve the persisted bucket state
+                load_state
+                # a floor-only file has no bucket lines; fall back to defaults
+                DECRYPT_BUCKET_TOKENS="${DECRYPT_BUCKET_TOKENS:-0}"
+                DECRYPT_BUCKET_LAST="${DECRYPT_BUCKET_LAST:-0}"
+                save_state
+            fi
         fi
     fi
     unlock_state

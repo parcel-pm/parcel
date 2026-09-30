@@ -70,6 +70,12 @@ This ensures the value you pin matches what the host computes at runtime.
 
 This is an **opt-in** defence-in-depth measure. It is not set by default because it requires manual intervention on every update. However, as the native host has shell access to your system outside of the browser sandbox, it is ***strongly*** recommended that you enable this feature.
 
+### Host version ratchet
+
+The main host script ships a `HOST_VERSION` variable (a monotonically increasing integer) and persists it to the state file as `MINIMUM_HOST_VERSION` on every state save. On every install, the bootstrap host refuses a candidate script whose version is lower than the higher of the state-file floor and `MINIMUM_HOST_VERSION` in `parcelrc`; scripts without a version marker are treated as version 0. This prevents a known-vulnerable host release from being reinstalled (replayed with a previously valid signature) once a newer release has run on the machine: signature validity alone proves authenticity of an old release, not that the old release is still acceptable.
+
+Like signer revocation, the state-file floor only bites after a newer release has been delivered and run, and it shares the state file's trust boundaries: it is a cache written by the most recently installed host, not an append-only history. A floor that must outlive state-file manipulation belongs in `parcelrc`.
+
 ### parcelrc hardening
 
 `parcelrc` is a trusted file owned by the user. The bootstrap host honours only canonical `KEY="value"` lines (comments and blank lines permitted) for the fixed set of recognised keys documented below; every other line is ignored. As a consequence, content added to `parcelrc` cannot alter host-critical settings such as `PATH`, and user-level malware that can edit the file gains no additional effect beyond toggling the documented options. Values are validated before use: signer and revocation lists must be well-formed fingerprints (an invalid `VALID_SIGNERS` or `HOST_HASH` refuses startup), path settings must be absolute, and binary overrides (`GPG`, `JQ`, `OPENSSL`) must resolve to executable files.
@@ -186,6 +192,7 @@ Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` wh
 | `VALID_SIGNERS` | Space-separated list of GPG fingerprints trusted to sign the main host script. |
 | `BLACKLIST_SIGNERS` | Space-separated list of revoked GPG fingerprints (primary or subkey form both match; matching is case-insensitive). |
 | `HOST_HASH` | Optional SHA-256 pin of `src/parcel-host`. When set, the bootstrap host refuses to execute updated host scripts until the pin is updated after review. |
+| `MINIMUM_HOST_VERSION` | Minimum installable `HOST_VERSION` of the main host script. Combined with the state-file floor; the higher value wins. |
 | `GPG` | GPG binary: a command name found via `PATH`, or an absolute path (default: `gpg`). |
 | `JQ` | `jq` binary, specified the same way as `GPG` (default: `jq`). |
 | `OPENSSL` | `openssl` binary, specified the same way as `GPG` (default: `openssl`). |

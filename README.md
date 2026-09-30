@@ -319,6 +319,7 @@ When the bootstrap host is installed system-wide (owned by root rather than by y
 | `STATEFILE` | `~/.config/parcel/state` | Non-sensitive runtime state (rate-limiter bucket, signer revocation cache). |
 | `PASSWORD_STORE_DIR` | `~/.password-store` | Root directory of your `pass` password store. May also be set in the session environment. |
 | `HOST_HASH` | *(none)* | Optional SHA-256 hash of `src/parcel-host` (run `sha256sum src/parcel-host`). When set, the bootstrap host will refuse to execute updated scripts until you update this value after review. |
+| `MINIMUM_HOST_VERSION` | *(0)* | Minimum `HOST_VERSION` of the main host script the bootstrap host will install. Combined with the state-file floor; the higher value wins. |
 
 Example `parcelrc`:
 
@@ -333,6 +334,8 @@ HOST_HASH="b7b76abadd3f13e6bcf554c39547d44ae19a299c8fc2e73ae8cbccd9a34d9b40"
 ```
 
 The bootstrap host also consults the state file (`~/.config/parcel/state`) for a `BLACKLIST_SIGNERS` entry, combining it with any list set in `parcelrc`. The main host script itself ships a `BLACKLIST_SIGNERS` list inside the script (empty unless a release signing key has been revoked), and persists it to the state file at startup and on every state save, so the revocation is enforced automatically in later browser sessions; this is how a compromised signing key can be revoked through the usual extension update path. The state-file entry is a cache of the most recently installed host script's list and is replaced by each install; durable revocations belong in `parcelrc`. See [SECURITY.md](SECURITY.md#signer-revocation) for limitations.
+
+The same state file carries a `MINIMUM_HOST_VERSION` floor, updated to the version of the most recently installed host script on every state save. On install, the bootstrap host refuses a candidate script whose shipped `HOST_VERSION` variable is lower than the higher of the state-file floor and `MINIMUM_HOST_VERSION` in `parcelrc`, so a known-vulnerable host release cannot be replayed once a newer release has run on the machine. Scripts without a `HOST_VERSION` marker are treated as version 0.
 
 ### .parcel.json
 

@@ -991,6 +991,100 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
+    test("rejects install when the candidate version is below the parcelrc floor", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, `${existing}MINIMUM_HOST_VERSION="2"\n`);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            // the candidate carries a version, but it is below the floor
+            send({ action: "install", script: 'HOST_VERSION="1"\ntrue', signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.includes("outdated host script"), `Expected version floor error, got: ${JSON.stringify(msg)}`);
+            // a script without a HOST_VERSION marker is treated as version 0
+            send({ action: "install", script: "true", signature: "sig" });
+            const msg2 = await read();
+            assert.ok(msg2.error?.includes("outdated host script"), `Expected version floor error, got: ${JSON.stringify(msg2)}`);
+            // a candidate at or above the floor is accepted
+            send({ action: "install", script: 'HOST_VERSION="2"\ntrue', signature: "sig" });
+            const msg3 = await read();
+            assert.strictEqual(msg3.data?.success, true, `Expected success at the floor, got: ${JSON.stringify(msg3)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("fails open when version floors are malformed", async () => {
+        const env = createTestEnv();
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        // Not a number: the floor must be ignored at both layers
+        writeFileSync(parcelrc, `${existing}MINIMUM_HOST_VERSION="not-a-number"\n`);
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `MINIMUM_HOST_VERSION="not-a-number"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: "test", signature: "sig" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed floors, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(
+                logContent.includes("MINIMUM_HOST_VERSION is malformed"),
+                `Expected malformed parcelrc log entry, got: ${logContent}`,
+            );
+            assert.ok(
+                logContent.includes("invalid version floor; ignoring it"),
+                `Expected invalid state floor log entry, got: ${logContent}`,
+            );
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects install when the candidate version is below the state file floor", async () => {
+        const env = createTestEnv();
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=0\nDECRYPT_BUCKET_LAST=0\nMINIMUM_HOST_VERSION="3"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: 'HOST_VERSION="2"\ntrue', signature: "sig" });
+            const msg = await read();
+            assert.ok(msg.error?.includes("outdated host script"), `Expected version floor error, got: ${JSON.stringify(msg)}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("minimum permitted version is 3"), `Expected version floor log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+        }
+
+        // without a plain state file, the bootstrap must fall back to state.locked
+        rmSync(stateFile);
+        const lockedState = join(env.home, ".config", "parcel", "state.locked");
+        writeFileSync(lockedState, `MINIMUM_HOST_VERSION="2"\n`);
+        chmodSync(lockedState, 0o600);
+
+        const host2 = spawnBootstrap(env);
+        try {
+            await host2.read(); // bootstrap msg
+            host2.send({ action: "install", script: 'HOST_VERSION="1"\ntrue', signature: "sig" });
+            const msg = await host2.read();
+            assert.ok(msg.error?.includes("outdated host script"), `Expected version floor error, got: ${JSON.stringify(msg)}`);
+        } finally {
+            host2.proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("rejects install when HOST_HASH does not match", async () => {
         const env = createTestEnv();
         // Set a HOST_HASH that won't match
@@ -1909,6 +2003,20 @@ function mainScriptWithBlacklist(fingerprints) {
     const mainScript = readFileSync("src/parcel-host", "utf8");
     const modified = mainScript.replace('BLACKLIST_SIGNERS=""', `BLACKLIST_SIGNERS="${fingerprints}"`);
     assert.ok(modified !== mainScript, "shipped BLACKLIST_SIGNERS placeholder not found in src/parcel-host");
+    return modified;
+}
+
+/**
+ * Read src/parcel-host with a shipped HOST_VERSION value injected, to emulate
+ * a host release carrying a specific version.
+ * @param {string} version - The host version to ship.
+ * @returns {string} The modified main host script.
+ * @since 1.0.8
+ */
+function mainScriptWithVersion(version) {
+    const mainScript = readFileSync("src/parcel-host", "utf8");
+    const modified = mainScript.replace('HOST_VERSION="1"', `HOST_VERSION="${version}"`);
+    assert.ok(version === "1" || modified !== mainScript, "shipped HOST_VERSION placeholder not found in src/parcel-host");
     return modified;
 }
 
@@ -3377,7 +3485,8 @@ VALID_SIGNERS="${env.knownSigner}"
         try {
             await host2.read(); // bootstrap msg
             mockGpgWithSigs(env, [{ primary: revokedFpr }]);
-            host2.send({ action: "install", script: "test", signature: "sig" });
+            // the persisted floor applies too, so the candidate carries this host's version
+            host2.send({ action: "install", script: 'HOST_VERSION="1"\ntest', signature: "sig" });
             const rejected = await host2.read();
             assert.ok(
                 rejected.error?.toLowerCase().includes("fingerprint"),
@@ -3388,13 +3497,147 @@ VALID_SIGNERS="${env.knownSigner}"
 
             // The same session must still accept a non-revoked signer
             mockGpgWithSigs(env, [{ primary: env.knownSigner }]);
-            host2.send({ action: "install", script: "test", signature: "sig" });
+            host2.send({ action: "install", script: 'HOST_VERSION="1"\ntest', signature: "sig" });
             const accepted = await host2.read();
             assert.strictEqual(accepted.data?.success, true, `Expected success, got: ${JSON.stringify(accepted)}`);
         } finally {
             host2.proc.kill();
             env.cleanup();
         }
+    });
+
+    test("save_state persists the shipped version floor", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithVersion("2"), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const msg = await read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(msg)}`);
+
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(content.includes(`MINIMUM_HOST_VERSION="2"`), `State file should contain the shipped version floor, got: ${content}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("a persisted version floor is enforced across host restarts", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        // First session: install a version-2 host and persist its floor
+        const host1 = spawnBootstrap(env);
+        try {
+            await host1.read(); // bootstrap msg
+            host1.send({ action: "install", script: mainScriptWithVersion("2"), signature: "sig" });
+            const installResult = await host1.read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            host1.send({ action: "list" });
+            await host1.read();
+            host1.send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const msg = await host1.read();
+            assert.strictEqual(msg.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(msg)}`);
+        } finally {
+            host1.proc.kill();
+        }
+
+        // Second session: with a higher parcelrc floor, the higher of the two floors wins
+        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
+        const existing = readFileSync(parcelrc, "utf8");
+        writeFileSync(parcelrc, `${existing}MINIMUM_HOST_VERSION="3"\n`);
+
+        const host2 = spawnBootstrap(env);
+        try {
+            await host2.read(); // bootstrap msg
+            // below the persisted state floor: rejected
+            host2.send({ action: "install", script: mainScriptWithVersion("1"), signature: "sig" });
+            const rejected = await host2.read();
+            assert.ok(
+                rejected.error?.includes("outdated host script"),
+                `Expected version floor error for an older candidate, got: ${JSON.stringify(rejected)}`,
+            );
+
+            // above the state floor but below the parcelrc floor: rejected
+            host2.send({ action: "install", script: mainScriptWithVersion("2"), signature: "sig" });
+            const between = await host2.read();
+            assert.ok(
+                between.error?.includes("outdated host script"),
+                `Expected version floor error below the parcelrc floor, got: ${JSON.stringify(between)}`,
+            );
+
+            // at the higher floor: accepted
+            host2.send({ action: "install", script: mainScriptWithVersion("3"), signature: "sig" });
+            const atFloor = await host2.read();
+            assert.strictEqual(atFloor.data?.success, true, `Expected success at the parcelrc floor, got: ${JSON.stringify(atFloor)}`);
+
+            // above both floors: accepted
+            host2.send({ action: "install", script: mainScriptWithVersion("4"), signature: "sig" });
+            const accepted = await host2.read();
+            assert.strictEqual(accepted.data?.success, true, `Expected success, got: ${JSON.stringify(accepted)}`);
+        } finally {
+            host2.proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("an older persisted version floor is bumped at startup", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=5\nDECRYPT_BUCKET_LAST=9\nMINIMUM_HOST_VERSION="1"\n`);
+        chmodSync(stateFile, 0o600);
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithVersion("2"), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            // the eval that repairs the file happens between main-loop iterations
+            send({ action: "list" });
+            await read();
+
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(
+                content.includes(`MINIMUM_HOST_VERSION="2"`),
+                `State file floor should be bumped to the shipped version, got: ${content}`,
+            );
+            assert.ok(content.includes("DECRYPT_BUCKET_TOKENS=5"), `State file should keep the bucket state, got: ${content}`);
+            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
+            assert.ok(logContent.includes("predates this host version"), `Expected floor bump log entry, got: ${logContent}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("the shipped script contains exactly one anchored HOST_VERSION marker", () => {
+        const mainScript = readFileSync("src/parcel-host", "utf8");
+        const matches = mainScript.match(/^HOST_VERSION="[0-9]+"$/gm) || [];
+        assert.strictEqual(
+            matches.length,
+            1,
+            `Expected exactly one anchored HOST_VERSION marker in src/parcel-host, got: ${matches.join(", ")}`,
+        );
     });
 
     test("an in-session reinstall is checked against the shipped blacklist", async () => {
@@ -3421,7 +3664,8 @@ VALID_SIGNERS="${env.knownSigner}"
 
             // A reinstall signed only by the revoked key must now be refused
             mockGpgWithSigs(env, [{ primary: revokedFpr }]);
-            send({ action: "install", script: "test", signature: "sig" });
+            // the ratcheted in-memory floor applies too, so the candidate carries this host's version
+            send({ action: "install", script: 'HOST_VERSION="1"\ntest', signature: "sig" });
             const rejected = await read();
             assert.ok(
                 rejected.error?.toLowerCase().includes("fingerprint"),
