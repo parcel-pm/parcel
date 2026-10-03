@@ -2171,6 +2171,7 @@ summary_report() {
     for change in $APPLIED_CHANGES; do
         case "$change" in
             bootstrap-host) log_success "Bootstrap host installed: $HOST_BIN_PATH" ;;
+            system-parcelrc) log_success "System parcelrc template created: $SYSTEM_PARCELRC" ;;
             manifest-*) log_success "Manifest installed: ${change#manifest-}" ;;
             flatpak-*) log_success "Flatpak wrapper installed: ${change#flatpak-}" ;;
         esac
