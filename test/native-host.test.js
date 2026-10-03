@@ -2395,6 +2395,18 @@ function mainScriptWithVersion(version) {
     return modified;
 }
 
+/**
+ * Extract the HOST_VERSION shipped in src/parcel-host.
+ * @returns {string} The shipped host version.
+ * @since 1.0.8
+ */
+function shippedHostVersion() {
+    const mainScript = readFileSync("src/parcel-host", "utf8");
+    const match = mainScript.match(/^HOST_VERSION="([0-9]+)"$/m);
+    assert.ok(match, "shipped HOST_VERSION marker not found in src/parcel-host");
+    return match[1];
+}
+
 describe("Main host script", () => {
     test("works with a non-default PASSWORD_STORE_DIR", async () => {
         const env = createTestEnv();
@@ -3861,7 +3873,7 @@ VALID_SIGNERS="${env.knownSigner}"
             await host2.read(); // bootstrap msg
             mockGpgWithSigs(env, [{ primary: revokedFpr }]);
             // the persisted floor applies too, so the candidate carries this host's version
-            host2.send({ action: "install", script: 'HOST_VERSION="1"\ntest', signature: "sig" });
+            host2.send({ action: "install", script: `HOST_VERSION="${shippedHostVersion()}"`, signature: "sig" });
             const rejected = await host2.read();
             assert.ok(
                 rejected.error?.toLowerCase().includes("fingerprint"),
@@ -3872,7 +3884,7 @@ VALID_SIGNERS="${env.knownSigner}"
 
             // The same session must still accept a non-revoked signer
             mockGpgWithSigs(env, [{ primary: env.knownSigner }]);
-            host2.send({ action: "install", script: 'HOST_VERSION="1"\ntest', signature: "sig" });
+            host2.send({ action: "install", script: `HOST_VERSION="${shippedHostVersion()}"`, signature: "sig" });
             const accepted = await host2.read();
             assert.strictEqual(accepted.data?.success, true, `Expected success, got: ${JSON.stringify(accepted)}`);
         } finally {
@@ -4112,7 +4124,7 @@ VALID_SIGNERS="${env.knownSigner}"
             // A reinstall signed only by the revoked key must now be refused
             mockGpgWithSigs(env, [{ primary: revokedFpr }]);
             // the ratcheted in-memory floor applies too, so the candidate carries this host's version
-            send({ action: "install", script: 'HOST_VERSION="1"\ntest', signature: "sig" });
+            send({ action: "install", script: `HOST_VERSION="${shippedHostVersion()}"`, signature: "sig" });
             const rejected = await read();
             assert.ok(
                 rejected.error?.toLowerCase().includes("fingerprint"),
