@@ -2390,8 +2390,8 @@ function mainScriptWithBlacklist(fingerprints) {
  */
 function mainScriptWithVersion(version) {
     const mainScript = readFileSync("src/parcel-host", "utf8");
-    const modified = mainScript.replace('HOST_VERSION="1"', `HOST_VERSION="${version}"`);
-    assert.ok(version === "1" || modified !== mainScript, "shipped HOST_VERSION placeholder not found in src/parcel-host");
+    assert.ok(/^HOST_VERSION="[0-9]+"$/m.test(mainScript), "shipped HOST_VERSION marker not found in src/parcel-host");
+    const modified = mainScript.replace(/^HOST_VERSION="[0-9]+"$/m, `HOST_VERSION="${version}"`);
     return modified;
 }
 
