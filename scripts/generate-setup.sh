@@ -20,10 +20,11 @@ set -euo pipefail
 # Generate the distributable parcel-setup.sh by prepending a heredoc preamble
 # to src/parcel-setup.sh.
 #
-# The preamble sets three variables:
+# The preamble sets four variables:
 #   BOOTSTRAP_HOST      - contents of the repo-root bootstrap host (parcel-host)
 #   SETUP_CONFIG        - contents of src/parcel-setup.json
 #   SIGNED_HOST_SHA256  - SHA256 of src/parcel-host (the signed host)
+#   HOST_VERSION        - HOST_VERSION of src/parcel-host (the signed host)
 #
 # @since 1.0.7
 
@@ -36,6 +37,13 @@ if [ -z "$HASH_BIN" ]; then
     exit 1
 fi
 SIGNED_HOST_SHA256="$("$HASH_BIN" src/parcel-host | awk '{print $1}')"
+
+# Extract HOST_VERSION from the signed host
+HOST_VERSION="$(sed -n 's/^HOST_VERSION="\([0-9]\{1,9\}\)"$/\1/p' src/parcel-host | head -n1)"
+if ! [[ "$HOST_VERSION" =~ ^[0-9]{1,9}$ ]]; then
+    echo "Error: HOST_VERSION not found or malformed in src/parcel-host" >&2
+    exit 1
+fi
 
 # Generate the output file
 OUT="parcel-setup.sh"
@@ -57,8 +65,9 @@ OUT="parcel-setup.sh"
     cat src/parcel-setup.json
     printf '\n__PARCEL_SETUP_CONFIG__\n)"\n'
 
-    # Embed the signed host hash
+    # Embed the signed host hash and version
     printf 'SIGNED_HOST_SHA256="%s"\n' "$SIGNED_HOST_SHA256"
+    printf 'HOST_VERSION="%s"\n' "$HOST_VERSION"
 
     echo ''
 
@@ -72,3 +81,4 @@ echo "Generated $OUT"
 echo "  Bootstrap host: $(wc -l < parcel-host) lines embedded"
 echo "  Setup config:   $(wc -l < src/parcel-setup.json) lines embedded"
 echo "  Signed host hash: $SIGNED_HOST_SHA256"
+echo "  Signed host version: $HOST_VERSION"

@@ -20,7 +20,7 @@ set -uo pipefail
 # Parcel setup script.
 #
 # In the distributed form, this file is preceded by a preamble that sets
-# BOOTSTRAP_HOST, SETUP_CONFIG, and SIGNED_HOST_SHA256. In development, those
+# BOOTSTRAP_HOST, SETUP_CONFIG, SIGNED_HOST_SHA256, and HOST_VERSION. In development, those
 # variables are unset and the script falls back to reading from source files.
 #
 # @since 1.0.7
@@ -89,6 +89,7 @@ APPLIED_CHANGES=""
 BOOTSTRAP_HOST="${BOOTSTRAP_HOST:-}"
 SETUP_CONFIG="${SETUP_CONFIG:-}"
 SIGNED_HOST_SHA256="${SIGNED_HOST_SHA256:-}"
+HOST_VERSION="${HOST_VERSION:-}"
 
 # ===========================================================================
 # Utility functions
@@ -337,7 +338,7 @@ manifest_key() {
 # In the distributed form the variables are set by the preamble.
 # @since 1.0.7
 load_dev_fallback() {
-    if [ -z "$BOOTSTRAP_HOST" ] || [ -z "$SETUP_CONFIG" ] || [ -z "$SIGNED_HOST_SHA256" ]; then
+    if [ -z "$BOOTSTRAP_HOST" ] || [ -z "$SETUP_CONFIG" ] || [ -z "$SIGNED_HOST_SHA256" ] || [ -z "$HOST_VERSION" ]; then
         local script_dir
         script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
         local repo_root
@@ -355,6 +356,9 @@ load_dev_fallback() {
             if [ -n "$hash_bin" ]; then
                 SIGNED_HOST_SHA256="$("$hash_bin" "$script_dir/parcel-host" 2>/dev/null | awk '{print $1}')"
             fi
+        fi
+        if [ -z "$HOST_VERSION" ] && [ -f "$script_dir/parcel-host" ]; then
+            HOST_VERSION="$(sed -n 's/^HOST_VERSION="\([0-9]\{1,9\}\)"$/\1/p' "$script_dir/parcel-host" | head -n1)"
         fi
         log_warn "Running in development mode (reading from source files)"
     fi
@@ -1331,6 +1335,9 @@ preview_install() {
             fi
         fi
         $WANTS_HOST_HASH && rc_changes="${rc_changes}HOST_HASH=$SIGNED_HOST_SHA256$newline"
+        if [[ "$HOST_VERSION" =~ ^[0-9]{1,9}$ ]]; then
+            rc_changes="${rc_changes}MINIMUM_HOST_VERSION=$HOST_VERSION (raise-only)$newline"
+        fi
         if [ -n "$CUSTOM_PASSWORD_STORE_DIR" ]; then
             local parcelrc_check existing_passdir
             parcelrc_check="$CONFIG_DIR/parcelrc"
@@ -2006,6 +2013,39 @@ apply_host_hash() {
     fi
 }
 
+# Apply the release's host version floor to parcelrc after verification passes.
+# Raise-only: an existing higher floor is preserved; a missing, malformed, or
+# lower floor is raised to the shipped host version. The bootstrap host enforces
+# this floor even if the state file is lost. Uninstall preserves parcelrc, so
+# the floor survives removal.
+# @since 1.0.8
+apply_minimum_host_version() {
+    local parcelrc
+    parcelrc="$CONFIG_DIR/parcelrc"
+
+    if [[ ! "$HOST_VERSION" =~ ^[0-9]{1,9}$ ]]; then
+        log_warn "Embedded HOST_VERSION is missing or malformed - skipping MINIMUM_HOST_VERSION"
+        return
+    fi
+
+    if [ ! -f "$parcelrc" ]; then
+        log_warn "parcelrc not found at $parcelrc - skipping MINIMUM_HOST_VERSION"
+        return
+    fi
+
+    local existing
+    existing="$(sed -n 's/^MINIMUM_HOST_VERSION="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null | tail -n1)"
+    if [[ "$existing" =~ ^[0-9]{1,9}$ ]] && (( 10#$existing >= 10#$HOST_VERSION )); then
+        log_info "MINIMUM_HOST_VERSION already set in parcelrc ($existing) - leaving as-is"
+        return
+    fi
+
+    if set_parcelrc_var "$parcelrc" "MINIMUM_HOST_VERSION" "$HOST_VERSION" force; then
+        log_success "Set MINIMUM_HOST_VERSION=$HOST_VERSION in parcelrc (host version floor)"
+        APPLIED_PARCELRC_CHANGES="$APPLIED_PARCELRC_CHANGES MINIMUM_HOST_VERSION"
+    fi
+}
+
 # ===========================================================================
 # Summary report
 # ===========================================================================
@@ -2091,6 +2131,9 @@ apply_install() {
 
     # Apply HOST_HASH - after verification passes (pinning only, doesn't affect functionality)
     apply_host_hash
+
+    # Apply the host version floor - after verification passes (raise-only)
+    apply_minimum_host_version
 
     summary_report
 }

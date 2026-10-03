@@ -74,7 +74,7 @@ This is an **opt-in** defence-in-depth measure. It is not set by default because
 
 The main host script ships a `HOST_VERSION` variable (a monotonically increasing integer) and records it to the state file as `MINIMUM_HOST_VERSION` at startup and on every state save, combining it with any higher recorded floor so the value never regresses. On every install, the bootstrap host refuses a candidate script whose version is lower than the higher of the state-file floor and `MINIMUM_HOST_VERSION` in `parcelrc`; scripts without a version marker are treated as version 0. This prevents a known-vulnerable host release from being reinstalled (replayed with a previously valid signature) once a newer release has run on the machine: signature validity alone proves authenticity of an old release, not that the old release is still acceptable.
 
-Like signer revocation, the state-file floor only bites after a newer release has been delivered and run, and it shares the state file's trust boundaries: it is a cache written by the most recently installed host, not an append-only history. A floor that must outlive state-file manipulation belongs in `parcelrc`. A host script that predates the ratchet writes state files without a floor line, so during mixed-version use such a writer can erase the floor; it is restored at the next startup or save by a ratcheted host, and until then the replay window briefly re-opens.
+Like signer revocation, the state-file floor only bites after a newer release has been delivered and run, and it shares the state file's trust boundaries: it is a cache written by the most recently installed host, not an append-only history. A floor that must outlive state-file manipulation belongs in `parcelrc`. The setup script closes this gap at install time: it writes the release's `HOST_VERSION` to `parcelrc` as `MINIMUM_HOST_VERSION`, raising a lower existing value but never lowering a higher one, so the durable floor matches the newest release ever installed by the setup script. Uninstall preserves `parcelrc`, so the floor survives removal. A host script that predates the ratchet writes state files without a floor line, so during mixed-version use such a writer can erase the floor; it is restored at the next startup or save by a ratcheted host, and until then the replay window briefly re-opens.
 
 ### parcelrc hardening
 
@@ -192,7 +192,7 @@ Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` wh
 | `VALID_SIGNERS` | Space-separated list of GPG fingerprints trusted to sign the main host script. |
 | `BLACKLIST_SIGNERS` | Space-separated list of revoked GPG fingerprints (primary or subkey form both match; matching is case-insensitive). |
 | `HOST_HASH` | Optional SHA-256 pin of `src/parcel-host`. When set, the bootstrap host refuses to execute updated host scripts until the pin is updated after review. |
-| `MINIMUM_HOST_VERSION` | Minimum installable `HOST_VERSION` of the main host script. Combined with the state-file floor; the higher value wins. |
+| `MINIMUM_HOST_VERSION` | Minimum installable `HOST_VERSION` of the main host script. Combined with the state-file floor; the higher value wins. Set raise-only by the setup script. |
 | `GPG` | GPG binary: a command name found via `PATH`, or an absolute path (default: `gpg`). |
 | `JQ` | `jq` binary, specified the same way as `GPG` (default: `jq`). |
 | `OPENSSL` | `openssl` binary, specified the same way as `GPG` (default: `openssl`). |

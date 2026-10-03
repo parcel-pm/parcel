@@ -129,3 +129,58 @@ printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
         cleanup();
     }
 });
+
+/** Verifies apply_minimum_host_version raises the floor but never lowers an existing higher one. */
+test("apply_minimum_host_version raises the floor and preserves a higher existing floor", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const cfg = join(home, ".config", "parcel");
+        mkdirSync(cfg, { recursive: true });
+        const rc = join(cfg, "parcelrc");
+
+        const run = (code) => sourceScript(code, { env: { HOME: home, TMPDIR: home } });
+
+        // Malformed embedded version -> no-op.
+        writeFileSync(rc, '# MINIMUM_HOST_VERSION="0"\n');
+        const skip = run(`CONFIG_DIR="$HOME/.config/parcel"
+HOST_VERSION="bogus"
+apply_minimum_host_version
+printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
+        assert.strictEqual(skip.stdout, "CHANGES:", "no changes without a valid embedded version");
+        assert.strictEqual(readFileSync(rc, "utf8"), '# MINIMUM_HOST_VERSION="0"\n');
+
+        // Missing floor -> set below the commented default.
+        const apply = run(`CONFIG_DIR="$HOME/.config/parcel"
+HOST_VERSION="3"
+apply_minimum_host_version
+printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
+        assert.strictEqual(apply.stdout, "CHANGES: MINIMUM_HOST_VERSION");
+        assert.strictEqual(readFileSync(rc, "utf8"), '# MINIMUM_HOST_VERSION="0"\nMINIMUM_HOST_VERSION="3"\n');
+        expectPrivate(rc);
+
+        // Higher existing floor -> preserved.
+        const higher = run(`CONFIG_DIR="$HOME/.config/parcel"
+HOST_VERSION="3"
+apply_minimum_host_version
+printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
+        assert.strictEqual(higher.stdout, "CHANGES:", "an equal floor is left alone");
+        writeFileSync(rc, 'MINIMUM_HOST_VERSION="9"\n');
+        const preserve = run(`CONFIG_DIR="$HOME/.config/parcel"
+HOST_VERSION="3"
+apply_minimum_host_version
+printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
+        assert.strictEqual(preserve.stdout, "CHANGES:", "a higher floor is never lowered");
+        assert.strictEqual(readFileSync(rc, "utf8"), 'MINIMUM_HOST_VERSION="9"\n');
+
+        // Lower existing floor -> raised in place.
+        writeFileSync(rc, 'MINIMUM_HOST_VERSION="1"\n');
+        const raise = run(`CONFIG_DIR="$HOME/.config/parcel"
+HOST_VERSION="5"
+apply_minimum_host_version
+printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
+        assert.strictEqual(raise.stdout, "CHANGES: MINIMUM_HOST_VERSION");
+        assert.strictEqual(readFileSync(rc, "utf8"), 'MINIMUM_HOST_VERSION="5"\n');
+    } finally {
+        cleanup();
+    }
+});
