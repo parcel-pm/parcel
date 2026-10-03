@@ -960,32 +960,11 @@ test_writable_by_user() {
     fi
 }
 
-# Resolve a symlink chain to its final target. Relative link targets are
-# resolved against the directory of the link; .. segments are not normalised
-# (writability tests do not require it). Chains longer than 40 links fail.
-# @param {string} path - Absolute start path.
-# @output {string} The resolved path.
-# @return 0 on success, 1 if a link cannot be read.
-# @since 1.0.7
-resolve_symlink_chain() {
-    local path="$1" next hops=0
-    while [ -L "$path" ]; do
-        hops=$((hops + 1))
-        [ "$hops" -le 40 ] || return 1
-        next="$(readlink "$path")" || return 1
-        case "$next" in
-            /*) path="$next" ;;
-            *) path="${path%/*}/$next" ;;
-        esac
-    done
-    printf '%s\n' "$path"
-}
-
 # Test whether a binary path would be accepted by the bootstrap: an absolute-path
 # executable regular file, plus (for system-wide installs) root ownership and no
 # write access for the invoking user, with the containing directory also off-limits,
-# mirroring the bootstrap's strict-mode rules (including a root-owned symlink link
-# and a fully-resolved target outside writable directories).
+# mirroring the bootstrap's strict-mode rules (including root-owned symlinks on every
+# hop of the chain and no user-writable containing directory on any hop).
 # @param {string} path - Absolute path to check.
 # @return {boolean} True if acceptable.
 # @since 1.0.7
@@ -1009,18 +988,27 @@ tool_acceptable() {
         return 1
     fi
     if [ -L "$path" ]; then
-        # the bootstrap requires the link itself to be root-owned too (a
-        # caller-owned symlink can be repointed after startup), and the final
-        # target to sit outside writable directories
-        local link_owner resolved resolved_parent
-        link_owner="$(stat -c %u "$path" 2>/dev/null || stat -f %u "$path" 2>/dev/null)" || link_owner=""
-        [ "$link_owner" = "0" ] || return 1
-        resolved="$(resolve_symlink_chain "$path")" || return 1
-        resolved_parent="${resolved%/*}"
-        [ -n "$resolved_parent" ] || resolved_parent="/"
-        if test_writable_by_user "$resolved_parent"; then
-            return 1
-        fi
+        # the bootstrap requires every link in the chain to be root-owned (a
+        # caller-owned symlink can be repointed after startup), and every hop's
+        # containing directory to sit outside user-writable reach
+        local link_owner resolved hops=0 next dir
+        resolved="$path"
+        while [ -L "$resolved" ]; do
+            link_owner="$(stat -c %u "$resolved" 2>/dev/null || stat -f %u "$resolved" 2>/dev/null)" || link_owner=""
+            [ "$link_owner" = "0" ] || return 1
+            hops=$((hops + 1))
+            [ "$hops" -le 40 ] || return 1
+            next="$(readlink "$resolved")" || return 1
+            case "$next" in
+                /*) resolved="$next" ;;
+                *) resolved="${resolved%/*}/$next" ;;
+            esac
+            dir="${resolved%/*}"
+            [ -n "$dir" ] || dir="/"
+            if test_writable_by_user "$dir"; then
+                return 1
+            fi
+        done
     fi
     return 0
 }

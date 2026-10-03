@@ -2163,6 +2163,28 @@ parcelrc_system_file_ok "$FILE" "$EXPECTED_UID" && printf 'OK\\n'`,
             res = runGate(badLink, uid);
             assert.strictEqual(res.status, 43, `expected fatal for chain into writable directory, got ${res.stdout}`);
             assert.ok(res.stdout.includes("resolves into a directory writable by you"), `expected resolution error, got: ${res.stdout}`);
+
+            // accepted: a multi-hop chain with every hop and directory locked
+            chmodSync(locked, 0o755);
+            const mid = join(locked, "mid");
+            symlinkSync(target, mid);
+            const goodChain = join(locked, "chain");
+            symlinkSync(mid, goodChain);
+            chmodSync(locked, 0o555);
+            res = runGate(goodChain, uid);
+            assert.ok(res.stdout.includes("OK"), `expected acceptance of locked multi-hop chain, got rc=${res.status} out=${res.stdout}`);
+
+            // rejected: a multi-hop chain passing through a caller-writable
+            // directory (the intermediate hop can be swapped after the gate)
+            const openMid = join(open, "mid");
+            symlinkSync(target, openMid);
+            chmodSync(locked, 0o755);
+            const openChain = join(locked, "openchain");
+            symlinkSync(openMid, openChain);
+            chmodSync(locked, 0o555);
+            res = runGate(openChain, uid);
+            assert.strictEqual(res.status, 43, `expected fatal for chain through writable directory, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("resolves through"), `expected intermediate-hop error, got: ${res.stdout}`);
         } finally {
             chmodSync(locked, 0o700);
             rmSync(tmp, { recursive: true, force: true });

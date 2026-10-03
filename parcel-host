@@ -360,18 +360,18 @@ function parcelrc_fatal() {
 }
 
 # Check that a path's ownership chain is out of the caller's reach: the resolved target
-# must be owned by the expected uid and not writable by the caller, any symlink in the
+# must be owned by the expected uid and not writable by the caller, every symlink in the
 # chain (up to the kernel's 40-link limit) must itself be owned by the expected uid, and
-# neither the path's own directory nor a resolved target's directory may be
-# caller-writable (a writable directory allows a rename-swap even when the file itself
-# is read-only). On failure CHAIN_ERROR describes the problem.
+# no hop's containing directory may be caller-writable (a writable directory allows a
+# rename-swap even when the file itself is read-only). On failure CHAIN_ERROR describes
+# the problem.
 #
 # $1: path to check
 # $2: expected owner uid (default 0; the parameter exists so tests can run unprivileged)
 # @return 0 if the chain is acceptable, 1 with CHAIN_ERROR set otherwise
 # @since 1.0.8
 function parcel_check_root_owned_chain() {
-    local TARGET="$1" EXPECTED_UID="${2:-0}" OWNER LINK_OWNER RESOLVED NEXT HOPS=0
+    local TARGET="$1" EXPECTED_UID="${2:-0}" OWNER LINK_OWNER RESOLVED NEXT DIR HOPS=0
     CHAIN_ERROR=""
     OWNER="$(stat -L -c %u "$TARGET" 2>/dev/null || stat -L -f %u "$TARGET" 2>/dev/null)" || OWNER=""
     if [ "$OWNER" != "$EXPECTED_UID" ] || [ -w "$TARGET" ]; then
@@ -387,9 +387,9 @@ function parcel_check_root_owned_chain() {
             CHAIN_ERROR="$TARGET must be owned by root, not a caller-owned symlink"
             return 1
         fi
-        # resolve the whole link chain: a root-owned link pointing into a
-        # caller-writable directory can be swapped by replacing its pointee,
-        # so the final target's directory must be out of reach too
+        # walk the whole link chain: every hop must be owned by the expected uid and
+        # sit outside caller-writable directories, since any caller-reachable hop can
+        # be swapped between this check and the read that follows it
         RESOLVED="$TARGET"
         while [ -L "$RESOLVED" ]; do
             # mirrors the kernel's 40-link resolution limit; only reachable
@@ -404,13 +404,24 @@ function parcel_check_root_owned_chain() {
                 /*) RESOLVED="$NEXT" ;;
                 *) RESOLVED="${RESOLVED%/*}/$NEXT" ;;
             esac
+            if [ -L "$RESOLVED" ]; then
+                LINK_OWNER="$(stat -c %u "$RESOLVED" 2>/dev/null || stat -f %u "$RESOLVED" 2>/dev/null)" || LINK_OWNER=""
+                if [ "$LINK_OWNER" != "$EXPECTED_UID" ]; then
+                    CHAIN_ERROR="$TARGET resolves through $RESOLVED, which must be owned by root"
+                    return 1
+                fi
+            fi
+            DIR="${RESOLVED%/*}"
+            [ -n "$DIR" ] || DIR="/"
+            if [ -w "$DIR" ]; then
+                if [ -L "$RESOLVED" ]; then
+                    CHAIN_ERROR="$TARGET resolves through $DIR, a directory writable by you"
+                else
+                    CHAIN_ERROR="$TARGET resolves into a directory writable by you"
+                fi
+                return 1
+            fi
         done
-        local RESOLVED_DIR="${RESOLVED%/*}"
-        [ -n "$RESOLVED_DIR" ] || RESOLVED_DIR="/"
-        if [ -w "$RESOLVED_DIR" ]; then
-            CHAIN_ERROR="$TARGET resolves into a directory writable by you"
-            return 1
-        fi
     fi
     local TARGET_DIR="${TARGET%/*}"
     [ -n "$TARGET_DIR" ] || TARGET_DIR="/"
