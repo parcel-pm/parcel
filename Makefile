@@ -65,7 +65,7 @@ setup:
 	./scripts/generate-setup.sh
 
 .PHONY: release
-release: clean extension setup
+release: clean extension
 ifeq ($(VERSION), $(CURRENT_VERSION))
 else
 	echo $(VERSION) > .version
@@ -77,6 +77,7 @@ else
 	git commit -m "Release v$(VERSION)"
 	git tag v$(VERSION)
 endif
+	$(MAKE) setup
 	$(MAKE) chrome firefox
 	[ -d dist ] || mkdir -p dist
 	git archive -o dist/parcel-$(VERSION).tar --format tar --prefix=parcel-$(VERSION)/ v$(VERSION)
