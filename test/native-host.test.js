@@ -2246,15 +2246,14 @@ printf 'VS=%s\\nBL=%s\\nMV=%s\\nHH=%s\\nGPG=%s\\n' \\
         assert.ok(res.stdout.includes(`HH=${HASH_B}`), `system HOST_HASH must clobber, got: ${res.stdout}`);
         assert.ok(res.stdout.includes(`BL=${FPR_A} ${FPR_B}`), `blacklist must union, got: ${res.stdout}`);
         assert.ok(res.stdout.includes("MV=7"), `version floor must take the higher value, got: ${res.stdout}`);
-    });
 
-    test("version floor takes the user value when it is higher", () => {
-        const res = runFlow({
+        // the floor is a maximum, not a clobber: a higher user value wins
+        const res2 = runFlow({
             user: `MINIMUM_HOST_VERSION="9"\n`,
             system: `MINIMUM_HOST_VERSION="7"\n`,
         });
-        assert.strictEqual(res.status, 0, `flow failed: ${res.stdout}`);
-        assert.ok(res.stdout.includes("MV=9"), `higher user floor must win, got: ${res.stdout}`);
+        assert.strictEqual(res2.status, 0, `flow failed: ${res2.stdout}`);
+        assert.ok(res2.stdout.includes("MV=9"), `higher user floor must win, got: ${res2.stdout}`);
     });
 
     test("blacklist unions with entries from either file alone", () => {
@@ -2278,17 +2277,16 @@ printf 'VS=%s\\nBL=%s\\nMV=%s\\nHH=%s\\nGPG=%s\\n' \\
         assert.ok(res.stdout.includes("MV=4"), `got: ${res.stdout}`);
     });
 
-    test("malformed VALID_SIGNERS in the user file is fatal before the system file is read", () => {
-        const res = runFlow({
+    test("malformed scalars are fatal in either file, naming the source", () => {
+        // a malformed user VALID_SIGNERS is fatal before the system file is read
+        let res = runFlow({
             user: `VALID_SIGNERS="not-a-fingerprint"\n`,
             system: `VALID_SIGNERS="${FPR_C}"\n`,
         });
         assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
         assert.ok(res.stdout.includes("user-parcelrc: VALID_SIGNERS must be"), `error must name the user file, got: ${res.stdout}`);
-    });
 
-    test("malformed HOST_HASH in the system file is fatal", () => {
-        const res = runFlow({
+        res = runFlow({
             user: `HOST_HASH="${HASH_A}"\n`,
             system: `HOST_HASH="not-a-hash"\n`,
         });
