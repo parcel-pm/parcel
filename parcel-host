@@ -359,10 +359,71 @@ function parcelrc_fatal() {
     exit 1
 }
 
+# Check that a path's ownership chain is out of the caller's reach: the resolved target
+# must be owned by the expected uid and not writable by the caller, any symlink in the
+# chain (up to the kernel's 40-link limit) must itself be owned by the expected uid, and
+# neither the path's own directory nor a resolved target's directory may be
+# caller-writable (a writable directory allows a rename-swap even when the file itself
+# is read-only). On failure CHAIN_ERROR describes the problem.
+#
+# $1: path to check
+# $2: expected owner uid (default 0; the parameter exists so tests can run unprivileged)
+# @return 0 if the chain is acceptable, 1 with CHAIN_ERROR set otherwise
+# @since 1.0.8
+function parcel_check_root_owned_chain() {
+    local TARGET="$1" EXPECTED_UID="${2:-0}" OWNER LINK_OWNER RESOLVED NEXT HOPS=0
+    CHAIN_ERROR=""
+    OWNER="$(stat -L -c %u "$TARGET" 2>/dev/null || stat -L -f %u "$TARGET" 2>/dev/null)" || OWNER=""
+    if [ "$OWNER" != "$EXPECTED_UID" ] || [ -w "$TARGET" ]; then
+        CHAIN_ERROR="$TARGET must be owned by root and not writable by you"
+        return 1
+    fi
+    # stat -L dereferences symlinks, so a caller-owned symlink to a root-owned target
+    # would pass the check above and could be repointed after startup; require the
+    # link itself to be owned by the expected uid (stat without -L judges the link)
+    if [ -L "$TARGET" ]; then
+        LINK_OWNER="$(stat -c %u "$TARGET" 2>/dev/null || stat -f %u "$TARGET" 2>/dev/null)" || LINK_OWNER=""
+        if [ "$LINK_OWNER" != "$EXPECTED_UID" ]; then
+            CHAIN_ERROR="$TARGET must be owned by root, not a caller-owned symlink"
+            return 1
+        fi
+        # resolve the whole link chain: a root-owned link pointing into a
+        # caller-writable directory can be swapped by replacing its pointee,
+        # so the final target's directory must be out of reach too
+        RESOLVED="$TARGET"
+        while [ -L "$RESOLVED" ]; do
+            # mirrors the kernel's 40-link resolution limit; only reachable
+            # if the chain changed after the caller's own checks
+            HOPS=$((HOPS + 1))
+            if [ "$HOPS" -gt 40 ]; then
+                CHAIN_ERROR="cannot resolve $TARGET (symlink chain too long or cyclic)"
+                return 1
+            fi
+            NEXT="$(readlink "$RESOLVED")" || { CHAIN_ERROR="cannot resolve $TARGET"; return 1; }
+            case "$NEXT" in
+                /*) RESOLVED="$NEXT" ;;
+                *) RESOLVED="${RESOLVED%/*}/$NEXT" ;;
+            esac
+        done
+        local RESOLVED_DIR="${RESOLVED%/*}"
+        [ -n "$RESOLVED_DIR" ] || RESOLVED_DIR="/"
+        if [ -w "$RESOLVED_DIR" ]; then
+            CHAIN_ERROR="$TARGET resolves into a directory writable by you"
+            return 1
+        fi
+    fi
+    local TARGET_DIR="${TARGET%/*}"
+    [ -n "$TARGET_DIR" ] || TARGET_DIR="/"
+    if [ -w "$TARGET_DIR" ]; then
+        CHAIN_ERROR="$TARGET is in a directory writable by you"
+        return 1
+    fi
+    return 0
+}
+
 # Check a binary value: either a bare command name (resolved via the inherited PATH) or
 # an absolute path to an existing, executable regular file. In strict mode the resolved
-# file must additionally be owned by root and not writable by the caller, and if the
-# override is itself a symlink, the link must be root-owned too.
+# file must additionally pass parcel_check_root_owned_chain.
 #
 # $1: label naming the tool and its source, e.g. "parcelrc GPG setting" or "bootstrap gpg default"
 # $2: value to check
@@ -382,50 +443,8 @@ function parcelrc_check_binary() {
         parcelrc_fatal "$KEY: $TARGET is not an executable file"
     fi
     if $STRICT_BINARIES; then
-        local OWNER LINK_OWNER
-        OWNER="$(stat -L -c %u "$TARGET" 2>/dev/null || stat -L -f %u "$TARGET" 2>/dev/null)" || OWNER=""
-        if [ "$OWNER" != "0" ] || [ -w "$TARGET" ]; then
-            parcelrc_fatal "$KEY: $TARGET must be owned by root and not writable by you (the bootstrap host is installed system-wide)"
-        fi
-        # stat -L dereferences symlinks, so a caller-owned symlink to a root-owned binary
-        # would pass the check above and could be repointed after startup; require the
-        # link itself to be root-owned (stat without -L judges the link)
-        if [ -L "$TARGET" ]; then
-            LINK_OWNER="$(stat -c %u "$TARGET" 2>/dev/null || stat -f %u "$TARGET" 2>/dev/null)" || LINK_OWNER=""
-            if [ "$LINK_OWNER" != "0" ]; then
-                parcelrc_fatal "$KEY: $TARGET must be owned by root, not a caller-owned symlink (the bootstrap host is installed system-wide)"
-            fi
-            # resolve the whole link chain: a root-owned link pointing into a
-            # caller-writable directory can be swapped by replacing its pointee,
-            # so the final target's directory must be out of reach too
-            local RESOLVED NEXT HOPS
-            RESOLVED="$TARGET"
-            HOPS=0
-            while [ -L "$RESOLVED" ]; do
-                # mirrors the kernel's 40-link resolution limit; only reachable
-                # if the chain changed after the [ -f ] test above
-                HOPS=$((HOPS + 1))
-                if [ "$HOPS" -gt 40 ]; then
-                    parcelrc_fatal "$KEY: cannot resolve $TARGET (symlink chain too long or cyclic)"
-                fi
-                NEXT="$(readlink "$RESOLVED")" || parcelrc_fatal "$KEY: cannot resolve $TARGET"
-                case "$NEXT" in
-                    /*) RESOLVED="$NEXT" ;;
-                    *) RESOLVED="${RESOLVED%/*}/$NEXT" ;;
-                esac
-            done
-            local RESOLVED_DIR="${RESOLVED%/*}"
-            [ -n "$RESOLVED_DIR" ] || RESOLVED_DIR="/"
-            if [ -w "$RESOLVED_DIR" ]; then
-                parcelrc_fatal "$KEY: $TARGET resolves into a directory writable by you (the bootstrap host is installed system-wide)"
-            fi
-        fi
-        # a caller-writable directory allows the binary to be swapped via rename
-        # after startup even when the file itself is root-owned and read-only
-        local TARGET_DIR="${TARGET%/*}"
-        [ -n "$TARGET_DIR" ] || TARGET_DIR="/"
-        if [ -w "$TARGET_DIR" ]; then
-            parcelrc_fatal "$KEY: $TARGET is in a directory writable by you (the bootstrap host is installed system-wide)"
+        if ! parcel_check_root_owned_chain "$TARGET"; then
+            parcelrc_fatal "$KEY: $CHAIN_ERROR (the bootstrap host is installed system-wide)"
         fi
     fi
     return 0
@@ -433,32 +452,33 @@ function parcelrc_check_binary() {
 
 # Validate one recognised parcelrc setting and stage it for application. Unknown keys
 # are ignored so that newer parcelrc options remain forward-compatible with older
-# bootstrap versions; empty values mean "keep the default".
+# bootstrap versions; empty values mean "keep the default". Staged keys are recorded
+# in PARCELRC_KEYS_SET so the caller can tell which file a winning value came from.
 #
-# $1: key, $2: value
+# $1: key, $2: value, $3: source label used in log notes (optional)
 # @return 0 if staged for application, 1 if ignored
 # @since 1.0.7
 function parcelrc_apply() {
-    local KEY="$1" VALUE="$2"
+    local KEY="$1" VALUE="$2" SRC="${3:-parcelrc}"
     [ -n "$VALUE" ] || return 1
     case "$KEY" in
         VALID_SIGNERS)
             [[ "$VALUE" =~ ^${FPR_PATTERN}( ${FPR_PATTERN})*$ ]] ||
-                parcelrc_fatal "VALID_SIGNERS must be a space-separated list of key fingerprints"
+                parcelrc_fatal "$SRC: VALID_SIGNERS must be a space-separated list of key fingerprints"
             ;;
         BLACKLIST_SIGNERS)
             if [[ ! "$VALUE" =~ $BLACKLIST_VALUE_RE ]]; then
-                parcelrc_note "BLACKLIST_SIGNERS is malformed; ignoring it"
+                parcelrc_note "$SRC: BLACKLIST_SIGNERS is malformed; ignoring it"
                 return 1
             fi
             ;;
         HOST_HASH)
             [[ "$VALUE" =~ ^[0-9A-Fa-f]{64}$ ]] ||
-                parcelrc_fatal "HOST_HASH must be a 64-character hex sha256 hash"
+                parcelrc_fatal "$SRC: HOST_HASH must be a 64-character hex sha256 hash"
             ;;
         MINIMUM_HOST_VERSION)
             if [[ ! "$VALUE" =~ ^[0-9]{1,9}$ ]]; then
-                parcelrc_note "MINIMUM_HOST_VERSION is malformed; ignoring it"
+                parcelrc_note "$SRC: MINIMUM_HOST_VERSION is malformed; ignoring it"
                 return 1
             fi
             ;;
@@ -466,44 +486,90 @@ function parcelrc_apply() {
             case "$VALUE" in
                 /* | \$HOME | \$HOME/* | \$\{HOME\} | \$\{HOME\}/*) ;;
                 *)
-                    parcelrc_note "$KEY must be an absolute path (or begin with \$HOME); ignoring it"
+                    parcelrc_note "$SRC: $KEY must be an absolute path (or begin with \$HOME); ignoring it"
                     return 1
                     ;;
             esac
             ;;
         GPG | JQ | OPENSSL)
-            # check the expanded value; the staged line keeps the $HOME token for eval
+            # a shape-malformed value can never be a valid override, so it is fatal
+            # in either file (failing loud surfaces tampering); ownership and
+            # executability of the winning value are validated post-merge at the
+            # call site, so a broken override that loses does not abort startup
             local EXPANDED="${VALUE//\$\{HOME\}/$HOME}"
             EXPANDED="${EXPANDED//\$HOME/$HOME}"
-            parcelrc_check_binary "parcelrc $KEY setting" "$EXPANDED"
+            if [[ "$EXPANDED" != /* ]] && [[ ! "$EXPANDED" =~ ^[A-Za-z0-9+._-]+$ ]]; then
+                parcelrc_fatal "$SRC: $KEY must be a command name or an absolute path"
+            fi
             ;;
         *)
             return 1
             ;;
     esac
     PARCELRC_SANITISED+="${KEY}=\"${VALUE}\""$'\n'
+    PARCELRC_KEYS_SET+="$KEY "
     return 0
 }
 
-# Load startup config from parcelrc. The file is read into memory and each line is
-# validated against a strict whitelist (comments, blank lines, or canonical
+# Check that a system parcelrc is safe to honour: it must be a regular file whose
+# ownership chain passes parcel_check_root_owned_chain, it must not be writable by
+# group or other, and its containing directory (with ancestors dereferenced, as e.g.
+# macOS symlinks /etc to /private/etc) must be owned by the expected uid. Any failure
+# is fatal: the file's existence is an assertion of admin intent, so mistakes fail
+# loudly rather than being silently ignored.
+#
+# $1: path to check
+# $2: expected owner uid (default 0; the parameter exists so tests can run unprivileged)
+# @return 0 if acceptable; reports a fatal error and exits otherwise
+# @since 1.0.8
+function parcelrc_system_file_ok() {
+    local FILE="$1" EXPECTED_UID="${2:-0}" MODE DIR DIR_OWNER
+    [ -e "$FILE" ] || [ -L "$FILE" ] || parcelrc_fatal "$FILE: not found"
+    [ -f "$FILE" ] || parcelrc_fatal "$FILE: not a regular file"
+    # the host runs unprivileged even for system-wide installs, so a root-only-moded
+    # file must fail here with a clear message rather than later as "unable to read"
+    [ -r "$FILE" ] || parcelrc_fatal "$FILE: not readable by the invoking user"
+    if ! parcel_check_root_owned_chain "$FILE" "$EXPECTED_UID"; then
+        parcelrc_fatal "$FILE: $CHAIN_ERROR"
+    fi
+    MODE="$(stat -L -c %a "$FILE" 2>/dev/null || stat -L -f %Lp "$FILE" 2>/dev/null)" || MODE=""
+    MODE="${MODE: -3}"
+    if [ -z "$MODE" ] || (( 8#$MODE & 022 )); then
+        parcelrc_fatal "$FILE: must not be writable by group or other"
+    fi
+    DIR="${FILE%/*}"
+    [ -n "$DIR" ] || DIR="/"
+    DIR_OWNER="$(stat -L -c %u "$DIR" 2>/dev/null || stat -L -f %u "$DIR" 2>/dev/null)" || DIR_OWNER=""
+    if [ "$DIR_OWNER" != "$EXPECTED_UID" ]; then
+        parcelrc_fatal "$FILE: containing directory $DIR must be owned by root"
+    fi
+    return 0
+}
+
+# Load startup config from a parcelrc file. The file is read into memory and each line
+# is validated against a strict whitelist (comments, blank lines, or canonical
 # KEY="value" for a recognised key); only those validated assignments are then eval'd,
 # which preserves $HOME expansion in values without executing arbitrary content.
+# PARCELRC_KEYS_SET records which keys were staged, for winner provenance.
 #
+# $1: path to the parcelrc file
+# $2: source label used in log notes and fatal errors
 # @since 1.0.7
 function load_parcelrc() {
+    local FILE="$1" SRC="$2"
     local CONTENT LINE NAME VALUE STRIPPED
     local N=0
     local ASSIGN_RE='^([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"$'
     local HOMEVAR_RE='[$]HOME[A-Za-z0-9_]'
     PARCELRC_SANITISED=""
-    CONTENT="$(head -c 1048576 "$PARCELRC")" || parcelrc_fatal "unable to read $PARCELRC"
+    PARCELRC_KEYS_SET=""
+    CONTENT="$(head -c 1048576 "$FILE")" || parcelrc_fatal "unable to read $FILE"
     while IFS= read -r LINE || [ -n "$LINE" ]; do
         N=$((N + 1))
         [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
         [[ "$LINE" =~ ^[[:space:]]*# ]] && continue
         if [[ ! "$LINE" =~ $ASSIGN_RE ]]; then
-            parcelrc_note "ignoring unrecognised content at line $N"
+            parcelrc_note "$SRC: ignoring unrecognised content at line $N"
             continue
         fi
         NAME="${BASH_REMATCH[1]}"
@@ -511,7 +577,7 @@ function load_parcelrc() {
         # PATH was a documented option before the whitelist parser; warn on its
         # removal rather than ignoring the line without explanation
         if [ "$NAME" = "PATH" ]; then
-            parcelrc_note "PATH is no longer a parcelrc option; ignoring it (set GPG/JQ/OPENSSL to a command name or absolute path instead)"
+            parcelrc_note "$SRC: PATH is no longer a parcelrc option; ignoring it (set GPG/JQ/OPENSSL to a command name or absolute path instead)"
             continue
         fi
         # values may not contain backticks, backslashes or control characters, and the
@@ -519,28 +585,90 @@ function load_parcelrc() {
         # shellcheck disable=SC1003 # the single-quoted backtick pattern is intentional
         case "$VALUE" in
             *'`'* | *'\'* | *[[:cntrl:]]*)
-                parcelrc_note "ignoring unsafe value at line $N"
+                parcelrc_note "$SRC: ignoring unsafe value at line $N"
                 continue
                 ;;
         esac
         STRIPPED="${VALUE//\$\{HOME\}/}"
         if [[ "$STRIPPED" =~ $HOMEVAR_RE ]]; then
-            parcelrc_note "ignoring unsafe value at line $N"
+            parcelrc_note "$SRC: ignoring unsafe value at line $N"
             continue
         fi
         STRIPPED="${STRIPPED//\$HOME/}"
         if [[ "$STRIPPED" == *'$'* ]]; then
-            parcelrc_note "ignoring unsafe value at line $N"
+            parcelrc_note "$SRC: ignoring unsafe value at line $N"
             continue
         fi
         # ignored settings return 1; do not let that abort the load
-        parcelrc_apply "$NAME" "$VALUE" || true
+        parcelrc_apply "$NAME" "$VALUE" "$SRC" || true
     done <<< "$CONTENT"
     eval "$PARCELRC_SANITISED"
     unset PARCELRC_SANITISED
 }
 
-load_parcelrc
+# Merge the user-parcelrc snapshots into the effective values after the system
+# parcelrc has clobbered them: the blacklist unions (root can only add revocations,
+# never remove the user's) and the host version floor takes the higher value (a system
+# file can ratchet the floor but never loosen what the user set). Expects
+# USER_BLACKLIST and USER_MINVER to hold the pre-system-load snapshots and
+# SYSTEM_KEYS_SET to list the keys staged from the system parcelrc (empty when there
+# is none; the union only runs when the system file set its own blacklist).
+#
+# @since 1.0.8
+function parcelrc_merge_user_values() {
+    if [ -n "$USER_BLACKLIST" ] && [[ " $SYSTEM_KEYS_SET " == *" BLACKLIST_SIGNERS "* ]]; then
+        BLACKLIST_SIGNERS="${BLACKLIST_SIGNERS:+$BLACKLIST_SIGNERS }$USER_BLACKLIST"
+    fi
+    # both inputs were individually validated on staging, so a malformed union
+    # indicates a bug rather than user input; fail loudly
+    if [[ ! "${BLACKLIST_SIGNERS:-}" =~ $BLACKLIST_VALUE_RE ]]; then
+        parcelrc_fatal "merged BLACKLIST_SIGNERS is malformed"
+    fi
+    MINIMUM_HOST_VERSION="${MINIMUM_HOST_VERSION:-0}"
+    if (( 10#$USER_MINVER > 10#$MINIMUM_HOST_VERSION )); then
+        MINIMUM_HOST_VERSION="$USER_MINVER"
+    fi
+}
+
+# Validate the effective GPG/JQ/OPENSSL overrides once precedence between the user and
+# system parcelrc is settled: each set value is checked exactly once, labelled with the
+# file that won. A broken override that lost to the other file no longer aborts startup.
+# Expects SYSTEM_KEYS_SET to list the keys staged from the system parcelrc (empty when
+# there is none).
+#
+# @since 1.0.8
+function parcelrc_check_effective_binaries() {
+    local TOOL EXPANDED
+    for TOOL in GPG JQ OPENSSL; do
+        if [ -n "${!TOOL:-}" ]; then
+            EXPANDED="${!TOOL//\$\{HOME\}/$HOME}"
+            EXPANDED="${EXPANDED//\$HOME/$HOME}"
+            case " $SYSTEM_KEYS_SET " in
+                *" $TOOL "*) parcelrc_check_binary "$SYSTEM_PARCELRC: $TOOL setting" "$EXPANDED" ;;
+                *) parcelrc_check_binary "$PARCELRC: $TOOL setting" "$EXPANDED" ;;
+            esac
+        fi
+    done
+}
+
+# The system parcelrc anchors the trust policy outside user-writable space: every
+# setting in it clobbers the user parcelrc (except BLACKLIST_SIGNERS, which unions, and
+# MINIMUM_HOST_VERSION, which takes the higher value). The path is a hardcoded literal
+# with no environment override, so user-level malware cannot redirect the trust anchor.
+SYSTEM_PARCELRC="/etc/parcelrc"
+load_parcelrc "$PARCELRC" "$PARCELRC"
+USER_BLACKLIST="${BLACKLIST_SIGNERS:-}"
+USER_MINVER="${MINIMUM_HOST_VERSION:-0}"
+SYSTEM_KEYS_SET=""
+if [ -e "$SYSTEM_PARCELRC" ] || [ -L "$SYSTEM_PARCELRC" ]; then
+    parcelrc_system_file_ok "$SYSTEM_PARCELRC"
+    load_parcelrc "$SYSTEM_PARCELRC" "$SYSTEM_PARCELRC"
+    SYSTEM_KEYS_SET="$PARCELRC_KEYS_SET"
+fi
+unset PARCELRC_KEYS_SET
+parcelrc_merge_user_values
+parcelrc_check_effective_binaries
+unset USER_BLACKLIST USER_MINVER SYSTEM_KEYS_SET
 
 # In strict mode, check the effective binary for every tool (parcelrc override or the
 # bare-name default resolved via the sanitised PATH) against the ownership bar.

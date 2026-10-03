@@ -80,6 +80,12 @@ Like signer revocation, the state-file floor only bites after a newer release ha
 
 `parcelrc` is a trusted file owned by the user. The bootstrap host honours only canonical `KEY="value"` lines (comments and blank lines permitted) for the fixed set of recognised keys documented below; every other line is ignored. As a consequence, content added to `parcelrc` cannot alter host-critical settings such as `PATH`, and user-level malware that can edit the file gains no additional effect beyond toggling the documented options. Values are validated before use: signer and revocation lists must be well-formed fingerprints (an invalid `VALID_SIGNERS` or `HOST_HASH` refuses startup), path settings must be absolute, and binary overrides (`GPG`, `JQ`, `OPENSSL`) must resolve to executable files.
 
+#### System parcelrc (`/etc/parcelrc`)
+
+A root-owned system-wide override file at the hardcoded path `/etc/parcelrc` is honoured after the user parcelrc, in every install mode. Every setting in it clobbers the user parcelrc value, with two deliberate exceptions: `BLACKLIST_SIGNERS` unions with the user's list (root can only add revocations, never remove them) and `MINIMUM_HOST_VERSION` takes the higher of the two values (a system file can ratchet the floor but never loosen it). This anchors the signature-verification trust policy (`VALID_SIGNERS`, `BLACKLIST_SIGNERS`, `HOST_HASH`) outside user-writable space, so user-level malware cannot subvert the bootstrap's verification of the extension-shipped host script by editing the user parcelrc.
+
+The path has no environment-variable override, so malware cannot redirect the trust anchor. Before the file is read, its ownership chain is checked: the resolved target must be a root-owned regular file, not writable by group or other, sitting in a root-owned directory the user cannot write; a symlinked file is permitted only when the link itself is root-owned and the fully-resolved chain stays out of user-writable directories. Any violation refuses startup, as does malformed content in either file: the file's mere existence is an assertion of admin intent, so mistakes and tampering fail loudly rather than being silently ignored. `parcel-setup.sh --system` installs a fully commented-out template (create-if-missing, never clobbered, preserved on uninstall); the settings take effect only once an admin uncomments them. Note that a root-pinned `HOST_HASH` turns every host-script update into an admin task, and a system `VALID_SIGNERS` fully replaces the built-in release-key default, so admins should include the release keys explicitly if they should remain trusted.
+
 ### Environment hardening (strict mode)
 
 When the bootstrap is installed system-wide such that the invoking user cannot modify it or the directory it is installed in (`parcel-setup.sh --system`, recommended for this stronger guarantee), it constrains its own environment as defence-in-depth against user-level malware - not full system compromise:
@@ -88,7 +94,7 @@ When the bootstrap is installed system-wide such that the invoking user cannot m
 - `gpg`/`jq`/`openssl` - defaults and `parcelrc` overrides alike - must resolve to root-owned binaries the user cannot write in directories the user cannot write to; a symlinked override needs a root-owned link too, and the link's fully-resolved target must also sit outside user-writable directories.
 - The pinned `#!/bin/bash` shebang cannot be redirected via `PATH`.
 
-For user-owned installs (the default) these checks are skipped, since malware could just edit the bootstrap itself (a system-wide install into a user-writable directory is likewise treated as permissive, since the bootstrap could be replaced via rename). Root-owned binaries placed inside caller-writable directories are rejected at startup.
+For user-owned installs (the default) these checks are skipped, since malware could just edit the bootstrap itself (a system-wide install into a user-writable directory is likewise treated as permissive, since the bootstrap could be replaced via rename). Root-owned binaries placed inside caller-writable directories are rejected at startup. The system parcelrc at `/etc/parcelrc` (see above) is honoured in both modes: it is root-owned either way, so its ownership gate is meaningful regardless of how the bootstrap itself is installed.
 
 ### Environment whitelist
 
@@ -186,6 +192,8 @@ Additional protections specific to HTTP auth:
 ### `parcelrc` options
 
 Located at `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set). The bootstrap host honours only canonical `KEY="value"` lines (plus comments and blank lines) for the recognised keys listed below; every other line is ignored.
+
+A root-owned system-wide file at `/etc/parcelrc` accepts the same options and is applied after the user file: every option it sets clobbers the user value, except `BLACKLIST_SIGNERS` (which unions) and `MINIMUM_HOST_VERSION` (which takes the higher value). See the parcelrc hardening section above for the ownership requirements and rationale.
 
 | Option | Description |
 |--------|-------------|

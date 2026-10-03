@@ -1695,6 +1695,7 @@ printf 'FILTERED:%s\\n' "$PATH"`,
                 }
                 const harness = `STRICT_BINARIES=true
 function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcel_check_root_owned_chain")}
 ${extractBootstrapFn("parcelrc_check_binary")}
 parcelrc_check_binary "parcelrc: GPG" "$FAKE"
 printf 'NOFATAL\\n'
@@ -1716,6 +1717,7 @@ printf 'NOFATAL\\n'
         const tmp = mkdtempSync(join(tmpdir(), "parcel-strict-"));
         const harness = `STRICT_BINARIES=true
 function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcel_check_root_owned_chain")}
 ${extractBootstrapFn("parcelrc_check_binary")}
 parcelrc_check_binary "parcelrc: GPG" "$FAKE"
 printf 'NOFATAL\\n'
@@ -1990,8 +1992,360 @@ printf 'CONTINUED\\n'
 });
 
 // ---------------------------------------------------------------------------
-// Main host script tests (via bootstrap install)
+// System parcelrc tests (/etc/parcelrc precedence over the user parcelrc)
 // ---------------------------------------------------------------------------
+
+/**
+ * Extract the bootstrap's parcelrc call-site flow verbatim (the sequence starting at
+ * the SYSTEM_PARCELRC literal and ending at the snapshot cleanup), rewritten so the
+ * harness supplies the system path and the gate accepts caller-owned fixtures.
+ * @returns {string} The flow, ready to run after the harness sets PARCELRC and SYSTEM_PARCELRC.
+ * @since 1.0.8
+ */
+function extractParcelrcFlow() {
+    const src = readFileSync("parcel-host", "utf8");
+    const match = src.match(/^SYSTEM_PARCELRC="\/etc\/parcelrc"\n(?:.|\n)*?^unset USER_BLACKLIST USER_MINVER SYSTEM_KEYS_SET\n/m);
+    assert.ok(match, "parcel-host must contain the system parcelrc call-site flow");
+    return match[0]
+        .replace('SYSTEM_PARCELRC="/etc/parcelrc"', ": # SYSTEM_PARCELRC supplied by the test harness")
+        .replace('parcelrc_system_file_ok "$SYSTEM_PARCELRC"', 'parcelrc_system_file_ok "$SYSTEM_PARCELRC" "$EUID"');
+}
+
+/**
+ * Build a bash prelude defining the parcelrc machinery under test: stub note/fatal
+ * sinks plus the bootstrap functions, extracted verbatim.
+ * @returns {string} Bash source for the harness prelude.
+ * @since 1.0.8
+ */
+function parcelrcHarnessPrelude() {
+    return `
+FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
+FPR_RE="^\${FPR_PATTERN}$"
+BLACKLIST_VALUE_RE="^(\${FPR_PATTERN}( \${FPR_PATTERN})*)?$"
+PARCELRC_NOTES=""
+STRICT_BINARIES=false
+function parcelrc_note() { PARCELRC_NOTES+="$1"$'\\n'; }
+function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${extractBootstrapFn("parcel_check_root_owned_chain")}
+${extractBootstrapFn("parcelrc_check_binary")}
+${extractBootstrapFn("parcelrc_system_file_ok")}
+${extractBootstrapFn("parcelrc_apply")}
+${extractBootstrapFn("load_parcelrc")}
+${extractBootstrapFn("parcelrc_merge_user_values")}
+${extractBootstrapFn("parcelrc_check_effective_binaries")}
+`;
+}
+
+describe("System parcelrc", () => {
+    const FPR_A = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const FPR_B = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+    const FPR_C = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+    const HASH_A = "a".repeat(64);
+    const HASH_B = "b".repeat(64);
+
+    /**
+     * Run the gate against a fixture file with an explicit expected uid.
+     * @param {string} file - Fixture path to check.
+     * @param {number} expectedUid - Uid the gate should require.
+     * @returns {{status:number, stdout:string}} The harness result.
+     */
+    function runGate(file, expectedUid) {
+        return spawnSync(
+            "bash",
+            [
+                "--noprofile",
+                "--norc",
+                "-c",
+                `${parcelrcHarnessPrelude()}
+parcelrc_system_file_ok "$FILE" "$EXPECTED_UID" && printf 'OK\\n'`,
+            ],
+            { encoding: "utf8", env: { PATH: "/usr/bin:/bin", FILE: file, EXPECTED_UID: String(expectedUid) } },
+        );
+    }
+
+    test("system parcelrc gate enforces ownership, permissions and directory policy", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
+        const uid = process.getuid();
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-sysrc-"));
+        const locked = join(tmp, "locked");
+        const open = join(tmp, "open");
+        try {
+            mkdirSync(locked);
+            mkdirSync(open);
+
+            // accepted: correctly owned, read-only, in a non-writable directory
+            const good = join(locked, "good");
+            writeFileSync(good, "# empty\n");
+            chmodSync(good, 0o444);
+            chmodSync(locked, 0o555);
+            let res = runGate(good, uid);
+            assert.ok(res.stdout.includes("OK"), `expected acceptance, got rc=${res.status} out=${res.stdout}`);
+
+            // group- or other-writable: the gate's own mode check must fire
+            for (const mode of [0o464, 0o446]) {
+                chmodSync(locked, 0o755);
+                const writable = join(locked, "writable");
+                writeFileSync(writable, "# empty\n");
+                chmodSync(writable, mode);
+                chmodSync(locked, 0o555);
+                res = runGate(writable, uid);
+                assert.strictEqual(res.status, 43, `mode ${mode.toString(8)}: expected fatal, got ${res.stdout}`);
+                assert.ok(res.stdout.includes("must not be writable by group or other"), `mode ${mode.toString(8)}: ${res.stdout}`);
+                chmodSync(locked, 0o755);
+                rmSync(writable, { force: true });
+            }
+            chmodSync(locked, 0o555);
+
+            // wrong owner: expected uid matches nothing on disk
+            res = runGate(good, uid + 1);
+            assert.strictEqual(res.status, 43, `expected fatal for wrong owner, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("must be owned by root"), `expected ownership error, got: ${res.stdout}`);
+
+            // caller-writable containing directory: rename-swap risk
+            const inOpen = join(open, "rc");
+            writeFileSync(inOpen, "# empty\n");
+            chmodSync(inOpen, 0o444);
+            res = runGate(inOpen, uid);
+            assert.strictEqual(res.status, 43, `expected fatal for writable directory, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("directory writable by you"), `expected directory error, got: ${res.stdout}`);
+
+            // missing file and non-regular file
+            res = runGate(join(locked, "absent"), uid);
+            assert.strictEqual(res.status, 43, `expected fatal for missing file, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("not found"), `expected not-found error, got: ${res.stdout}`);
+            res = runGate(open, uid);
+            assert.strictEqual(res.status, 43, `expected fatal for a directory, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("not a regular file"), `expected not-regular error, got: ${res.stdout}`);
+
+            // unreadable file: the host runs unprivileged, so this must fail clearly
+            chmodSync(locked, 0o755);
+            const unreadable = join(locked, "unreadable");
+            writeFileSync(unreadable, "# empty\n");
+            chmodSync(unreadable, 0o000);
+            chmodSync(locked, 0o555);
+            res = runGate(unreadable, uid);
+            assert.strictEqual(res.status, 43, `expected fatal for unreadable file, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("not readable"), `expected readability error, got: ${res.stdout}`);
+        } finally {
+            chmodSync(locked, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    test("system parcelrc gate allows a correctly owned symlink chain", () => {
+        if (process.getuid?.() === 0) return; // meaningless as root: everything is euid-owned
+        const uid = process.getuid();
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-sysrc-link-"));
+        const locked = join(tmp, "locked");
+        const open = join(tmp, "open");
+        try {
+            mkdirSync(locked);
+            mkdirSync(open);
+            const target = join(locked, "target");
+            writeFileSync(target, "# empty\n");
+            chmodSync(target, 0o444);
+
+            // accepted: link and target both correctly owned, all directories locked
+            const goodLink = join(locked, "link");
+            symlinkSync(target, goodLink);
+            chmodSync(locked, 0o555);
+            let res = runGate(goodLink, uid);
+            assert.ok(res.stdout.includes("OK"), `expected acceptance of owned chain, got rc=${res.status} out=${res.stdout}`);
+
+            // rejected: the chain resolves into a caller-writable directory
+            const openTarget = join(open, "target");
+            writeFileSync(openTarget, "# empty\n");
+            chmodSync(openTarget, 0o444);
+            chmodSync(locked, 0o755);
+            const badLink = join(locked, "badlink");
+            symlinkSync(openTarget, badLink);
+            chmodSync(locked, 0o555);
+            res = runGate(badLink, uid);
+            assert.strictEqual(res.status, 43, `expected fatal for chain into writable directory, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("resolves into a directory writable by you"), `expected resolution error, got: ${res.stdout}`);
+        } finally {
+            chmodSync(locked, 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    /**
+     * Run the extracted call-site flow against user/system fixture content.
+     * @param {object} opts - Fixture options.
+     * @param {string} opts.user - User parcelrc content.
+     * @param {string|null} opts.system - System parcelrc content, or null for absent.
+     * @param {boolean} [opts.lockSystem] - Lock the system fixture down so the gate passes (default true).
+     * @returns {{status:number, stdout:string}} The harness result.
+     */
+    function runFlow({ user, system, lockSystem = true }) {
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-flow-"));
+        const userRc = join(tmp, "user-parcelrc");
+        const sysRc = join(tmp, "etc", "parcelrc");
+        try {
+            writeFileSync(userRc, user);
+            if (system !== null && system !== undefined) {
+                mkdirSync(join(tmp, "etc"));
+                writeFileSync(sysRc, system);
+                if (lockSystem) {
+                    chmodSync(sysRc, 0o444);
+                    chmodSync(join(tmp, "etc"), 0o555);
+                }
+            }
+            const res = spawnSync(
+                "bash",
+                [
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    `${parcelrcHarnessPrelude()}
+${extractParcelrcFlow()}
+printf 'VS=%s\\nBL=%s\\nMV=%s\\nHH=%s\\nGPG=%s\\n' \\
+    "\${VALID_SIGNERS:-}" "\${BLACKLIST_SIGNERS:-}" "\${MINIMUM_HOST_VERSION:-}" "\${HOST_HASH:-}" "\${GPG:-}"`,
+                ],
+                {
+                    encoding: "utf8",
+                    env: { PATH: "/usr/bin:/bin", HOME: tmp, PARCELRC: userRc, SYSTEM_PARCELRC: sysRc },
+                },
+            );
+            return { status: res.status, stdout: res.stdout };
+        } finally {
+            if (existsSync(join(tmp, "etc"))) chmodSync(join(tmp, "etc"), 0o700);
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    }
+
+    test("system parcelrc clobbers user scalars, unions blacklist, maxes version floor", () => {
+        const res = runFlow({
+            user: `VALID_SIGNERS="${FPR_A}"\nBLACKLIST_SIGNERS="${FPR_B}"\nHOST_HASH="${HASH_A}"\nMINIMUM_HOST_VERSION="3"\n`,
+            system: `VALID_SIGNERS="${FPR_C}"\nBLACKLIST_SIGNERS="${FPR_A}"\nHOST_HASH="${HASH_B}"\nMINIMUM_HOST_VERSION="7"\n`,
+        });
+        assert.strictEqual(res.status, 0, `flow failed: ${res.stdout}`);
+        assert.ok(res.stdout.includes(`VS=${FPR_C}`), `system VALID_SIGNERS must clobber, got: ${res.stdout}`);
+        assert.ok(res.stdout.includes(`HH=${HASH_B}`), `system HOST_HASH must clobber, got: ${res.stdout}`);
+        assert.ok(res.stdout.includes(`BL=${FPR_A} ${FPR_B}`), `blacklist must union, got: ${res.stdout}`);
+        assert.ok(res.stdout.includes("MV=7"), `version floor must take the higher value, got: ${res.stdout}`);
+    });
+
+    test("version floor takes the user value when it is higher", () => {
+        const res = runFlow({
+            user: `MINIMUM_HOST_VERSION="9"\n`,
+            system: `MINIMUM_HOST_VERSION="7"\n`,
+        });
+        assert.strictEqual(res.status, 0, `flow failed: ${res.stdout}`);
+        assert.ok(res.stdout.includes("MV=9"), `higher user floor must win, got: ${res.stdout}`);
+    });
+
+    test("blacklist unions with entries from either file alone", () => {
+        let res = runFlow({ user: `BLACKLIST_SIGNERS="${FPR_B}"\n`, system: `# empty\n` });
+        assert.strictEqual(res.status, 0, `flow failed: ${res.stdout}`);
+        // exact match: a user-only blacklist must not be duplicated by the union
+        assert.ok(res.stdout.split("\n").includes(`BL=${FPR_B}`), `user-only blacklist must survive intact, got: ${res.stdout}`);
+        res = runFlow({ user: `# empty\n`, system: `BLACKLIST_SIGNERS="${FPR_C}"\n` });
+        assert.strictEqual(res.status, 0, `flow failed: ${res.stdout}`);
+        assert.ok(res.stdout.split("\n").includes(`BL=${FPR_C}`), `system-only blacklist must apply, got: ${res.stdout}`);
+    });
+
+    test("absent system parcelrc leaves user values untouched", () => {
+        const res = runFlow({
+            user: `VALID_SIGNERS="${FPR_A}"\nBLACKLIST_SIGNERS="${FPR_B}"\nMINIMUM_HOST_VERSION="4"\n`,
+            system: null,
+        });
+        assert.strictEqual(res.status, 0, `flow failed: ${res.stdout}`);
+        assert.ok(res.stdout.includes(`VS=${FPR_A}`), `got: ${res.stdout}`);
+        assert.ok(res.stdout.includes(`BL=${FPR_B}`), `got: ${res.stdout}`);
+        assert.ok(res.stdout.includes("MV=4"), `got: ${res.stdout}`);
+    });
+
+    test("malformed VALID_SIGNERS in the user file is fatal before the system file is read", () => {
+        const res = runFlow({
+            user: `VALID_SIGNERS="not-a-fingerprint"\n`,
+            system: `VALID_SIGNERS="${FPR_C}"\n`,
+        });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("user-parcelrc: VALID_SIGNERS must be"), `error must name the user file, got: ${res.stdout}`);
+    });
+
+    test("malformed HOST_HASH in the system file is fatal", () => {
+        const res = runFlow({
+            user: `HOST_HASH="${HASH_A}"\n`,
+            system: `HOST_HASH="not-a-hash"\n`,
+        });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("parcelrc: HOST_HASH must be"), `error must name the system file, got: ${res.stdout}`);
+    });
+
+    test("a mispermissioned system parcelrc is fatal and never read", () => {
+        const res = runFlow({
+            user: `VALID_SIGNERS="${FPR_A}"\n`,
+            system: `VALID_SIGNERS="${FPR_C}"\n`,
+            lockSystem: false,
+        });
+        assert.strictEqual(res.status, 43, `expected gate fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.startsWith("FATAL:"), `expected gate failure, got: ${res.stdout}`);
+    });
+
+    test("binary validation uses the winning value only, labelled with its source", () => {
+        // a broken user override rescued by a valid system override must not abort
+        let res = runFlow({
+            user: `GPG="/nonexistent/gpg"\n`,
+            system: `GPG="/bin/ls"\n`,
+        });
+        assert.strictEqual(res.status, 0, `losing broken override must not abort, got: ${res.stdout}`);
+        assert.ok(res.stdout.includes("GPG=/bin/ls"), `system override must win, got: ${res.stdout}`);
+
+        // a broken winning override is fatal, naming the file it came from
+        res = runFlow({ user: `GPG="/nonexistent/gpg"\n`, system: `# empty\n` });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("user-parcelrc: GPG setting"), `error must name the user file, got: ${res.stdout}`);
+
+        res = runFlow({ user: `# empty\n`, system: `GPG="/nonexistent/gpg"\n` });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("parcelrc: GPG setting"), `error must name the system file, got: ${res.stdout}`);
+    });
+
+    test("shape-malformed binary values are fatal in either file", () => {
+        // a relative path can never be a valid override; failing loud surfaces tampering
+        let res = runFlow({ user: `GPG="opt/secure/gpg"\n`, system: `GPG="/bin/ls"\n` });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(
+            res.stdout.includes("user-parcelrc: GPG must be a command name or an absolute path"),
+            `error must name the user file, got: ${res.stdout}`,
+        );
+        res = runFlow({ user: `# empty\n`, system: `JQ="./jq"\n` });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(
+            res.stdout.includes("parcelrc: JQ must be a command name or an absolute path"),
+            `error must name the system file, got: ${res.stdout}`,
+        );
+    });
+
+    test("a dangling system parcelrc symlink is gated, not silently skipped", () => {
+        const tmp = mkdtempSync(join(tmpdir(), "parcel-flow-dangling-"));
+        const userRc = join(tmp, "user-parcelrc");
+        const sysRc = join(tmp, "etc", "parcelrc");
+        try {
+            writeFileSync(userRc, `VALID_SIGNERS="${FPR_A}"\n`);
+            mkdirSync(join(tmp, "etc"));
+            symlinkSync(join(tmp, "etc", "absent-target"), sysRc);
+            const res = spawnSync(
+                "bash",
+                [
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    `${parcelrcHarnessPrelude()}
+${extractParcelrcFlow()}
+printf 'VS=%s\\n' "\${VALID_SIGNERS:-}"`,
+                ],
+                { encoding: "utf8", env: { PATH: "/usr/bin:/bin", HOME: tmp, PARCELRC: userRc, SYSTEM_PARCELRC: sysRc } },
+            );
+            assert.strictEqual(res.status, 43, `expected gate fatal for dangling symlink, got ${res.stdout}`);
+            assert.ok(res.stdout.includes("not a regular file"), `expected gate error, got: ${res.stdout}`);
+        } finally {
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+});
 
 /**
  * Read src/parcel-host with a shipped BLACKLIST_SIGNERS value injected, to

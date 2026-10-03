@@ -184,3 +184,121 @@ printf 'CHANGES:%s' "$APPLIED_PARCELRC_CHANGES"`);
         cleanup();
     }
 });
+
+/** Verifies install_system_parcelrc creates the template only in system mode and never clobbers an existing file. */
+test("install_system_parcelrc creates the template in system mode only, and never clobbers", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const sysrc = join(home, "parcelrc-system");
+
+        const res = sourceScript(
+            `SYSTEM_PARCELRC="$SYSRC"
+RESOLVED_LEVEL="user"
+install_system_parcelrc
+printf 'user:%s\\n' "$([ -e "$SYSRC" ] && echo created || echo skipped)"
+RESOLVED_LEVEL="system"
+install_system_parcelrc
+printf 'system:%s\\n' "$([ -f "$SYSRC" ] && echo created || echo missing)"
+printf 'VALID_SIGNERS="ABC"\\n' > "$SYSRC"
+install_system_parcelrc
+printf 'clobber:%s\\n' "$(grep -c 'VALID_SIGNERS="ABC"' "$SYSRC")"`,
+            { env: { HOME: home, TMPDIR: home, SYSRC: sysrc } },
+        );
+
+        assert.strictEqual(res.code, 0, `harness failed: ${res.stderr}`);
+        assert.deepStrictEqual(res.stdout.trim().split("\n"), ["user:skipped", "system:created", "clobber:1"]);
+        assert.strictEqual(statSync(sysrc).mode & 0o777, 0o644, "system parcelrc must be 0644");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies the installed system parcelrc template passes the bootstrap's whitelist parser cleanly. */
+test("system parcelrc template parses cleanly through the bootstrap whitelist parser", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const setupSrc = readFileSync(join(import.meta.dirname, "..", "..", "src", "parcel-setup.sh"), "utf8");
+        const tpl = setupSrc.match(/cat > "\$SYSTEM_PARCELRC" <<'EOT'\n([\s\S]*?)\nEOT\n/);
+        assert.ok(tpl, "parcel-setup.sh must contain the system parcelrc template heredoc");
+
+        const bootstrapSrc = readFileSync(join(import.meta.dirname, "..", "..", "parcel-host"), "utf8");
+        const fn = (name) => {
+            const m = bootstrapSrc.match(new RegExp(`^function ${name}\\(\\) \\{\\n(?:.|\\n)*?^\\}\\n`, "m"));
+            assert.ok(m, `parcel-host must define ${name}()`);
+            return m[0];
+        };
+
+        const sysrc = join(home, "parcelrc-system");
+        writeFileSync(sysrc, tpl[1] + "\n");
+
+        const res = sourceScript(
+            `FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
+BLACKLIST_VALUE_RE="^(\${FPR_PATTERN}( \${FPR_PATTERN})*)?$"
+PARCELRC_NOTES=""
+function parcelrc_note() { PARCELRC_NOTES+="$1"$'\\n'; }
+function parcelrc_fatal() { printf 'FATAL:%s\\n' "$1"; exit 43; }
+${fn("parcelrc_apply")}
+${fn("load_parcelrc")}
+load_parcelrc "$SYSRC" "$SYSRC"
+printf 'KEYS:%s\\n' "$PARCELRC_KEYS_SET"
+printf 'NOTES:%s\\n' "$PARCELRC_NOTES"`,
+            { env: { HOME: home, TMPDIR: home, SYSRC: sysrc } },
+        );
+
+        assert.strictEqual(res.code, 0, `template must not trip a fatal: ${res.stdout}`);
+        const lines = res.stdout.trim().split("\n");
+        assert.strictEqual(lines[0], "KEYS:", "a fully commented template must stage no keys");
+        assert.strictEqual(lines[1], "NOTES:", "a fully commented template must produce no notes");
+    } finally {
+        cleanup();
+    }
+});
+
+/** Verifies apply_minimum_host_version also raises the floor in the system parcelrc in system mode. */
+test("apply_minimum_host_version raises the floor in the system parcelrc in system mode", () => {
+    const { home, cleanup } = makeTempHome();
+    try {
+        const cfg = join(home, ".config", "parcel");
+        mkdirSync(cfg, { recursive: true });
+        const rc = join(cfg, "parcelrc");
+        const sysrc = join(home, "parcelrc-system");
+        writeFileSync(rc, '# MINIMUM_HOST_VERSION="0"\n');
+        writeFileSync(sysrc, '# MINIMUM_HOST_VERSION="0"\n');
+
+        const run = (code) => sourceScript(code, { env: { HOME: home, TMPDIR: home, SYSRC: sysrc } });
+
+        // Missing system floor -> set alongside the user floor in system mode.
+        const apply = run(`CONFIG_DIR="$HOME/.config/parcel"
+SYSTEM_PARCELRC="$SYSRC"
+RESOLVED_LEVEL="system"
+HOST_VERSION="4"
+apply_minimum_host_version`);
+        assert.strictEqual(apply.code, 0, `harness failed: ${apply.stderr}`);
+        assert.strictEqual(readFileSync(rc, "utf8"), '# MINIMUM_HOST_VERSION="0"\nMINIMUM_HOST_VERSION="4"\n');
+        assert.strictEqual(readFileSync(sysrc, "utf8"), '# MINIMUM_HOST_VERSION="0"\nMINIMUM_HOST_VERSION="4"\n');
+        // the host reads the system file while running unprivileged, so the write
+        // must not tighten it to the user-file default of 0600
+        assert.strictEqual(statSync(sysrc).mode & 0o777, 0o644, "system parcelrc must remain 0644 after the floor write");
+
+        // Higher existing system floor -> preserved.
+        const preserve = run(`CONFIG_DIR="$HOME/.config/parcel"
+SYSTEM_PARCELRC="$SYSRC"
+RESOLVED_LEVEL="system"
+HOST_VERSION="2"
+apply_minimum_host_version`);
+        assert.strictEqual(preserve.code, 0, `harness failed: ${preserve.stderr}`);
+        assert.strictEqual(readFileSync(sysrc, "utf8"), '# MINIMUM_HOST_VERSION="0"\nMINIMUM_HOST_VERSION="4"\n');
+
+        // User-level installs never touch the system file.
+        writeFileSync(sysrc, '# MINIMUM_HOST_VERSION="0"\n');
+        const userMode = run(`CONFIG_DIR="$HOME/.config/parcel"
+SYSTEM_PARCELRC="$SYSRC"
+RESOLVED_LEVEL="user"
+HOST_VERSION="6"
+apply_minimum_host_version`);
+        assert.strictEqual(userMode.code, 0, `harness failed: ${userMode.stderr}`);
+        assert.strictEqual(readFileSync(sysrc, "utf8"), '# MINIMUM_HOST_VERSION="0"\n', "user mode must not touch the system file");
+    } finally {
+        cleanup();
+    }
+});

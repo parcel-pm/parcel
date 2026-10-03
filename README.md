@@ -216,7 +216,7 @@ After the setup script completes, install the Parcel extension from your browser
 bash parcel-setup.sh --uninstall
 ```
 
-This removes the bootstrap host, native-messaging manifests, and Flatpak wrappers. Your `parcelrc` and `.parcel.json` are preserved. Add `--remove-config` to also remove those files.
+This removes the bootstrap host, native-messaging manifests, and Flatpak wrappers. Your `parcelrc` and `.parcel.json` are preserved. Add `--remove-config` to also remove those files. `/etc/parcelrc` is admin policy and is always preserved.
 
 ### Manual native host installation
 
@@ -303,6 +303,8 @@ Parcel uses two separate configuration files: one for the bootstrap host environ
 
 **Location:** `~/.config/parcel/parcelrc` (or `$XDG_CONFIG_HOME/parcel/parcelrc` when `XDG_CONFIG_HOME` is set)
 If this file does not exist, the bootstrap host creates a commented template on first run.
+
+A root-owned system-wide override at `/etc/parcelrc` accepts the same options and is applied after your file: every option it sets clobbers your value, except `BLACKLIST_SIGNERS` (which unions) and `MINIMUM_HOST_VERSION` (which takes the higher value). The file must be owned by root and not writable by group or other, or the bootstrap host refuses to start. `parcel-setup.sh --system` installs a commented template there (create-if-missing; preserved on uninstall). See [SECURITY.md](SECURITY.md#parcelrc-hardening) for details.
 
 **Format:** one setting per line as `KEY="value"`, plus comments and blank lines. Only the documented keys below take effect; anything else is ignored, so files continue to work across bootstrap host updates. Path values may begin with `$HOME`. Values cannot contain double quotes, backslashes, backticks, or other variable expansions.
 

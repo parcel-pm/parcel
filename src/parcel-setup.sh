@@ -53,6 +53,9 @@ SERVICES_USER="${SUDO_USER:-}"
 USER_PATH="${USER_PATH:-${PATH:-}}"
 # Parcel config directory, mirroring the host's XDG Base Directory resolution.
 CONFIG_DIR=""
+# Root-owned system parcelrc honoured by the bootstrap host ahead of the user
+# parcelrc; hardcoded with no override, mirroring the bootstrap.
+SYSTEM_PARCELRC="/etc/parcelrc"
 
 # Detected browsers
 DETECTED_BROWSERS=""
@@ -549,8 +552,8 @@ Install options:
   --verbose           Show verbose output (e.g. manifest contents, full password-store tree)
 
 Actions:
-  --uninstall         Remove the installation (preserves parcelrc and .parcel.json)
-  --remove-config     With --uninstall: also remove config files
+  --uninstall         Remove the installation (preserves parcelrc, /etc/parcelrc and .parcel.json)
+  --remove-config     With --uninstall: also remove config files (never /etc/parcelrc)
   --create-config     Run the .parcel.json config builder
 
   -h, --help          Show this help message
@@ -846,12 +849,18 @@ detect_password_store() {
     PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-}"
 
     # A prior installation persists PASSWORD_STORE_DIR in parcelrc; it ranks
-    # above the environment but below an explicit --passdir flag.
+    # above the environment but below an explicit --passdir flag. A system
+    # parcelrc value wins over the user parcelrc, mirroring the bootstrap.
     if ! $PASS_DIR_EXPLICIT; then
         local parcelrc="$CONFIG_DIR/parcelrc"
         local rc_passdir=""
         if [ -f "$parcelrc" ]; then
             rc_passdir="$(sed -n 's/^PASSWORD_STORE_DIR="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
+        fi
+        if [ -f "$SYSTEM_PARCELRC" ]; then
+            local sys_passdir
+            sys_passdir="$(sed -n 's/^PASSWORD_STORE_DIR="\(.*\)"$/\1/p' "$SYSTEM_PARCELRC" 2>/dev/null | tail -n1)"
+            [ -n "$sys_passdir" ] && rc_passdir="$sys_passdir"
         fi
         if [ -n "$rc_passdir" ]; then
             PASSWORD_STORE_DIR="$(expand_tilde "$rc_passdir")"
@@ -890,11 +899,21 @@ detect_tool_paths() {
     local parcelrc="$CONFIG_DIR/parcelrc"
     local existing_gpg="" existing_jq="" existing_openssl=""
 
-    # Read existing parcelrc values if the file exists
+    # Read existing parcelrc values if the file exists; system parcelrc values
+    # win over the user parcelrc, mirroring the bootstrap's precedence.
     if [ -f "$parcelrc" ]; then
         existing_gpg="$(sed -n 's/^GPG="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
         existing_jq="$(sed -n 's/^JQ="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
         existing_openssl="$(sed -n 's/^OPENSSL="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null)"
+    fi
+    if [ -f "$SYSTEM_PARCELRC" ]; then
+        local sys_value
+        sys_value="$(sed -n 's/^GPG="\(.*\)"$/\1/p' "$SYSTEM_PARCELRC" 2>/dev/null | tail -n1)"
+        [ -n "$sys_value" ] && existing_gpg="$sys_value"
+        sys_value="$(sed -n 's/^JQ="\(.*\)"$/\1/p' "$SYSTEM_PARCELRC" 2>/dev/null | tail -n1)"
+        [ -n "$sys_value" ] && existing_jq="$sys_value"
+        sys_value="$(sed -n 's/^OPENSSL="\(.*\)"$/\1/p' "$SYSTEM_PARCELRC" 2>/dev/null | tail -n1)"
+        [ -n "$sys_value" ] && existing_openssl="$sys_value"
     fi
 
     detect_single_tool_path "gpg" "$existing_gpg" "/usr/bin/gpg" CUSTOM_GPG FORCE_GPG
@@ -1368,6 +1387,13 @@ preview_install() {
         else
             log_info "  Smoke test will create $CONFIG_DIR/parcelrc"
         fi
+        if [ "$RESOLVED_LEVEL" = "system" ]; then
+            if [ -e "$SYSTEM_PARCELRC" ] || [ -L "$SYSTEM_PARCELRC" ]; then
+                log_info "  System parcelrc $SYSTEM_PARCELRC exists - leaving as-is"
+            else
+                log_info "  Create system parcelrc template $SYSTEM_PARCELRC"
+            fi
+        fi
         printf '\n' >&2
     fi
 
@@ -1468,6 +1494,7 @@ preview_uninstall() {
 
     printf '\n' >&2
     log_info "Note: parcelrc and .parcel.json are preserved (use --remove-config to also remove them)"
+    log_info "Note: /etc/parcelrc is admin policy and is always preserved"
     printf '\n' >&2
 
     if ! $YES; then
@@ -1540,6 +1567,79 @@ install_bootstrap_host() {
 
     log_success "Bootstrap host installed to $HOST_BIN_PATH"
     APPLIED_CHANGES="$APPLIED_CHANGES bootstrap-host"
+}
+
+# Install a template system parcelrc for system-wide installs, create-if-missing only:
+# an existing file is admin policy and is never clobbered. The file ships fully
+# commented out; it takes effect only once an admin uncomments settings.
+# @since 1.0.8
+install_system_parcelrc() {
+    [ "$RESOLVED_LEVEL" = "system" ] || return 0
+
+    if [ -e "$SYSTEM_PARCELRC" ] || [ -L "$SYSTEM_PARCELRC" ]; then
+        log_info "$SYSTEM_PARCELRC already exists - leaving as-is"
+        return 0
+    fi
+
+    cat > "$SYSTEM_PARCELRC" <<'EOT'
+# System-wide Parcel configuration, honoured by the parcel-host bootstrap ahead of
+# the user parcelrc. Every setting here clobbers the user parcelrc, except
+# BLACKLIST_SIGNERS (which unions with the user's list) and MINIMUM_HOST_VERSION
+# (which takes the higher of the two values). This file must be owned by root and
+# not writable by group or other, or the bootstrap refuses to start. An empty value
+# does not clobber (empty means "keep the default"); comment a setting out instead.
+#
+# Pinning VALID_SIGNERS or HOST_HASH here anchors the signature-verification trust
+# policy outside user-writable space, so user-level malware cannot subvert it by
+# editing the user parcelrc. Note that a pinned HOST_HASH the user cannot update
+# turns every host-script update into an admin task.
+
+# Valid signers for the main host script which is bundled with the extension
+# (space-separated). Setting this fully replaces the built-in release-key default,
+# so include the release keys explicitly if they should remain trusted.
+#VALID_SIGNERS="88FF14D6294AF4036B7F00FF676A3C09E2E47A72 56C3E775E72B0C8B1C0C1BD0B5DB77409B11B601 82ED663067C6017BAA4BC752EB670BF2B1131683 B0908ED59A96C9882BED9A942A51761511A30253"
+
+# Signers to revoke even if valid (space-separated, primary or subkey fingerprint).
+# Unions with the user parcelrc list rather than replacing it.
+#BLACKLIST_SIGNERS=""
+
+# The gpg binary to use. Must resolve to a root-owned binary in a directory the
+# user cannot write to.
+#GPG="gpg"
+
+# The jq binary to use. Must resolve to a root-owned binary in a directory the
+# user cannot write to.
+#JQ="jq"
+
+# The openssl binary to use. Must resolve to a root-owned binary in a directory
+# the user cannot write to.
+#OPENSSL="openssl"
+
+# Where to write the log file. The bootstrap host runs as the invoking user, not
+# as root, so this must be a user-writable path; $HOME expands per user.
+#LOGFILE="$HOME/.local/log/parcel-host.log"
+
+# Where to persist non-sensitive runtime state (e.g. rate-limiter bucket state).
+# Must likewise be user-writable; $HOME expands per user.
+#STATEFILE="$HOME/.config/parcel/state"
+
+# The password store directory
+#PASSWORD_STORE_DIR="/home/user/.password-store"
+
+# The sha256 hash of the main host script which is bundled with the extension.
+# This is used to verify the integrity of the script before executing it.
+#HOST_HASH="1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+# The minimum host script version accepted on install. Takes the higher of this
+# value and the user parcelrc value (and the state file value).
+#MINIMUM_HOST_VERSION="0"
+EOT
+    chmod 0644 "$SYSTEM_PARCELRC"
+    if ! chown 0:0 "$SYSTEM_PARCELRC" 2>/dev/null; then
+        log_warn "Could not set root ownership on $SYSTEM_PARCELRC - the bootstrap will refuse to start until this is fixed (sudo chown 0:0 $SYSTEM_PARCELRC)"
+    fi
+    log_success "Created $SYSTEM_PARCELRC (system parcelrc template)"
+    APPLIED_CHANGES="$APPLIED_CHANGES system-parcelrc"
 }
 
 # Generate a native messaging manifest using jq.
@@ -1868,10 +1968,12 @@ second_smoke_test() {
 # @param {string} varname - Variable name (e.g. GPG, JQ, HOST_HASH).
 # @param {string} value - Value to set.
 # @param {string} [force] - If "force", overwrites an existing value.
+# @param {string} [mode] - File mode to enforce (default 0600; /etc/parcelrc needs 0644,
+#   as the bootstrap host reads it while running unprivileged).
 # @returns {boolean} 0 if value was applied, 1 if already set and not forced.
 # @since 1.0.7
 set_parcelrc_var() {
-    local parcelrc_path="$1" varname="$2" value="$3" force="${4:-}"
+    local parcelrc_path="$1" varname="$2" value="$3" force="${4:-}" mode="${5:-0600}"
     local tmpfile
     tmpfile="$(make_temp)"
 
@@ -1906,9 +2008,10 @@ set_parcelrc_var() {
         ' "$parcelrc_path" > "$tmpfile"
     fi
 
-    # Preserve permissions (0600)
+    # Preserve permissions (0600 for the user parcelrc; the system parcelrc must
+    # stay 0644 so the unprivileged bootstrap host can read it)
     cp "$tmpfile" "$parcelrc_path" || die "Failed to write parcelrc"
-    chmod 0600 "$parcelrc_path"
+    chmod "$mode" "$parcelrc_path"
 
     return 0
 }
@@ -2037,12 +2140,22 @@ apply_minimum_host_version() {
     existing="$(sed -n 's/^MINIMUM_HOST_VERSION="\(.*\)"$/\1/p' "$parcelrc" 2>/dev/null | tail -n1)"
     if [[ "$existing" =~ ^[0-9]{1,9}$ ]] && (( 10#$existing >= 10#$HOST_VERSION )); then
         log_info "MINIMUM_HOST_VERSION already set in parcelrc ($existing) - leaving as-is"
-        return
-    fi
-
-    if set_parcelrc_var "$parcelrc" "MINIMUM_HOST_VERSION" "$HOST_VERSION" force; then
+    elif set_parcelrc_var "$parcelrc" "MINIMUM_HOST_VERSION" "$HOST_VERSION" force; then
         log_success "Set MINIMUM_HOST_VERSION=$HOST_VERSION in parcelrc (host version floor)"
         APPLIED_PARCELRC_CHANGES="$APPLIED_PARCELRC_CHANGES MINIMUM_HOST_VERSION"
+    fi
+
+    # Pin the floor at system level too, so it survives a replaced user parcelrc. This
+    # runs regardless of the user-file outcome above; the system parcelrc must stay
+    # 0644 (not the user-file default 0600) so the unprivileged host can read it.
+    if [ "$RESOLVED_LEVEL" = "system" ] && [ -f "$SYSTEM_PARCELRC" ] && [ -w "$SYSTEM_PARCELRC" ]; then
+        local sys_existing
+        sys_existing="$(sed -n 's/^MINIMUM_HOST_VERSION="\(.*\)"$/\1/p' "$SYSTEM_PARCELRC" 2>/dev/null | tail -n1)"
+        if [[ "$sys_existing" =~ ^[0-9]{1,9}$ ]] && (( 10#$sys_existing >= 10#$HOST_VERSION )); then
+            log_info "MINIMUM_HOST_VERSION already set in $SYSTEM_PARCELRC ($sys_existing) - leaving as-is"
+        elif set_parcelrc_var "$SYSTEM_PARCELRC" "MINIMUM_HOST_VERSION" "$HOST_VERSION" force 0644; then
+            log_success "Set MINIMUM_HOST_VERSION=$HOST_VERSION in $SYSTEM_PARCELRC (host version floor)"
+        fi
     fi
 }
 
@@ -2117,6 +2230,7 @@ apply_install() {
     log_section "Applying"
 
     install_bootstrap_host
+    install_system_parcelrc
     install_native_manifests
     install_flatpak_wrappers
 
