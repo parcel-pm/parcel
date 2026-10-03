@@ -413,6 +413,7 @@ const HOST_TOOLS = [
     "jq",
     "mkdir",
     "mktemp",
+    "mv",
     "od",
     "openssl",
     "readlink",
@@ -3535,6 +3536,51 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("save_state never regresses or erases the persisted version floor", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithVersion("2"), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            send({ action: "list" });
+            await read();
+
+            // a pre-ratchet writer emits only the old lines, erasing the floor entirely
+            writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=3000\nDECRYPT_BUCKET_LAST=1\nBLACKLIST_SIGNERS=""\n`);
+            chmodSync(stateFile, 0o600);
+
+            // the next save must restore it
+            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const restored = await read();
+            assert.strictEqual(restored.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(restored)}`);
+            assert.ok(
+                readFileSync(stateFile, "utf8").includes(`MINIMUM_HOST_VERSION="2"`),
+                "save_state should restore a floor erased by a pre-ratchet writer",
+            );
+
+            // a concurrent higher-version writer must survive this host's save
+            writeFileSync(stateFile, `DECRYPT_BUCKET_TOKENS=3000\nDECRYPT_BUCKET_LAST=1\nBLACKLIST_SIGNERS=""\nMINIMUM_HOST_VERSION="3"\n`);
+            chmodSync(stateFile, 0o600);
+
+            send({ action: "decrypt", path: join(env.passdir, "test-entry.gpg"), intent: "test", origin: "test-origin" });
+            const kept = await read();
+            assert.strictEqual(kept.data?.plaintext, "test-decrypted-content", `Decrypt failed: ${JSON.stringify(kept)}`);
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(content.includes(`MINIMUM_HOST_VERSION="3"`), `save_state must not regress the persisted floor, got: ${content}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("a persisted version floor is enforced across host restarts", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
@@ -3596,6 +3642,33 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("the version floor is recorded at startup without any state save", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], decryptBucket: 3, decryptRate: 0.001 }));
+
+        const stateFile = join(env.home, ".config", "parcel", "state");
+        assert.ok(!existsSync(stateFile), "state file must not pre-exist in a fresh env");
+
+        const { proc, read, send } = spawnBootstrap(env);
+        try {
+            await read(); // bootstrap msg
+            send({ action: "install", script: mainScriptWithVersion("2"), signature: "sig" });
+            const installResult = await read();
+            assert.strictEqual(installResult.data?.success, true, `Install failed: ${JSON.stringify(installResult)}`);
+
+            // read-only action: nothing on this path saves rate-limiter state
+            send({ action: "list" });
+            await read();
+
+            const content = readFileSync(stateFile, "utf8");
+            assert.ok(content.includes(`MINIMUM_HOST_VERSION="2"`), `Startup should record the version floor, got: ${content}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("an older persisted version floor is bumped at startup", async () => {
         const env = createTestEnv();
         const parcelJson = join(env.passdir, ".parcel.json");
@@ -3623,7 +3696,7 @@ VALID_SIGNERS="${env.knownSigner}"
             );
             assert.ok(content.includes("DECRYPT_BUCKET_TOKENS=5"), `State file should keep the bucket state, got: ${content}`);
             const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
-            assert.ok(logContent.includes("predates this host version"), `Expected floor bump log entry, got: ${logContent}`);
+            assert.ok(logContent.includes("does not record this host version"), `Expected floor bump log entry, got: ${logContent}`);
         } finally {
             proc.kill();
             env.cleanup();

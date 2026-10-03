@@ -137,11 +137,20 @@ function load_state() {
 
 # save current state variables to the state file (clobbers).
 # only non-sensitive numeric values, the shipped blacklist and the version
-# floor are written.
+# floor are written. The floor never regresses: the higher of the running
+# script's version and the persisted value wins, so a concurrent
+# higher-version host's floor survives this save, and a floor erased by a
+# pre-ratchet writer is restored.
 # Only valid under the state lock (see lock_state).
 function save_state() {
+    local PERSISTED_FLOOR
+    PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' "$LOCKED_STATEFILE" 2>/dev/null | tail -n1)"
+    local FLOOR="$HOST_VERSION"
+    if (( 10#${PERSISTED_FLOOR:-0} > 10#$FLOOR )); then
+        FLOOR="$PERSISTED_FLOOR"
+    fi
     printf 'DECRYPT_BUCKET_TOKENS=%s\nDECRYPT_BUCKET_LAST=%s\nBLACKLIST_SIGNERS="%s"\nMINIMUM_HOST_VERSION="%s"\n' \
-        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" "$BLACKLIST_SIGNERS" "$HOST_VERSION" > "$LOCKED_STATEFILE"
+        "$DECRYPT_BUCKET_TOKENS" "$DECRYPT_BUCKET_LAST" "$BLACKLIST_SIGNERS" "$FLOOR" > "$LOCKED_STATEFILE"
     chmod 0600 "$LOCKED_STATEFILE"
 }
 
@@ -225,16 +234,16 @@ trap unlock_state EXIT
 
 # Repair an unusable state file (invalid content or bad permissions) so the
 # next bootstrap session reads a valid blacklist instead of failing open.
-# When a blacklist is shipped, also ensure the state file exists and carries
-# the shipped list, so bootstrap sessions enforce shipped revocations even if
-# no decrypt has persisted them yet. An unreadable file is a genuine anomaly:
+# Also ensure the state file exists and carries the shipped list and the
+# version floor, so bootstrap sessions enforce them even if no decrypt has
+# persisted them yet. An unreadable file is a genuine anomaly:
 # quit with an error rather than repair.
 #
 # @return 0 unless the state file is unreadable (fatal).
 # @since 1.0.7
 function repair_state() {
-    # no state file and no shipped blacklist: nothing to repair, and don't create one before first use
-    if [ ! -f "$STATEFILE" ] && [ -z "$BLACKLIST_SIGNERS" ]; then
+    # nothing shipped to record and nothing to repair: don't create a state file before first use
+    if [ ! -f "$STATEFILE" ] && [ -z "$BLACKLIST_SIGNERS" ] && [ "$HOST_VERSION" -eq 0 ]; then
         return 0
     fi
     lock_state || return 0
@@ -265,11 +274,11 @@ function repair_state() {
             DECRYPT_BUCKET_LAST="${DECRYPT_BUCKET_LAST:-0}"
             save_state
         else
-            # valid content with a current blacklist: only a stale or missing floor remains
+            # valid content with a current blacklist: only a missing or stale floor remains
             local PERSISTED_FLOOR
             PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
             if (( 10#${PERSISTED_FLOOR:-0} < 10#$HOST_VERSION )); then
-                printf '[%s] state file %s predates this host version; updating the version floor\n' \
+                printf '[%s] state file %s does not record this host version; updating the version floor\n' \
                     "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5
                 # valid content: preserve the persisted bucket state
                 load_state
