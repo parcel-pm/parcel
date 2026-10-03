@@ -91,7 +91,7 @@ function validate_state_content() {
     local LINE
     local FPR_PATTERN='[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?'
     local BLACKLIST_RE="^BLACKLIST_SIGNERS=\"(${FPR_PATTERN}( ${FPR_PATTERN})*)?\"$"
-    local FLOOR_RE='^MINIMUM_HOST_VERSION="[0-9]+"$'
+    local FLOOR_RE='^MINIMUM_HOST_VERSION="[0-9]{1,9}"$'
     while IFS= read -r LINE || [[ -n "$LINE" ]]; do
         # Skip empty and whitespace-only lines
         [[ "$LINE" =~ ^[[:space:]]*$ ]] && continue
@@ -144,7 +144,7 @@ function load_state() {
 # Only valid under the state lock (see lock_state).
 function save_state() {
     local PERSISTED_FLOOR
-    PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' "$LOCKED_STATEFILE" 2>/dev/null | tail -n1)"
+    PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9]\{1,9\}\)"$/\1/p' "$LOCKED_STATEFILE" 2>/dev/null | tail -n1)"
     local FLOOR="$HOST_VERSION"
     if (( 10#${PERSISTED_FLOOR:-0} > 10#$FLOOR )); then
         FLOOR="$PERSISTED_FLOOR"
@@ -276,7 +276,7 @@ function repair_state() {
         else
             # valid content with a current blacklist: only a missing or stale floor remains
             local PERSISTED_FLOOR
-            PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
+            PERSISTED_FLOOR="$(sed -n 's/^MINIMUM_HOST_VERSION="\([0-9]\{1,9\}\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
             if (( 10#${PERSISTED_FLOOR:-0} < 10#$HOST_VERSION )); then
                 printf '[%s] state file %s does not record this host version; updating the version floor\n' \
                     "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$STATEFILE" >&5

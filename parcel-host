@@ -457,7 +457,7 @@ function parcelrc_apply() {
                 parcelrc_fatal "HOST_HASH must be a 64-character hex sha256 hash"
             ;;
         MINIMUM_HOST_VERSION)
-            if [[ ! "$VALUE" =~ ^[0-9]+$ ]]; then
+            if [[ ! "$VALUE" =~ ^[0-9]{1,9}$ ]]; then
                 parcelrc_note "MINIMUM_HOST_VERSION is malformed; ignoring it"
                 return 1
             fi
@@ -664,7 +664,7 @@ function load_version_floor() {
             local CONTENT VALUE
             CONTENT="$(cat "$FILE" 2>/dev/null)" || CONTENT=""
             VALUE="$(sed -n 's/^MINIMUM_HOST_VERSION="\(.*\)"$/\1/p' <<< "$CONTENT" | tail -n1)"
-            if [ -n "$VALUE" ] && [[ ! "$VALUE" =~ ^[0-9]+$ ]]; then
+            if [ -n "$VALUE" ] && [[ ! "$VALUE" =~ ^[0-9]{1,9}$ ]]; then
                 printf '[%s] state file %s has an invalid version floor; ignoring it\n' \
                     "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$FILE" >&5
                 VALUE=""
@@ -778,8 +778,8 @@ function action_install() {
     # version ratchet: refuse candidates below the effective minimum version
     local CANDIDATE_VERSION
     CANDIDATE_VERSION="$(sed -n 's/^HOST_VERSION="\([0-9][0-9]*\)"$/\1/p' <<< "$SCRIPT" | head -n1)"
-    if [[ ! "$CANDIDATE_VERSION" =~ ^[0-9]+$ ]]; then
-        # a script without a version marker predates the ratchet and earns no floor credit
+    if [[ ! "$CANDIDATE_VERSION" =~ ^[0-9]{1,9}$ ]]; then
+        # a script without a usable version marker predates the ratchet and earns no floor credit
         CANDIDATE_VERSION="0"
     fi
     if (( 10#$CANDIDATE_VERSION < 10#$MINIMUM_HOST_VERSION )); then
