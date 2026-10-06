@@ -292,6 +292,8 @@
             return;
         }
     }
+    // Seed the fill origin from the tab URL until the origin handshake reports the serving frame.
+    if (tab.url) frameOrigin = new URL(tab.url).origin;
     const ul = document.querySelector("ul");
     let limit = true;
     let history = [];

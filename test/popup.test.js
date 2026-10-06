@@ -1144,4 +1144,57 @@ describe("Popup script", { concurrency: false }, () => {
         await new Promise((resolve) => setTimeout(resolve, 1900));
         assert.match(globalThis.document.querySelector("p.error")?.textContent || "", /has not responded yet/i);
     });
+
+    test("fill before the origin handshake carries the tab URL origin (F68M)", async () => {
+        // Content script never answers "ready"; the fill must still carry an origin (F68M).
+        const noHsDom = new JSDOM(document.documentElement.outerHTML, { url: "http://localhost/", pretendToBeVisual: true });
+        globalThis.window = noHsDom.window;
+        globalThis.document = noHsDom.window.document;
+        globalThis.Event = noHsDom.window.Event;
+        globalThis.CustomEvent = noHsDom.window.CustomEvent;
+        globalThis.MouseEvent = noHsDom.window.MouseEvent;
+        globalThis.HTMLElement = noHsDom.window.HTMLElement;
+        globalThis.customElements = noHsDom.window.customElements;
+        globalThis.location = noHsDom.window.location;
+        noHsDom.window.close = () => {};
+        noHsDom.window.Element.prototype.scrollIntoView = function () {};
+
+        const noHsMock = createChromeMock({ baseUrl: "file://" + process.cwd() + "/src/" });
+        noHsMock.installChrome();
+        noHsMock.installBrowserPolyfills();
+        noHsMock.setCurrentTab({ id: 42, url: "https://example.com/login", cookieStoreId: undefined });
+
+        let noHsPopupReceiver = null;
+        chrome.runtime.onConnect.addListener((receiver) => {
+            if (receiver.name !== "popup") return;
+            noHsPopupReceiver = receiver;
+            receiver.onMessage.addListener((msg) => {
+                if (msg?.action === "config") receiver.postMessage({ action: "config", config: makeValidConfig() });
+                else if (msg?.action === "scope")
+                    receiver.postMessage({ action: "scope", features: ["context", "fill", "http", "passkey"] });
+            });
+        });
+
+        // Capture the content-script side of the tab port without ever answering "ready".
+        let tabPair = null;
+        const origTabsConnect = chrome.tabs.connect.bind(chrome.tabs);
+        chrome.tabs.connect = function (tabId, info = {}) {
+            const caller = origTabsConnect(tabId, info);
+            tabPair = noHsMock.findTabPort(tabId, info.frameId ?? 0);
+            return caller;
+        };
+
+        await import("../src/js/popup.js?no-handshake-fill");
+        await settleAsync();
+        assert.ok(tabPair, "tab port connected");
+
+        const fillPromise = nextMessage(tabPair, "fill", 3000);
+        noHsPopupReceiver.postMessage({
+            action: "plaintext",
+            intent: "fill",
+            plaintext: "user: alice\npassword: secret123\n",
+        });
+        const msg = await fillPromise;
+        assert.strictEqual(msg.origin, "https://example.com", "fill carries the origin seeded from tab.url");
+    });
 });
