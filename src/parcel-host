@@ -44,6 +44,8 @@ DECRYPT_BUCKET_TOKENS=""
 DECRYPT_BUCKET_LAST=""
 DECRYPT_BUCKET_SIZE_DEFAULT=10 # default also set in schema.js
 DECRYPT_BUCKET_RATE_DEFAULT=0.00277 # default also set in schema.js
+# cap on queued collect_roots scan roots; a breach indicates a recursive or excessively aliased symlink structure
+MAX_SCAN_ROOTS=1024
 PARCELFILE="$PASSWORD_STORE_DIR/.parcel.json"
 CONFIG="{}"
 CONFIG_MODIFIED=-1
@@ -349,10 +351,12 @@ collect_roots() {
     local ALLOW_LINKS="$2"
     local ALLOW_EXTERNAL_LINKS="$3"
 
+    # Note that errors are reported by the caller to avoid subshell issues. Error type is indicated via return code.
+
     if [ "$ALLOW_LINKS" != "true" ]; then
         if [ -L "$1" ]; then
             # check allowLinks, but not allowExternalLinks, as the password store *root* being a link is not considered external
-            parcel_error "PASSWORD_STORE_DIR is a symlink, but allowLinks is not enabled." 1
+            return 3
         fi
         printf '%s\n' "${ROOTS[@]}"
         return 0
@@ -380,6 +384,10 @@ collect_roots() {
                     fi
                 done
                 if [ $ALREADY_INCLUDED -eq 0 ]; then
+                    if [ "${#ROOTS[@]}" -ge "$MAX_SCAN_ROOTS" ]; then
+                        # Password store contains recursive or excessively aliased symlinks
+                        return 2
+                    fi
                     ROOTS+=("$LINK") # save the non-dereferenced path, as the user may want the same entry accessible via multiple links
                 fi
             fi
@@ -389,6 +397,23 @@ collect_roots() {
 
     # return the list
     printf '%s\n' "${ROOTS[@]}"
+}
+
+# map a collect_roots failure status to a protocol error
+# @param {number} $1 - collect_roots exit status
+# @return 0 if the status was a failure (an error was reported); 1 otherwise
+# @since 1.0.9
+function report_collect_roots_error() {
+    if [ "$1" -eq 2 ]; then
+        parcel_error "Password store contains recursive or excessively aliased symlinks; refusing to scan"
+    elif [ "$1" -eq 3 ]; then
+        parcel_error "PASSWORD_STORE_DIR is a symlink, but allowLinks is not enabled."
+    elif [ "$1" -ne 0 ]; then
+        parcel_error "Unable to scan password store directories"
+    else
+        return 1
+    fi
+    return 0
 }
 
 # get the current config
@@ -534,10 +559,15 @@ function action_changes_since() {
     fi
     SINCE="$(date -d "@$SINCE" +'%Y-%m-%d %H:%M:%S' 2>/dev/null || date -j -f "%s" "$SINCE" +'%Y-%m-%d %H:%M:%S')"
 
+    local COLLECT_OUT COLLECT_RC=0
+    COLLECT_OUT="$(collect_roots "$PASSWORD_STORE_DIR" "$(jq -r '.allowLinks' <<< "$CONFIG")" "$(jq -r '.allowExternalLinks' <<< "$CONFIG")")" || COLLECT_RC=$?
+    if report_collect_roots_error "$COLLECT_RC"; then
+        return 0
+    fi
     local ROOTS=()
     while IFS= read -r ROOT; do
         ROOTS+=("$ROOT")
-    done < <(collect_roots "$PASSWORD_STORE_DIR" "$(jq -r '.allowLinks' <<< "$CONFIG")" "$(jq -r '.allowExternalLinks' <<< "$CONFIG")")
+    done <<< "$COLLECT_OUT"
 
     local EXCLUDE=()
     for ROOT in "${ROOTS[@]}"; do
@@ -560,10 +590,15 @@ function action_list() {
     local ALLOW_LINKS="$(jq -r '.allowLinks' <<< "$CONFIG")"
     local ALLOW_EXTERNAL_LINKS="$(jq -r '.allowExternalLinks' <<< "$CONFIG")"
 
+    local COLLECT_OUT COLLECT_RC=0
+    COLLECT_OUT="$(collect_roots "$PASSWORD_STORE_DIR" "$ALLOW_LINKS" "$ALLOW_EXTERNAL_LINKS")" || COLLECT_RC=$?
+    if report_collect_roots_error "$COLLECT_RC"; then
+        return 0
+    fi
     local ROOTS=()
     while IFS= read -r ROOT; do
         ROOTS+=("$ROOT")
-    done < <(collect_roots "$PASSWORD_STORE_DIR" "$ALLOW_LINKS" "$ALLOW_EXTERNAL_LINKS")
+    done <<< "$COLLECT_OUT"
 
     # single null-delimited traversal: per root, the substitution writes find's paths, then an in-band
     # exit-status sentinel, then find's stderr replayed as NUL-delimited lines - the pipe always has

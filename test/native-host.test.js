@@ -282,14 +282,17 @@ function spawnBootstrap(env, extraEnv = {}) {
  * Install the main host script via the bootstrap, returning the connected
  * process and message reader ready for main-script actions.
  */
-async function installMainScript(env, extraEnv = {}) {
+async function installMainScript(env, extraEnv = {}, scriptTransform = null) {
     const { proc, read, send } = spawnBootstrap(env, extraEnv);
 
     // Consume bootstrap announcement
     const bootstrapMsg = await read();
     assert.strictEqual(bootstrapMsg.data?.action, "bootstrap", "Expected bootstrap message, got: " + JSON.stringify(bootstrapMsg));
 
-    const mainScript = readFileSync("src/parcel-host", "utf8");
+    let mainScript = readFileSync("src/parcel-host", "utf8");
+    if (scriptTransform) {
+        mainScript = scriptTransform(mainScript);
+    }
     send({
         action: "install",
         script: mainScript,
@@ -3072,10 +3075,12 @@ VALID_SIGNERS="${env.knownSigner}"
         try {
             send({ action: "list" });
             const msg = await read();
-            // The host must not hang; it may return either an error or the entry list.
+            // The host must not hang, and must fail closed. GNU find lets the root queue grow until the
+            // scan-root cap fires; BSD find detects the loop itself and the scan stage reports it instead.
             assert.ok(
-                Array.isArray(msg.data) || msg.error?.toLowerCase().includes("unable to scan files"),
-                `Expected response or scan error, got: ${JSON.stringify(msg)}`,
+                msg.error?.toLowerCase().includes("recursive or excessively aliased") ||
+                    msg.error?.toLowerCase().includes("unable to scan files"),
+                `Expected recursive-symlink or scan error, got: ${JSON.stringify(msg)}`,
             );
         } finally {
             proc.kill();
@@ -3150,6 +3155,45 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "changes_since", since });
             const msg = await read();
             assert.strictEqual(typeof msg.data?.changes, "number", `Expected numeric change count, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list and action_changes_since refuse an excessively aliased store", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Exceed the collect_roots scan-root cap with distinct non-cyclic links. The cap is patched
+        // down from 1024 to 8 in the installed script so the fixture stays cheap to build.
+        const linkTarget = join(env.passdir, "link-target");
+        mkdirSync(linkTarget, { recursive: true });
+        for (let i = 0; i < 9; i++) {
+            symlinkSync(linkTarget, join(env.passdir, `alias-${i}`), "dir");
+        }
+
+        const { proc, read, send } = await installMainScript(env, {}, (script) => {
+            const patched = script.replace("MAX_SCAN_ROOTS=1024", "MAX_SCAN_ROOTS=8");
+            assert.notStrictEqual(patched, script, "Scan-root cap patch did not apply; MAX_SCAN_ROOTS definition changed?");
+            return patched;
+        });
+        try {
+            send({ action: "list" });
+            const listMsg = await read();
+            assert.ok(
+                listMsg.error?.toLowerCase().includes("recursive or excessively aliased"),
+                `Expected recursive-symlink error from action_list, got: ${JSON.stringify(listMsg)}`,
+            );
+
+            const since = String(Math.floor(Date.now() / 1000) - 5);
+            send({ action: "changes_since", since });
+            const changesMsg = await read();
+            assert.ok(
+                changesMsg.error?.toLowerCase().includes("recursive or excessively aliased"),
+                `Expected recursive-symlink error from action_changes_since, got: ${JSON.stringify(changesMsg)}`,
+            );
         } finally {
             proc.kill();
             env.cleanup();
