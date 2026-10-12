@@ -727,10 +727,11 @@ function action_list() {
 
                 )
             ' \
-                <(echo "$CONFIG") -
+                <(echo "$CONFIG") - 2>&1
     )" || JQ_RC=$?
     if [ "$JQ_RC" -ne 0 ]; then
-        parcel_error "Unable to evaluate entry rules"
+        # on failure OUT holds jq's stderr
+        parcel_error "Unable to evaluate entry rules: $OUT"
         return 0
     fi
 
