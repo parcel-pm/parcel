@@ -2504,6 +2504,27 @@ VALID_SIGNERS="${env.knownSigner}"
         }
     });
 
+    test("rejects a rule pattern the host regex engine cannot compile", async () => {
+        const env = createTestEnv();
+        // JS RegExp accepts this Unicode property escape; jq's Oniguruma does not
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "\\p{Script_Extensions=Greek}" }] }));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "configure" });
+            const msg = await read();
+            assert.match(
+                msg.error ?? "",
+                /invalid in the native host's regex engine: \\p\{Script_Extensions=Greek\}/,
+                `got: ${JSON.stringify(msg)}`,
+            );
+            const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
+            assert.strictEqual(exitCode, 1, "host should exit on an uncompilable rule pattern");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
     test("action_configure works when .parcel.json is missing (no hang)", async () => {
         const env = createTestEnv();
         // Remove .parcel.json so the host must operate without a config file
