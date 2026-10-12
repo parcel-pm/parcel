@@ -16,7 +16,7 @@ all: extension chrome firefox
 
 .PHONY: extension
 extension:
-	$(MAKE) VERSION=$(VERSION) -C ./src
+	$(MAKE) VERSION=$(VERSION) PRETTIER=$(PRETTIER) -C ./src
 
 .PHONY: install-deps
 install-deps:
