@@ -54,7 +54,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** The host matches entries with jq's Oniguruma engine while the extension re-matches with JS `RegExp`; an entry matching a rule host-side but not extension-side yields `entry.rule: undefined`, and `popup.js:929`/`:945` dereference `entry.rule.tag`/`.strip` unguarded, aborting the render batch (mimo PoC: 0 of 2 entries rendered; kimi-k3 notes the throw is caught by `scheduleRender` and that no concrete divergent pattern pair was demonstrated). UI denial of service only; nothing is decrypted by rendering. Disputed: kimi-k3 did not reproduce it as a finding (residual R10). TM4.
 
-**Response:** Fixed in #240 by adding a conditional guard. Such entries are legimate, so should still render.
+**Response:** Fixed in #240 by adding a conditional guard. Such entries are legitimate, so should still render.
 
 ### F76L - Timestamp rules let a stale `src/dist` (incl. `parcel-host.asc`) ship (LOW; finding disputed)
 
@@ -258,7 +258,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The review records one MEDI
 
 **Description:** The origin guard only fires when the message carries an `origin` key. The `fill-value` action never carries `origin`, and an undefined `frameOrigin` is dropped by structured-clone. No reachable exploit: `fill-value` values come from already-decrypted plaintext; the `frameOrigin`-undefined edge resolves before any real fill. The maintainer-rejected half of F36L.
 
-**Response:** — Rejected; no practical exploit exists.
+**Response:** Rejected; no practical exploit exists.
 
 ## [v1.0.4 / kimi-k3](reviews/v1.0.4/kimi-k3.md)
 
