@@ -42,7 +42,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** SECURITY.md:87 promises that malformed content in either parcelrc file refuses startup; the implementation makes only `VALID_SIGNERS`/`HOST_HASH`/binary-shape violations fatal, while malformed `BLACKLIST_SIGNERS`, `MINIMUM_HOST_VERSION`, and non-absolute path values are ignored with a logfile note (a behaviour the test suite pins deliberately). An admin's typo'd durable revocation in `/etc/parcelrc` is silently dropped, leaving the intended-to-be-revoked signing key trusted. Bounded: a valid `VALID_SIGNERS` signature is still required; no attacker-reachable path. TM0.
 
-**Response:** Fixed in #239 by making malformed `BLACKLIST_SIGNERS` or `MINIMUM_HOST_VERSION` fatal.
+**Response:** Fixed in #239 by making malformed `BLACKLIST_SIGNERS` or `MINIMUM_HOST_VERSION` fatal. Ignoring (but logging) non-absolute paths is intended behaviour as-is.
 
 ### F74L - Passkey/HTTP-auth consent guarantees phrased as absolutes that do not hold under the accepted TM2 posture (LOW)
 
