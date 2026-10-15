@@ -480,20 +480,16 @@ function parcelrc_apply() {
                 parcelrc_fatal "$SRC: VALID_SIGNERS must be a space-separated list of key fingerprints"
             ;;
         BLACKLIST_SIGNERS)
-            if [[ ! "$VALUE" =~ $BLACKLIST_VALUE_RE ]]; then
-                parcelrc_note "$SRC: BLACKLIST_SIGNERS is malformed; ignoring it"
-                return 1
-            fi
+            [[ "$VALUE" =~ $BLACKLIST_VALUE_RE ]] ||
+                parcelrc_fatal "$SRC: BLACKLIST_SIGNERS must be a space-separated list of key fingerprints"
             ;;
         HOST_HASH)
             [[ "$VALUE" =~ ^[0-9A-Fa-f]{64}$ ]] ||
                 parcelrc_fatal "$SRC: HOST_HASH must be a 64-character hex sha256 hash"
             ;;
         MINIMUM_HOST_VERSION)
-            if [[ ! "$VALUE" =~ ^[0-9]{1,9}$ ]]; then
-                parcelrc_note "$SRC: MINIMUM_HOST_VERSION is malformed; ignoring it"
-                return 1
-            fi
+            [[ "$VALUE" =~ ^[0-9]{1,9}$ ]] ||
+                parcelrc_fatal "$SRC: MINIMUM_HOST_VERSION must be a non-negative integer"
             ;;
         LOGFILE | STATEFILE | PASSWORD_STORE_DIR)
             case "$VALUE" in
@@ -711,8 +707,7 @@ STATEFILE="${STATEFILE:-$CONFIG_DIR/state}"
 # combined with it rather than clobbered
 PARCELRC_BLACKLIST="$(tr '[:lower:]' '[:upper:]' <<< "${BLACKLIST_SIGNERS:-}")"
 if [[ ! "$PARCELRC_BLACKLIST" =~ $BLACKLIST_VALUE_RE ]]; then
-    printf '[%s] parcelrc BLACKLIST_SIGNERS is malformed; ignoring it\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >&5
-    PARCELRC_BLACKLIST=""
+    parcelrc_fatal "merged parcelrc blacklist is malformed"
 fi
 
 # effective revocation list (state-file value, then the shipped list)

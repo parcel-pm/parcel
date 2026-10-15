@@ -282,14 +282,17 @@ function spawnBootstrap(env, extraEnv = {}) {
  * Install the main host script via the bootstrap, returning the connected
  * process and message reader ready for main-script actions.
  */
-async function installMainScript(env, extraEnv = {}) {
+async function installMainScript(env, extraEnv = {}, scriptTransform = null) {
     const { proc, read, send } = spawnBootstrap(env, extraEnv);
 
     // Consume bootstrap announcement
     const bootstrapMsg = await read();
     assert.strictEqual(bootstrapMsg.data?.action, "bootstrap", "Expected bootstrap message, got: " + JSON.stringify(bootstrapMsg));
 
-    const mainScript = readFileSync("src/parcel-host", "utf8");
+    let mainScript = readFileSync("src/parcel-host", "utf8");
+    if (scriptTransform) {
+        mainScript = scriptTransform(mainScript);
+    }
     send({
         action: "install",
         script: mainScript,
@@ -826,27 +829,6 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("fails open when the parcelrc blacklist is malformed", async () => {
-        const env = createTestEnv();
-        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const existing = readFileSync(parcelrc, "utf8");
-        // Not a valid fingerprint list: the value must be ignored
-        writeFileSync(parcelrc, `${existing}BLACKLIST_SIGNERS="not-a-fingerprint"\n`);
-
-        const { proc, read, send } = spawnBootstrap(env);
-        try {
-            await read(); // bootstrap msg
-            send({ action: "install", script: "test", signature: "sig" });
-            const msg = await read();
-            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed blacklist, got: ${JSON.stringify(msg)}`);
-            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
-            assert.ok(logContent.includes("BLACKLIST_SIGNERS is malformed"), `Expected malformed log entry, got: ${logContent}`);
-        } finally {
-            proc.kill();
-            env.cleanup();
-        }
-    });
-
     test("rejects install when only the signing subkey is blacklisted via parcelrc", async () => {
         const env = createTestEnv();
         // Field 3 (subkey) is blacklisted, field 12 (primary) stays whitelisted
@@ -1019,12 +1001,10 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("fails open when version floors are malformed", async () => {
+    test("fails open when the state file version floor is malformed", async () => {
         const env = createTestEnv();
-        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const existing = readFileSync(parcelrc, "utf8");
-        // Not a number: the floor must be ignored at both layers
-        writeFileSync(parcelrc, `${existing}MINIMUM_HOST_VERSION="not-a-number"\n`);
+        // The state file is a cache that the main host repairs, so a malformed
+        // floor is ignored rather than fatal
         const stateFile = join(env.home, ".config", "parcel", "state");
         writeFileSync(stateFile, `MINIMUM_HOST_VERSION="not-a-number"\n`);
         chmodSync(stateFile, 0o600);
@@ -1034,12 +1014,8 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             await read(); // bootstrap msg
             send({ action: "install", script: "test", signature: "sig" });
             const msg = await read();
-            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed floors, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed state floor, got: ${JSON.stringify(msg)}`);
             const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
-            assert.ok(
-                logContent.includes("MINIMUM_HOST_VERSION is malformed"),
-                `Expected malformed parcelrc log entry, got: ${logContent}`,
-            );
             assert.ok(
                 logContent.includes("invalid version floor; ignoring it"),
                 `Expected invalid state floor log entry, got: ${logContent}`,
@@ -1363,9 +1339,14 @@ function action_test_override() {
     });
 
     test("rejects malformed recognised-key values in parcelrc", async () => {
+        // parcelrc is the authoritative source for durable trust settings, and a
+        // durable floor or revocation has no reasserting source, so a malformed
+        // value must refuse startup rather than being silently dropped
         for (const [key, value] of [
             ["VALID_SIGNERS", "not-a-fingerprint"],
             ["HOST_HASH", "abc123"],
+            ["BLACKLIST_SIGNERS", "not-a-fingerprint"],
+            ["MINIMUM_HOST_VERSION", "not-a-number"],
         ]) {
             const env = createTestEnv();
             const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
@@ -2292,6 +2273,20 @@ printf 'VS=%s\\nBL=%s\\nMV=%s\\nHH=%s\\nGPG=%s\\n' \\
         });
         assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
         assert.ok(res.stdout.includes("parcelrc: HOST_HASH must be"), `error must name the system file, got: ${res.stdout}`);
+
+        res = runFlow({
+            user: `BLACKLIST_SIGNERS="not-a-fingerprint"\n`,
+            system: `BLACKLIST_SIGNERS="${FPR_C}"\n`,
+        });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("user-parcelrc: BLACKLIST_SIGNERS must be"), `error must name the user file, got: ${res.stdout}`);
+
+        res = runFlow({
+            user: `MINIMUM_HOST_VERSION="2"\n`,
+            system: `MINIMUM_HOST_VERSION="not-a-number"\n`,
+        });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("parcelrc: MINIMUM_HOST_VERSION must be"), `error must name the system file, got: ${res.stdout}`);
     });
 
     test("a mispermissioned system parcelrc is fatal and never read", () => {
@@ -2495,6 +2490,27 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "configure" });
             const msg = await read();
             assert.strictEqual(msg.data?.hostPinned, false, "host injection must overwrite the .parcel.json value");
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("rejects a rule pattern the host regex engine cannot compile", async () => {
+        const env = createTestEnv();
+        // JS RegExp accepts this Unicode property escape; jq's Oniguruma does not
+        writeFileSync(join(env.passdir, ".parcel.json"), JSON.stringify({ rules: [{ pattern: "\\p{Script_Extensions=Greek}" }] }));
+        const { proc, read, send } = await installMainScript(env);
+        try {
+            send({ action: "configure" });
+            const msg = await read();
+            assert.match(
+                msg.error ?? "",
+                /invalid in the native host's regex engine: \\p\{Script_Extensions=Greek\}/,
+                `got: ${JSON.stringify(msg)}`,
+            );
+            const exitCode = await new Promise((resolve) => proc.on("exit", resolve));
+            assert.strictEqual(exitCode, 1, "host should exit on an uncompilable rule pattern");
         } finally {
             proc.kill();
             env.cleanup();
@@ -3072,10 +3088,12 @@ VALID_SIGNERS="${env.knownSigner}"
         try {
             send({ action: "list" });
             const msg = await read();
-            // The host must not hang; it may return either an error or the entry list.
+            // The host must not hang, and must fail closed. GNU find lets the root queue grow until the
+            // scan-root cap fires; BSD find detects the loop itself and the scan stage reports it instead.
             assert.ok(
-                Array.isArray(msg.data) || msg.error?.toLowerCase().includes("unable to scan files"),
-                `Expected response or scan error, got: ${JSON.stringify(msg)}`,
+                msg.error?.toLowerCase().includes("recursive or excessively aliased") ||
+                    msg.error?.toLowerCase().includes("unable to scan files"),
+                `Expected recursive-symlink or scan error, got: ${JSON.stringify(msg)}`,
             );
         } finally {
             proc.kill();
@@ -3150,6 +3168,45 @@ VALID_SIGNERS="${env.knownSigner}"
             send({ action: "changes_since", since });
             const msg = await read();
             assert.strictEqual(typeof msg.data?.changes, "number", `Expected numeric change count, got: ${JSON.stringify(msg)}`);
+        } finally {
+            proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("action_list and action_changes_since refuse an excessively aliased store", async () => {
+        const env = createTestEnv();
+        const parcelJson = join(env.passdir, ".parcel.json");
+        writeFileSync(parcelJson, JSON.stringify({ rules: [{ pattern: "." }], allowLinks: true, allowExternalLinks: true }));
+
+        // Exceed the collect_roots scan-root cap with distinct non-cyclic links. The cap is patched
+        // down from 1024 to 8 in the installed script so the fixture stays cheap to build.
+        const linkTarget = join(env.passdir, "link-target");
+        mkdirSync(linkTarget, { recursive: true });
+        for (let i = 0; i < 9; i++) {
+            symlinkSync(linkTarget, join(env.passdir, `alias-${i}`), "dir");
+        }
+
+        const { proc, read, send } = await installMainScript(env, {}, (script) => {
+            const patched = script.replace("MAX_SCAN_ROOTS=1024", "MAX_SCAN_ROOTS=8");
+            assert.notStrictEqual(patched, script, "Scan-root cap patch did not apply; MAX_SCAN_ROOTS definition changed?");
+            return patched;
+        });
+        try {
+            send({ action: "list" });
+            const listMsg = await read();
+            assert.ok(
+                listMsg.error?.toLowerCase().includes("recursive or excessively aliased"),
+                `Expected recursive-symlink error from action_list, got: ${JSON.stringify(listMsg)}`,
+            );
+
+            const since = String(Math.floor(Date.now() / 1000) - 5);
+            send({ action: "changes_since", since });
+            const changesMsg = await read();
+            assert.ok(
+                changesMsg.error?.toLowerCase().includes("recursive or excessively aliased"),
+                `Expected recursive-symlink error from action_changes_since, got: ${JSON.stringify(changesMsg)}`,
+            );
         } finally {
             proc.kill();
             env.cleanup();

@@ -292,6 +292,8 @@
             return;
         }
     }
+    // Seed the fill origin from the tab URL until the origin handshake reports the serving frame.
+    if (tab.url) frameOrigin = new URL(tab.url).origin;
     const ul = document.querySelector("ul");
     let limit = true;
     let history = [];
@@ -926,7 +928,7 @@
             else li.classList.add("entry-login");
             li.setAttribute("data-sort-order", entry.sortOrder);
 
-            if (entry.rule.tag) {
+            if (entry.rule?.tag) {
                 const tag = document.createElement("span");
                 tag.classList.add("tag");
                 tag.textContent = entry.rule.tag;
@@ -942,7 +944,7 @@
 
             const name = document.createElement("span");
             name.classList.add("name");
-            name.textContent = entry.rule.strip ? entry.name.replace(new RegExp(entry.rule.strip, "ui"), "") : entry.name;
+            name.textContent = entry.rule?.strip ? entry.name.replace(new RegExp(entry.rule.strip, "ui"), "") : entry.name;
             nameContainer.appendChild(name);
 
             const pathSpan = document.createElement("span");
