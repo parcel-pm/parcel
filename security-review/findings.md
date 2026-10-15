@@ -66,7 +66,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** The comment above the popup's `constrain-height` handler claims the token check stops "a page or another frame" from forging the instruction; the token travels in the popup iframe's `src`, which the hosting page can read (F39T posture), so the check stops other frames but not the page. Impact of a forged message is popup sizing only (F28T class). TM0.
 
-**Response:** *Pending maintainer response.*
+**Response:** Rejected; not a valid finding. The iframe is inside a closed shadow root, so the page cannot read its `src`.
 
 ### F78I - `window.open` help link vs "no network access, for any reason" (INFORMATIONAL; classification disputed)
 
