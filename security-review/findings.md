@@ -30,7 +30,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** The WebAuthn popup-spam guard's dismissal streak is only incremented in `finish()`; the supersede and abort terminal paths settle ceremonies without touching it, so a page that supersedes or aborts each in-flight ceremony (rather than dismissing it) can raise consent popups without bound (PoC: 25/25 popups raised via supersede vs the 2-then-refuse control). Consent, rpId binding, and the host boundary are unaffected - impact is popup harassment, the documented bridge-forgery worst case. Severity disputed: mimo-v2.6-pro rates MEDIUM (confirmed bypass of a documented control with no overlapping backup), kimi-k3 rates LOW (F44L precedent; anti-annoyance control whose bypass yields the accepted annoyance class); the merge editor recorded LOW. TM1.
 
-**Response:** *Pending maintainer response.*
+**Response:** Fixed in #238 - `handlePasskeyAbort` now grows the popup-spam guard's dismissal streak for page-aborted ceremonies. Supersede retains the status-quo in order to retain compatibility with pages that re-challenge on timeout (e.g. an idle site waiting for user input).
 
 ### F72L - `make extension`/`chrome`/`firefox` silently skip the Prettier step and execute `write(1)` instead (LOW)
 
