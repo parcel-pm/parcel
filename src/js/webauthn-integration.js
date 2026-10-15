@@ -319,7 +319,7 @@ async function handlePasskeyRequest(detailJSON) {
             }
         }
 
-        // a newer request supersedes any in-flight ceremony in this frame
+        // a newer request supersedes any in-flight ceremony in this frame; supersede deliberately skips the dismissal streak
         for (const [oldToken, oldBinding] of Object.entries(passkeyBindings)) {
             delete passkeyBindings[oldToken];
             passkeyRespond(oldBinding.requestId, { type: "fallback" });
@@ -380,6 +380,9 @@ function handlePasskeyAbort(detailJSON) {
     }
     const token = Object.keys(passkeyBindings).find((t) => passkeyBindings[t]?.requestId === msg?.requestId);
     if (!token) return;
+    // an abort bypasses finish(), so grow the popup-spam guard's dismissal streak here
+    passkeyDismissStreak += 1;
+    passkeyLastDismissAt = Date.now();
     delete passkeyBindings[token];
     triggerPort.postMessage({ action: "close-popup" });
 }
