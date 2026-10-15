@@ -829,23 +829,22 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("fails open when the parcelrc blacklist is malformed", async () => {
+    test("fails closed when the parcelrc blacklist is malformed", async () => {
         const env = createTestEnv();
         const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
         const existing = readFileSync(parcelrc, "utf8");
-        // Not a valid fingerprint list: the value must be ignored
+        // Not a valid fingerprint list: the parcelrc value is the authoritative
+        // source of a durable revocation, so a malformed value must refuse startup
         writeFileSync(parcelrc, `${existing}BLACKLIST_SIGNERS="not-a-fingerprint"\n`);
 
-        const { proc, read, send } = spawnBootstrap(env);
+        const { proc, read } = spawnBootstrap(env);
         try {
-            await read(); // bootstrap msg
-            send({ action: "install", script: "test", signature: "sig" });
             const msg = await read();
-            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed blacklist, got: ${JSON.stringify(msg)}`);
-            const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
-            assert.ok(logContent.includes("BLACKLIST_SIGNERS is malformed"), `Expected malformed log entry, got: ${logContent}`);
+            assert.ok(msg.error?.includes("BLACKLIST_SIGNERS"), `Expected BLACKLIST_SIGNERS error, got: ${JSON.stringify(msg)}`);
+            await new Promise((resolve) => proc.on("exit", resolve));
+            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
         } finally {
-            proc.kill();
+            if (!proc.killed) proc.kill();
             env.cleanup();
         }
     });
@@ -1022,12 +1021,30 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("fails open when version floors are malformed", async () => {
+    test("fails closed when the parcelrc version floor is malformed", async () => {
         const env = createTestEnv();
         const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
         const existing = readFileSync(parcelrc, "utf8");
-        // Not a number: the floor must be ignored at both layers
+        // Not a number: a durable floor has no reasserting source, so a malformed
+        // parcelrc value must refuse startup rather than silently drop the ratchet
         writeFileSync(parcelrc, `${existing}MINIMUM_HOST_VERSION="not-a-number"\n`);
+
+        const { proc, read } = spawnBootstrap(env);
+        try {
+            const msg = await read();
+            assert.ok(msg.error?.includes("MINIMUM_HOST_VERSION"), `Expected MINIMUM_HOST_VERSION error, got: ${JSON.stringify(msg)}`);
+            await new Promise((resolve) => proc.on("exit", resolve));
+            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
+        } finally {
+            if (!proc.killed) proc.kill();
+            env.cleanup();
+        }
+    });
+
+    test("fails open when the state file version floor is malformed", async () => {
+        const env = createTestEnv();
+        // The state file is a cache that the main host repairs, so a malformed
+        // floor is ignored rather than fatal
         const stateFile = join(env.home, ".config", "parcel", "state");
         writeFileSync(stateFile, `MINIMUM_HOST_VERSION="not-a-number"\n`);
         chmodSync(stateFile, 0o600);
@@ -1037,12 +1054,8 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             await read(); // bootstrap msg
             send({ action: "install", script: "test", signature: "sig" });
             const msg = await read();
-            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed floors, got: ${JSON.stringify(msg)}`);
+            assert.strictEqual(msg.data?.success, true, `Expected success despite malformed state floor, got: ${JSON.stringify(msg)}`);
             const logContent = readFileSync(join(env.home, ".local", "log", "parcel-host.log"), "utf8");
-            assert.ok(
-                logContent.includes("MINIMUM_HOST_VERSION is malformed"),
-                `Expected malformed parcelrc log entry, got: ${logContent}`,
-            );
             assert.ok(
                 logContent.includes("invalid version floor; ignoring it"),
                 `Expected invalid state floor log entry, got: ${logContent}`,
@@ -2295,6 +2308,20 @@ printf 'VS=%s\\nBL=%s\\nMV=%s\\nHH=%s\\nGPG=%s\\n' \\
         });
         assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
         assert.ok(res.stdout.includes("parcelrc: HOST_HASH must be"), `error must name the system file, got: ${res.stdout}`);
+
+        res = runFlow({
+            user: `BLACKLIST_SIGNERS="not-a-fingerprint"\n`,
+            system: `BLACKLIST_SIGNERS="${FPR_C}"\n`,
+        });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("user-parcelrc: BLACKLIST_SIGNERS must be"), `error must name the user file, got: ${res.stdout}`);
+
+        res = runFlow({
+            user: `MINIMUM_HOST_VERSION="2"\n`,
+            system: `MINIMUM_HOST_VERSION="not-a-number"\n`,
+        });
+        assert.strictEqual(res.status, 43, `expected fatal, got ${res.stdout}`);
+        assert.ok(res.stdout.includes("parcelrc: MINIMUM_HOST_VERSION must be"), `error must name the system file, got: ${res.stdout}`);
     });
 
     test("a mispermissioned system parcelrc is fatal and never read", () => {
