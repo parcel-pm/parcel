@@ -829,26 +829,6 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
         }
     });
 
-    test("fails closed when the parcelrc blacklist is malformed", async () => {
-        const env = createTestEnv();
-        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const existing = readFileSync(parcelrc, "utf8");
-        // Not a valid fingerprint list: the parcelrc value is the authoritative
-        // source of a durable revocation, so a malformed value must refuse startup
-        writeFileSync(parcelrc, `${existing}BLACKLIST_SIGNERS="not-a-fingerprint"\n`);
-
-        const { proc, read } = spawnBootstrap(env);
-        try {
-            const msg = await read();
-            assert.ok(msg.error?.includes("BLACKLIST_SIGNERS"), `Expected BLACKLIST_SIGNERS error, got: ${JSON.stringify(msg)}`);
-            await new Promise((resolve) => proc.on("exit", resolve));
-            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
-        } finally {
-            if (!proc.killed) proc.kill();
-            env.cleanup();
-        }
-    });
-
     test("rejects install when only the signing subkey is blacklisted via parcelrc", async () => {
         const env = createTestEnv();
         // Field 3 (subkey) is blacklisted, field 12 (primary) stays whitelisted
@@ -1017,26 +997,6 @@ exec $(which gpg || echo /usr/bin/gpg) "$@"
             assert.strictEqual(msg3.data?.success, true, `Expected success at the floor, got: ${JSON.stringify(msg3)}`);
         } finally {
             proc.kill();
-            env.cleanup();
-        }
-    });
-
-    test("fails closed when the parcelrc version floor is malformed", async () => {
-        const env = createTestEnv();
-        const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
-        const existing = readFileSync(parcelrc, "utf8");
-        // Not a number: a durable floor has no reasserting source, so a malformed
-        // parcelrc value must refuse startup rather than silently drop the ratchet
-        writeFileSync(parcelrc, `${existing}MINIMUM_HOST_VERSION="not-a-number"\n`);
-
-        const { proc, read } = spawnBootstrap(env);
-        try {
-            const msg = await read();
-            assert.ok(msg.error?.includes("MINIMUM_HOST_VERSION"), `Expected MINIMUM_HOST_VERSION error, got: ${JSON.stringify(msg)}`);
-            await new Promise((resolve) => proc.on("exit", resolve));
-            assert.ok(proc.exitCode !== 0, "Host should exit with non-zero status");
-        } finally {
-            if (!proc.killed) proc.kill();
             env.cleanup();
         }
     });
@@ -1379,9 +1339,14 @@ function action_test_override() {
     });
 
     test("rejects malformed recognised-key values in parcelrc", async () => {
+        // parcelrc is the authoritative source for durable trust settings, and a
+        // durable floor or revocation has no reasserting source, so a malformed
+        // value must refuse startup rather than being silently dropped
         for (const [key, value] of [
             ["VALID_SIGNERS", "not-a-fingerprint"],
             ["HOST_HASH", "abc123"],
+            ["BLACKLIST_SIGNERS", "not-a-fingerprint"],
+            ["MINIMUM_HOST_VERSION", "not-a-number"],
         ]) {
             const env = createTestEnv();
             const parcelrc = join(env.home, ".config", "parcel", "parcelrc");
