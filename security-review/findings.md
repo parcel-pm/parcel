@@ -72,7 +72,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** The passkey-conflict notice's documentation button opens a hardcoded GitHub URL via user-initiated `window.open` with `noopener,noreferrer`; the constitution/SECURITY.md state the extension must not interact with network resources "for any reason". No data flows and the CSP still blocks programmatic requests - the tension is literal wording vs a user-initiated navigation. kimi-k3 classifies this as the user's browser acting on an explicit click (residual R16), not Parcel interacting with network resources. TM0.
 
-**Response:** *Pending maintainer response.*
+**Response:** Rejected; not a valid finding. This is deliberate navigation on the part of the user (equivalent to clicking a link), not the extension accessing a network resource.
 
 ## [v1.0.7 / kimi-k3 + glm-5.3](reviews/v1.0.7/merged-glm-5.3-flash.md)
 
