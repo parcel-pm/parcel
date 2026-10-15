@@ -48,7 +48,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** SECURITY.md:146/:166 lead with "No signature is produced without you explicitly selecting a credential in the consent popup" / "No credentials are supplied without explicit user selection in the popup"; under the maintainer-accepted F40M/F59M posture a compromised extension context can drive `decrypt` and `passkey` `assert`/`create` on whitelisted entries with no consent interaction (the host has no consent gate by design). The trailing clauses are correctly page-scoped; the leading absolutes are not. Documentation tension only - the missing gate is the rejected F59M itself. TM0.
 
-**Response:** *Pending maintainer response.*
+**Response:** Status quo is acceptable. The wording describes Parcel's own behaviour, not the behaviour of an attacker who has compromised the extension. Such an attacker *by definition* controls the entire UI surface, and is already called out elsewhere in `SECURITY.md` as able to "interact with the native host within the constraints of the supported action set."
 
 ### F75L - Rule-less entry aborts the whole popup render batch (LOW; finding disputed)
 
