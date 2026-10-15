@@ -60,7 +60,7 @@ No CRITICAL or HIGH vulnerabilities were identified. The merged record carries e
 
 **Description:** `dist/parcel-host` and `.asc` are built by timestamp rules against the source; restoring the source with an older mtime (archived extraction, clock skew, `SIGN_KEY` switch without `make clean`) makes make consider the artefacts up to date, and the previous build's host script and signature ship unchanged into `chrome/`/`firefox/`. The pair stays internally consistent and signature-valid; `MINIMUM_HOST_VERSION`/`HOST_HASH` bound replay of old versions - impact is parity/review-trail integrity on ad-hoc builds (the `release` target depends on `clean`). Disputed: kimi-k3 did not reproduce it as a finding (residual R15). TM5.
 
-**Response:** Status quo is acceptable. The `release` target runs `clean` first, so this is only applicable to local builds. If a developer wants to footgun themselves by restoring a dirty tree state, they are free to do so.
+**Response:** Status quo is acceptable. The `release` target runs `clean` first, so this is only applicable to local builds. If a developer wants to footgun themselves by restoring a dirty tree state or failing to `clean` after changing their build variables, they are free to do so
 
 ### F77I - Comment overstates the constrain-height token's forgery protection (INFORMATIONAL)
 
