@@ -15,6 +15,7 @@ export const targetSelectors = [
     // type: related
     { selector: "form", type: "aggregate" },
     { selector: "#form", type: "aggregate" },
+    { host: ["www.bankofamerica.com"], selector: "#signin-form", type: "aggregate" }, // Bank of America
 
     // preemptive exceptions
     { selector: "input[type=tel i][name=pin i]", type: "totp", host: ["www.linkedin.com"] }, // LinkedIn TOTP
@@ -58,6 +59,7 @@ export const targetSelectors = [
     { selector: "#login input#name, #login input.name, #login input[name*=name i]", type: "login" }, // Mikrotik + various
     { selector: "form[action*=login i] input[name=name i]", type: "login" }, // Supermicro IPMI
     { selector: "select[name=user_level i]", type: "login", relatedOnly: true }, // IBM TS3100
+    { host: ["www.bankofamerica.com"], selector: "#signin-form input[type=text][data-sparta-input-format=name]", type: "login" }, // Bank of America
 
     // type: submit
     { selector: "input[type=submit i]", type: "submit" },
