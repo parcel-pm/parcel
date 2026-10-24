@@ -205,7 +205,7 @@ for (const s of ["new", "confirm", "change", "edit"]) {
     for (const t of ["password", "pass", "secret"]) {
         for (const attr of ["name", "id", "class", "placeholder", "title", "aria-label"]) {
             targetSelectors.push({
-                selector: `input[${attr}*=${s} i][${attr}*=${t} i]:not([autocomplete~=current-password i],[data-drupal-selector=edit-pass i])`,
+                selector: `input[${attr}*=${s} i][${attr}*=${t} i]:not([autocomplete~=current-password i],[data-drupal-selector^=edit-pass i])`,
                 type: "blacklist",
             });
         }
